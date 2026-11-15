@@ -88,6 +88,10 @@ _Avoid_: Instance, Installation
 Deployment 中一次 Release 安装的不可变记录，包含 Release 版本、迁移结果和时间戳。
 _Avoid_: Deployment, Version
 
+**Runtime Profile**:
+平台维护的、版本化的运行时组件与版本组合；Spec 只引用它，`solution.lock` 固定精确版本。
+_Avoid_: Runtime version, Stack
+
 **Run**:
 Deployment 内一次 Agent 或 Workflow 的执行，带 trace、actor、状态和 provenance。
 _Avoid_: Job, Execution
@@ -139,6 +143,32 @@ _Avoid_: Log, Note
 **Provenance**:
 对实体、关系和决策的来源与演化记录，用 PROV-O 表达。
 _Avoid_: Audit Log, Lineage
+
+## 运行时与集成
+
+**Runtime Contract**:
+工作台生成的运行时组件之间、以及客户应用访问运行时之间的版本化接口约定；v0 为 `fde.runtime/v1`。
+_Avoid_: API spec, Integration doc
+
+**Context Service**:
+拥有检索、Decision/Provenance 写入和审批状态的薄服务；是 Mastra 与 Semantica 之间唯一的运行时边界。
+_Avoid_: Semantica service, Context API
+
+**Execution Context**:
+一次 Run 中跨组件传播的、经过签名的身份与关联断言，包含 tenant、subject、actor、roles、scopes、run 和 trace。
+_Avoid_: Auth header, User context
+
+**Retrieval Snapshot**:
+一次上下文检索的不可变结果，带 `retrieval_id` 和摘要，供 Decision 引用。
+_Avoid_: Search result, Context cache
+
+**Approval**:
+对 Run 中某个拟执行动作的人工授权请求及其决定，本身是一条 Decision。
+_Avoid_: Confirmation, Sign-off
+
+**Audit Store**:
+只追加、可验证完整性地保存 Decision 和 Provenance 的存储，与 Context Graph 分开。
+_Avoid_: Log, History
 
 ## 明确不建模
 

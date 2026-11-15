@@ -1,0 +1,469 @@
+openapi: 3.1.0
+info:
+  title: FDE Context Service API
+  version: 1.0.0
+  description: |
+    Internal runtime API owned by context-service. Mastra is the only caller.
+    Every endpoint except /healthz, /readyz, and /v1/runtime-info requires a
+    signed ExecutionContext JWT and a W3C traceparent header.
+servers:
+  - url: http://context-service:8011
+    description: In-bundle service network
+tags:
+  - name: context
+  - name: decisions
+  - name: approvals
+  - name: ops
+security:
+  - bearerAuth: []
+paths:
+  /v1/context/retrieve:
+    post:
+      tags: [context]
+      operationId: retrieveContext
+      summary: Execute a Context Recipe and return an immutable Retrieval Snapshot
+      parameters:
+        - $ref: '#/components/parameters/TraceParent'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './schemas/retrieval.schema.json#/$defs/RetrieveRequest'
+      responses:
+        '200':
+          description: Retrieval snapshot
+          content:
+            application/json:
+              schema:
+                $ref: './schemas/retrieval.schema.json#/$defs/RetrieveResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '504':
+          $ref: '#/components/responses/Timeout'
+  /v1/decisions:
+    post:
+      tags: [decisions]
+      operationId: recordDecision
+      summary: Record an immutable Decision and its Provenance entry
+      parameters:
+        - $ref: '#/components/parameters/TraceParent'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './schemas/decision.schema.json#/$defs/DecisionRequest'
+      responses:
+        '201':
+          description: Decision created
+          content:
+            application/json:
+              schema:
+                $ref: './schemas/decision.schema.json#/$defs/DecisionResponse'
+        '200':
+          description: Idempotent replay of an existing Decision
+          content:
+            application/json:
+              schema:
+                $ref: './schemas/decision.schema.json#/$defs/DecisionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '504':
+          $ref: '#/components/responses/Timeout'
+  /v1/provenance/{decision_id}:
+    get:
+      tags: [decisions]
+      operationId: getProvenance
+      summary: Read the Decision and its PROV-O lineage
+      parameters:
+        - $ref: '#/components/parameters/TraceParent'
+        - name: decision_id
+          in: path
+          required: true
+          schema:
+            $ref: './schemas/common.schema.json#/$defs/DecisionId'
+      responses:
+        '200':
+          description: Provenance document
+          content:
+            application/json:
+              schema:
+                $ref: './schemas/decision.schema.json#/$defs/ProvenanceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '504':
+          $ref: '#/components/responses/Timeout'
+  /v1/approvals:
+    post:
+      tags: [approvals]
+      operationId: createApproval
+      summary: Create a pending approval request
+      parameters:
+        - $ref: '#/components/parameters/TraceParent'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './schemas/approval.schema.json#/$defs/ApprovalCreateRequest'
+      responses:
+        '201':
+          description: Approval created
+          content:
+            application/json:
+              schema:
+                $ref: './schemas/approval.schema.json#/$defs/Approval'
+        '200':
+          description: Idempotent replay of an existing approval request
+          content:
+            application/json:
+              schema:
+                $ref: './schemas/approval.schema.json#/$defs/Approval'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '504':
+          $ref: '#/components/responses/Timeout'
+    get:
+      tags: [approvals]
+      operationId: listApprovals
+      summary: List approvals visible to the caller
+      parameters:
+        - $ref: '#/components/parameters/TraceParent'
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending, approved, rejected, expired, consumed]
+        - name: run_id
+          in: query
+          required: false
+          schema:
+            $ref: './schemas/common.schema.json#/$defs/RunId'
+        - name: capability_id
+          in: query
+          required: false
+          schema:
+            $ref: './schemas/common.schema.json#/$defs/CapabilityId'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 500
+      responses:
+        '200':
+          description: Approval page
+          content:
+            application/json:
+              schema:
+                $ref: './schemas/approval.schema.json#/$defs/ApprovalList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/approvals/{approval_id}/decisions:
+    post:
+      tags: [approvals]
+      operationId: decideApproval
+      summary: Approve or reject a pending approval
+      parameters:
+        - $ref: '#/components/parameters/TraceParent'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: approval_id
+          in: path
+          required: true
+          schema:
+            $ref: './schemas/common.schema.json#/$defs/ApprovalId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './schemas/approval.schema.json#/$defs/ApprovalDecisionRequest'
+      responses:
+        '200':
+          description: Approval decision recorded
+          content:
+            application/json:
+              schema:
+                $ref: './schemas/approval.schema.json#/$defs/ApprovalDecisionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '504':
+          $ref: '#/components/responses/Timeout'
+  /v1/approvals/{approval_id}/consume:
+    post:
+      tags: [approvals]
+      operationId: consumeApproval
+      summary: Mark an approved approval as consumed after workflow resume
+      parameters:
+        - $ref: '#/components/parameters/TraceParent'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: approval_id
+          in: path
+          required: true
+          schema:
+            $ref: './schemas/common.schema.json#/$defs/ApprovalId'
+      responses:
+        '200':
+          description: Approval consumed
+          content:
+            application/json:
+              schema:
+                $ref: './schemas/approval.schema.json#/$defs/Approval'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '504':
+          $ref: '#/components/responses/Timeout'
+  /v1/runtime-info:
+    get:
+      tags: [ops]
+      operationId: getRuntimeInfo
+      summary: Report contract, component, and schema versions
+      security: []
+      responses:
+        '200':
+          description: Runtime contract and component versions
+          content:
+            application/json:
+              schema:
+                $ref: './schemas/runtime-info.schema.json#/$defs/RuntimeInfo'
+  /healthz:
+    get:
+      tags: [ops]
+      operationId: healthz
+      summary: Liveness probe
+      security: []
+      responses:
+        '200':
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: ok
+  /readyz:
+    get:
+      tags: [ops]
+      operationId: readyz
+      summary: Readiness probe
+      security: []
+      responses:
+        '200':
+          description: Service can serve requests, possibly degraded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, reasons]
+                properties:
+                  status:
+                    type: string
+                    enum: [ready, degraded]
+                  reasons:
+                    type: array
+                    items:
+                      type: string
+        '503':
+          description: Service cannot serve requests
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, reasons]
+                properties:
+                  status:
+                    type: string
+                    enum: [not_ready]
+                  reasons:
+                    type: array
+                    items:
+                      type: string
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Signed ExecutionContext JWT issued by mastra-app.
+  parameters:
+    TraceParent:
+      name: traceparent
+      in: header
+      required: true
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+  responses:
+    BadRequest:
+      description: Malformed request
+      content:
+        application/json:
+          schema:
+            $ref: './schemas/error.schema.json'
+    Unauthenticated:
+      description: Missing or invalid ExecutionContext
+      content:
+        application/json:
+          schema:
+            $ref: './schemas/error.schema.json'
+    Forbidden:
+      description: Tenant, scope, or role mismatch
+      content:
+        application/json:
+          schema:
+            $ref: './schemas/error.schema.json'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: './schemas/error.schema.json'
+    Conflict:
+      description: State conflict, idempotency conflict, or already-decided approval
+      content:
+        application/json:
+          schema:
+            $ref: './schemas/error.schema.json'
+    ValidationFailed:
+      description: Schema or semantic validation failed
+      content:
+        application/json:
+          schema:
+            $ref: './schemas/error.schema.json'
+    RateLimited:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: './schemas/error.schema.json'
+    Internal:
+      description: Unclassified internal error
+      content:
+        application/json:
+          schema:
+            $ref: './schemas/error.schema.json'
+    Unavailable:
+      description: Dependency or contract unavailable
+      content:
+        application/json:
+          schema:
+            $ref: './schemas/error.schema.json'
+    Timeout:
+      description: Request timed out
+      content:
+        application/json:
+          schema:
+            $ref: './schemas/error.schema.json'

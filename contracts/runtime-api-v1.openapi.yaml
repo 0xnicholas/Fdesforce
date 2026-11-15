@@ -1,0 +1,417 @@
+openapi: 3.1.0
+info:
+  title: FDE Runtime API
+  version: 1.0.0
+  description: |
+    Client-facing runtime API exposed by the generated mastra-app. Customer
+    applications call this API only; context-service is never exposed to end
+    users. Authentication uses the customer's IdP/session token; the exact
+    grant is defined by the identity and deployment ticket.
+servers:
+  - url: https://{mastra_host}
+    description: Customer ingress for the generated mastra-app
+    variables:
+      mastra_host:
+        default: fde.example.internal
+tags:
+  - name: runs
+  - name: approvals
+  - name: ops
+security:
+  - bearerAuth: []
+paths:
+  /v1/runs:
+    post:
+      tags: [runs]
+      operationId: createRun
+      summary: Start a Run for a Capability
+      parameters:
+        - $ref: '#/components/parameters/TraceParentOptional'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './schemas/run.schema.json#/$defs/RunCreateRequest'
+      responses:
+        '201':
+          description: Run accepted
+          content:
+            application/json:
+              schema:
+                $ref: './schemas/run.schema.json#/$defs/RunCreateResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '504':
+          $ref: '#/components/responses/Timeout'
+  /v1/runs/{run_id}:
+    get:
+      tags: [runs]
+      operationId: getRun
+      summary: Get Run status and result
+      parameters:
+        - $ref: '#/components/parameters/TraceParentOptional'
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            $ref: './schemas/common.schema.json#/$defs/RunId'
+      responses:
+        '200':
+          description: Run status
+          content:
+            application/json:
+              schema:
+                $ref: './schemas/run.schema.json#/$defs/RunStatus'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/runs/{run_id}/stream:
+    get:
+      tags: [runs]
+      operationId: streamRun
+      summary: Stream Run events as Server-Sent Events
+      parameters:
+        - $ref: '#/components/parameters/TraceParentOptional'
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            $ref: './schemas/common.schema.json#/$defs/RunId'
+        - name: Last-Event-ID
+          in: header
+          required: false
+          schema:
+            type: string
+            maxLength: 200
+      responses:
+        '200':
+          description: SSE stream of RunEvent objects
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              x-event-schema:
+                $ref: './schemas/run.schema.json#/$defs/RunEvent'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/runs/{run_id}/cancel:
+    post:
+      tags: [runs]
+      operationId: cancelRun
+      summary: Cancel a running or waiting Run
+      parameters:
+        - $ref: '#/components/parameters/TraceParentOptional'
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            $ref: './schemas/common.schema.json#/$defs/RunId'
+      responses:
+        '202':
+          description: Cancellation accepted
+          content:
+            application/json:
+              schema:
+                $ref: './schemas/run.schema.json#/$defs/RunStatus'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/Internal'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/approvals:
+    get:
+      tags: [approvals]
+      operationId: listApprovals
+      summary: List approvals visible to the caller
+      parameters:
+        - $ref: '#/components/parameters/TraceParentOptional'
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending, approved, rejected, expired, consumed]
+        - name: run_id
+          in: query
+          required: false
+          schema:
+            $ref: './schemas/common.schema.json#/$defs/RunId'
+        - name: capability_id
+          in: query
+          required: false
+          schema:
+            $ref: './schemas/common.schema.json#/$defs/CapabilityId'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 500
+      responses:
+        '200':
+          description: Approval page
+          content:
+            application/json:
+              schema:
+                $ref: './schemas/approval.schema.json#/$defs/ApprovalList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/approvals/{approval_id}/decisions:
+    post:
+      tags: [approvals]
+      operationId: decideApproval
+      summary: Approve or reject a pending approval
+      parameters:
+        - $ref: '#/components/parameters/TraceParentOptional'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: approval_id
+          in: path
+          required: true
+          schema:
+            $ref: './schemas/common.schema.json#/$defs/ApprovalId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './schemas/approval.schema.json#/$defs/ApprovalDecisionRequest'
+      responses:
+        '200':
+          description: Approval decision recorded
+          content:
+            application/json:
+              schema:
+                $ref: './schemas/approval.schema.json#/$defs/ApprovalDecisionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '504':
+          $ref: '#/components/responses/Timeout'
+  /v1/runtime-info:
+    get:
+      tags: [ops]
+      operationId: getRuntimeInfo
+      summary: Aggregated runtime contract and component versions
+      security: []
+      responses:
+        '200':
+          description: Runtime contract and component versions
+          content:
+            application/json:
+              schema:
+                $ref: './schemas/runtime-info.schema.json#/$defs/RuntimeInfo'
+  /healthz:
+    get:
+      tags: [ops]
+      operationId: healthz
+      summary: Liveness probe
+      security: []
+      responses:
+        '200':
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: ok
+  /readyz:
+    get:
+      tags: [ops]
+      operationId: readyz
+      summary: Readiness probe
+      security: []
+      responses:
+        '200':
+          description: Service can serve requests, possibly degraded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, reasons]
+                properties:
+                  status:
+                    type: string
+                    enum: [ready, degraded]
+                  reasons:
+                    type: array
+                    items:
+                      type: string
+        '503':
+          description: Service cannot serve requests
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, reasons]
+                properties:
+                  status:
+                    type: string
+                    enum: [not_ready]
+                  reasons:
+                    type: array
+                    items:
+                      type: string
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Customer IdP access token or session token; the exact grant is defined by the identity and deployment ticket.
+  parameters:
+    TraceParentOptional:
+      name: traceparent
+      in: header
+      required: false
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+  responses:
+    BadRequest:
+      description: Malformed request
+      content:
+        application/json:
+          schema:
+            $ref: './schemas/error.schema.json'
+    Unauthenticated:
+      description: Missing or invalid customer token
+      content:
+        application/json:
+          schema:
+            $ref: './schemas/error.schema.json'
+    Forbidden:
+      description: Tenant, scope, or role mismatch
+      content:
+        application/json:
+          schema:
+            $ref: './schemas/error.schema.json'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: './schemas/error.schema.json'
+    Conflict:
+      description: State conflict, idempotency conflict, or already-decided approval
+      content:
+        application/json:
+          schema:
+            $ref: './schemas/error.schema.json'
+    ValidationFailed:
+      description: Schema or semantic validation failed
+      content:
+        application/json:
+          schema:
+            $ref: './schemas/error.schema.json'
+    RateLimited:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: './schemas/error.schema.json'
+    Internal:
+      description: Unclassified internal error
+      content:
+        application/json:
+          schema:
+            $ref: './schemas/error.schema.json'
+    Unavailable:
+      description: Dependency or contract unavailable
+      content:
+        application/json:
+          schema:
+            $ref: './schemas/error.schema.json'
+    Timeout:
+      description: Request timed out
+      content:
+        application/json:
+          schema:
+            $ref: './schemas/error.schema.json'

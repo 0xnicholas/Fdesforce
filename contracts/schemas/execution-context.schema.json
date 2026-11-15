@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.dev/contracts/schemas/execution-context.schema.json",
+  "title": "ExecutionContext",
+  "description": "Signed, short-lived assertion propagated from mastra-app to context-service.",
+  "type": "object",
+  "required": [
+    "iss",
+    "aud",
+    "sub",
+    "actor",
+    "tenant_id",
+    "deployment_id",
+    "solution_id",
+    "run_id",
+    "trace_id",
+    "roles",
+    "scopes",
+    "iat",
+    "exp",
+    "jti",
+    "kid"
+  ],
+  "properties": {
+    "iss": {
+      "type": "string",
+      "pattern": "^fde://"
+    },
+    "aud": {
+      "type": "string",
+      "const": "context-service"
+    },
+    "sub": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "actor": {
+      "$ref": "./common.schema.json#/$defs/Actor"
+    },
+    "tenant_id": {
+      "$ref": "./common.schema.json#/$defs/TenantId"
+    },
+    "deployment_id": {
+      "$ref": "./common.schema.json#/$defs/DeploymentId"
+    },
+    "solution_id": {
+      "$ref": "./common.schema.json#/$defs/SolutionId"
+    },
+    "run_id": {
+      "$ref": "./common.schema.json#/$defs/RunId"
+    },
+    "trace_id": {
+      "$ref": "./common.schema.json#/$defs/TraceId"
+    },
+    "roles": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "maxItems": 64,
+      "uniqueItems": true
+    },
+    "scopes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "maxItems": 64,
+      "uniqueItems": true
+    },
+    "iat": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "exp": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "jti": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 128
+    },
+    "kid": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "on_behalf_of": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    }
+  },
+  "additionalProperties": false
+}

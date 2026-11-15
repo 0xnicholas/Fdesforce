@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.dev/contracts/schemas/runtime-info.schema.json",
+  "title": "Runtime Info",
+  "description": "Version, capability, and limit handshake for fde.runtime/v1.",
+  "$defs": {
+    "ComponentInfo": {
+      "type": "object",
+      "required": ["name", "version", "contract_version", "status"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "enum": [
+            "mastra-app",
+            "context-service",
+            "mastra-state",
+            "graph-store",
+            "audit-store"
+          ]
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "contract_version": {
+          "$ref": "./common.schema.json#/$defs/Semver"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["ready", "degraded", "starting", "failed"]
+        },
+        "schema_version": {
+          "$ref": "./common.schema.json#/$defs/SchemaVersion"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Limits": {
+      "type": "object",
+      "required": ["max_nodes", "max_edges", "max_request_timeout_ms", "max_run_deadline_ms"],
+      "properties": {
+        "max_nodes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_edges": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_request_timeout_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_run_deadline_ms": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "RuntimeInfo": {
+      "type": "object",
+      "required": [
+        "contract_version",
+        "service",
+        "service_version",
+        "graph_schema_version",
+        "audit_schema_version",
+        "backend",
+        "capabilities",
+        "limits",
+        "started_at"
+      ],
+      "properties": {
+        "contract_version": {
+          "$ref": "./common.schema.json#/$defs/Semver"
+        },
+        "service": {
+          "type": "string",
+          "enum": ["mastra-app", "context-service"]
+        },
+        "service_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "graph_schema_version": {
+          "$ref": "./common.schema.json#/$defs/SchemaVersion"
+        },
+        "audit_schema_version": {
+          "$ref": "./common.schema.json#/$defs/SchemaVersion"
+        },
+        "backend": {
+          "type": "object",
+          "required": ["graph", "audit"],
+          "properties": {
+            "graph": {
+              "type": "string",
+              "enum": ["embedded", "neo4j"]
+            },
+            "audit": {
+              "type": "string",
+              "enum": ["sqlite", "postgres"]
+            }
+          },
+          "additionalProperties": false
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "limits": {
+          "$ref": "#/$defs/Limits"
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ComponentInfo"
+          },
+          "maxItems": 10
+        },
+        "started_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.dev/contracts/schemas/retrieval.schema.json",
+  "title": "Context Retrieval",
+  "description": "Request and response shapes for POST /v1/context/retrieve.",
+  "$defs": {
+    "Subject": {
+      "type": "object",
+      "required": ["type", "id"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["user", "service"]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64
+        }
+      },
+      "additionalProperties": false
+    },
+    "Budget": {
+      "type": "object",
+      "properties": {
+        "max_nodes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "max_hops": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        }
+      },
+      "additionalProperties": false
+    },
+    "BudgetUsed": {
+      "type": "object",
+      "properties": {
+        "nodes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "hops": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "RetrieveRequest": {
+      "type": "object",
+      "required": ["recipe_id", "query"],
+      "properties": {
+        "recipe_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"
+        },
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "subject": {
+          "$ref": "#/$defs/Subject"
+        },
+        "filters": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "budget": {
+          "$ref": "#/$defs/Budget"
+        }
+      },
+      "additionalProperties": false
+    },
+    "RetrievalItem": {
+      "type": "object",
+      "required": ["entity_id", "type", "content", "score", "source_ref", "version"],
+      "properties": {
+        "entity_id": {
+          "$ref": "./common.schema.json#/$defs/EntityId"
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 20000
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "source_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "provenance_id": {
+          "$ref": "./common.schema.json#/$defs/ProvenanceId"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "RetrieveResponse": {
+      "type": "object",
+      "required": ["retrieval_id", "items", "degraded", "trace_id", "snapshot_digest"],
+      "properties": {
+        "retrieval_id": {
+          "$ref": "./common.schema.json#/$defs/RetrievalId"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RetrievalItem"
+          },
+          "maxItems": 1000
+        },
+        "degraded": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "enum": ["scale_limit", "index_unavailable", "timeout", "partial", "empty"]
+        },
+        "trace_id": {
+          "$ref": "./common.schema.json#/$defs/TraceId"
+        },
+        "snapshot_digest": {
+          "$ref": "./common.schema.json#/$defs/Digest"
+        },
+        "budget_used": {
+          "$ref": "#/$defs/BudgetUsed"
+        },
+        "index": {
+          "type": "string",
+          "enum": ["lexical", "graph", "fulltext", "vector", "hybrid"]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "degraded": {
+                "const": true
+              }
+            },
+            "required": ["degraded"]
+          },
+          "then": {
+            "required": ["reason"]
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  }
+}

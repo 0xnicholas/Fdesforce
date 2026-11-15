@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.dev/contracts/schemas/decision.schema.json",
+  "title": "Decision and Provenance",
+  "description": "Write and read shapes for POST /v1/decisions and GET /v1/provenance/{decision_id}.",
+  "$defs": {
+    "Evidence": {
+      "type": "object",
+      "required": ["entity_id"],
+      "properties": {
+        "entity_id": {
+          "$ref": "./common.schema.json#/$defs/EntityId"
+        },
+        "version": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "retrieval_id": {
+          "$ref": "./common.schema.json#/$defs/RetrievalId"
+        },
+        "source_ref": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "relationship": {
+          "type": "string",
+          "maxLength": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "PolicyEvaluation": {
+      "type": "object",
+      "required": ["policy_id", "version", "outcome"],
+      "properties": {
+        "policy_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "outcome": {
+          "type": "string",
+          "enum": ["allow", "deny", "waived"]
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      },
+      "additionalProperties": false
+    },
+    "ModelRef": {
+      "type": "object",
+      "required": ["provider", "model"],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "version": {
+          "type": "string",
+          "maxLength": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "DecisionRequest": {
+      "type": "object",
+      "required": [
+        "decision_id",
+        "run_id",
+        "tenant_id",
+        "capability_id",
+        "decision_type",
+        "phase",
+        "actor",
+        "rationale",
+        "trace_id",
+        "timestamp"
+      ],
+      "properties": {
+        "decision_id": {
+          "$ref": "./common.schema.json#/$defs/DecisionId"
+        },
+        "parent_decision_id": {
+          "$ref": "./common.schema.json#/$defs/DecisionId"
+        },
+        "run_id": {
+          "$ref": "./common.schema.json#/$defs/RunId"
+        },
+        "tenant_id": {
+          "$ref": "./common.schema.json#/$defs/TenantId"
+        },
+        "capability_id": {
+          "$ref": "./common.schema.json#/$defs/CapabilityId"
+        },
+        "decision_type": {
+          "type": "string",
+          "enum": ["runtime", "governance", "configuration", "approval"]
+        },
+        "phase": {
+          "type": "string",
+          "enum": ["intent", "outcome", "retrieval", "approval", "run"]
+        },
+        "actor": {
+          "$ref": "./common.schema.json#/$defs/Actor"
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "maxItems": 200
+        },
+        "policy_evaluations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PolicyEvaluation"
+          },
+          "maxItems": 100
+        },
+        "model": {
+          "$ref": "#/$defs/ModelRef"
+        },
+        "prompt_version": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "input_digest": {
+          "$ref": "./common.schema.json#/$defs/Digest"
+        },
+        "output_digest": {
+          "$ref": "./common.schema.json#/$defs/Digest"
+        },
+        "classification": {
+          "$ref": "./common.schema.json#/$defs/Classification"
+        },
+        "redaction_applied": {
+          "type": "boolean"
+        },
+        "retention_class": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "bundle_digest": {
+          "$ref": "./common.schema.json#/$defs/Digest"
+        },
+        "release_version": {
+          "$ref": "./common.schema.json#/$defs/Semver"
+        },
+        "trace_id": {
+          "$ref": "./common.schema.json#/$defs/TraceId"
+        },
+        "timestamp": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        }
+      },
+      "additionalProperties": false
+    },
+    "DecisionResponse": {
+      "type": "object",
+      "required": ["decision_id", "provenance_id", "trace_id", "created_at", "idempotent_replay"],
+      "properties": {
+        "decision_id": {
+          "$ref": "./common.schema.json#/$defs/DecisionId"
+        },
+        "provenance_id": {
+          "$ref": "./common.schema.json#/$defs/ProvenanceId"
+        },
+        "trace_id": {
+          "$ref": "./common.schema.json#/$defs/TraceId"
+        },
+        "created_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        },
+        "idempotent_replay": {
+          "type": "boolean"
+        },
+        "chain_head": {
+          "$ref": "./common.schema.json#/$defs/Digest"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProvenanceResponse": {
+      "type": "object",
+      "required": ["decision_id", "provenance_id", "trace_id", "decision", "prov_o", "lineage", "verification"],
+      "properties": {
+        "decision_id": {
+          "$ref": "./common.schema.json#/$defs/DecisionId"
+        },
+        "provenance_id": {
+          "$ref": "./common.schema.json#/$defs/ProvenanceId"
+        },
+        "trace_id": {
+          "$ref": "./common.schema.json#/$defs/TraceId"
+        },
+        "decision": {
+          "$ref": "#/$defs/DecisionRequest"
+        },
+        "prov_o": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "lineage": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type", "id"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "id": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "relationship": {
+                "type": "string",
+                "maxLength": 100
+              }
+            },
+            "additionalProperties": false
+          },
+          "maxItems": 1000
+        },
+        "verification": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["valid", "pending", "stale", "invalid"]
+            },
+            "checked_at": {
+              "$ref": "./common.schema.json#/$defs/Timestamp"
+            },
+            "chain_head": {
+              "$ref": "./common.schema.json#/$defs/Digest"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

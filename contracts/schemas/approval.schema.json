@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.dev/contracts/schemas/approval.schema.json",
+  "title": "Approval",
+  "description": "Human-in-the-loop approval request and decision shapes.",
+  "$defs": {
+    "ProposedAction": {
+      "type": "object",
+      "required": ["tool", "input_digest"],
+      "properties": {
+        "tool": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "operation": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "input_digest": {
+          "$ref": "./common.schema.json#/$defs/Digest"
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 4000
+        }
+      },
+      "additionalProperties": false
+    },
+    "ApprovalCreateRequest": {
+      "type": "object",
+      "required": [
+        "run_id",
+        "capability_id",
+        "proposed_action",
+        "requested_by",
+        "approver_roles",
+        "expires_at"
+      ],
+      "properties": {
+        "run_id": {
+          "$ref": "./common.schema.json#/$defs/RunId"
+        },
+        "capability_id": {
+          "$ref": "./common.schema.json#/$defs/CapabilityId"
+        },
+        "proposed_action": {
+          "$ref": "#/$defs/ProposedAction"
+        },
+        "requested_by": {
+          "$ref": "./common.schema.json#/$defs/Actor"
+        },
+        "approver_roles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "expires_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "./decision.schema.json#/$defs/Evidence"
+          },
+          "maxItems": 200
+        },
+        "policy_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "maxItems": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "Approval": {
+      "type": "object",
+      "required": [
+        "approval_id",
+        "run_id",
+        "tenant_id",
+        "capability_id",
+        "status",
+        "proposed_action",
+        "requested_by",
+        "approver_roles",
+        "created_at",
+        "expires_at"
+      ],
+      "properties": {
+        "approval_id": {
+          "$ref": "./common.schema.json#/$defs/ApprovalId"
+        },
+        "run_id": {
+          "$ref": "./common.schema.json#/$defs/RunId"
+        },
+        "tenant_id": {
+          "$ref": "./common.schema.json#/$defs/TenantId"
+        },
+        "capability_id": {
+          "$ref": "./common.schema.json#/$defs/CapabilityId"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "approved", "rejected", "expired", "consumed"]
+        },
+        "proposed_action": {
+          "$ref": "#/$defs/ProposedAction"
+        },
+        "requested_by": {
+          "$ref": "./common.schema.json#/$defs/Actor"
+        },
+        "approver_roles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32
+        },
+        "created_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        },
+        "expires_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        },
+        "decided_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        },
+        "decision_id": {
+          "$ref": "./common.schema.json#/$defs/DecisionId"
+        },
+        "provenance_id": {
+          "$ref": "./common.schema.json#/$defs/ProvenanceId"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "./decision.schema.json#/$defs/Evidence"
+          },
+          "maxItems": 200
+        },
+        "policy_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "ApprovalDecisionRequest": {
+      "type": "object",
+      "required": ["approved", "rationale", "actor"],
+      "properties": {
+        "approved": {
+          "type": "boolean"
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "actor": {
+          "$ref": "./common.schema.json#/$defs/Actor"
+        },
+        "trace_id": {
+          "$ref": "./common.schema.json#/$defs/TraceId"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ApprovalDecisionResponse": {
+      "type": "object",
+      "required": ["approval_id", "status", "decision_id", "provenance_id", "decided_at"],
+      "properties": {
+        "approval_id": {
+          "$ref": "./common.schema.json#/$defs/ApprovalId"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["approved", "rejected"]
+        },
+        "decision_id": {
+          "$ref": "./common.schema.json#/$defs/DecisionId"
+        },
+        "provenance_id": {
+          "$ref": "./common.schema.json#/$defs/ProvenanceId"
+        },
+        "decided_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ApprovalList": {
+      "type": "object",
+      "required": ["items"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Approval"
+          },
+          "maxItems": 200
+        },
+        "next_cursor": {
+          "type": "string",
+          "maxLength": 500
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

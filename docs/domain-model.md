@@ -2,14 +2,14 @@
 
 > 状态：决策稿，对应 ticket「领域模型与核心抽象」。
 > 范围：v0 单客户 bundle；不做多租户托管、首客场景、UI。
-> 术语：见 [`GLOSSARY.md`](../GLOSSARY.md)。本文记录实体、关系、关键属性、生命周期、不变量和场景。
+> 术语：见 [`GLOSSARY.md`](../GLOSSARY.md)。运行时接缝见 [`runtime-contract.md`](runtime-contract.md)。本文记录实体、关系、关键属性、生命周期、不变量和场景。
 
 ## 1. 范围与前提
 
 - **交付模型**：v0 是单客户 bundle，运行在客户自有服务器/VPC；工作台是构建器/打包器，不是托管运行时。
 - **运行时**：Mastra 是 v0 的默认执行层；Solution Spec 保持 runtime-agnostic，通过 runtime profile 和 generator 映射到具体版本。v0 只实现 Mastra generator；换 runtime 是新的 generator + Extension 打包 + Bundle 拓扑，不是配置切换。
 - **语义层**：Semantica + 薄 context-service；TS/Python 通过 REST 隔离，MCP 仅本地/IDE。
-- **许可**：Bundle 只用 Mastra Apache-2.0 core，不含 `ee/`；Semantica MIT；图存储默认 Apache AGE/Oxigraph 或客户自带 Neo4j；Bundle 含 SBOM/notice/license gate。
+- **许可**：Bundle 只用 Mastra Apache-2.0 core，不含 `ee/`；Semantica MIT；v0 图存储为 embedded（Semantica 进程内 + SQLite），生产后端待 #15 在 Apache AGE/Oxigraph/客户自带 Neo4j 之间选择；Bundle 含 SBOM/notice/license gate。
 - **明确不建模**：Tenant、多租户控制面、Engagement、Workspace。
 - **设计原则**：Spec 是唯一真相；生成物可重建；客户定制走 Extension 而不是 fork；评测与溯源是一等公民。
 
@@ -141,8 +141,12 @@ templates:
   triage-quality: 1.0.0@sha256:...
 runtime:
   profile: mastra-1.83-node26@1@sha256:...
+  contractVersion: 1.0.0
+  graphSchema: 1
+  auditSchema: 1
   mastra: 1.83.0
   node: 26.2.0
+  python: 3.12.2
   semantica: 0.7.0
   contextService: 0.1.0
 toolchain:
@@ -579,13 +583,13 @@ flowchart LR
 
 以下问题不在本 ticket 内解决，已留在对应 ticket 或地图的 fog：
 
-- 图存储选型、Neo4j serving adapter、稳定实体 ID 映射：[运行时与集成契约](https://github.com/0xnicholas/Fdesforce/issues/8)、[生产检索索引与 100k+ 规模上限](https://github.com/0xnicholas/Fdesforce/issues/15)。
+- 生产图存储、Neo4j serving adapter、稳定实体 ID 映射：v0 已由[运行时与集成契约](https://github.com/0xnicholas/Fdesforce/issues/8)定为 embedded 图；生产后端与迁移路径待[生产检索索引与 100k+ 规模上限](https://github.com/0xnicholas/Fdesforce/issues/15)。
 - 检索索引的部署形态、重建与降级：[生产检索索引与 100k+ 规模上限](https://github.com/0xnicholas/Fdesforce/issues/15)。
-- 运行时失败语义、重试、回滚细节：[运行时与集成契约](https://github.com/0xnicholas/Fdesforce/issues/8)。
+- 运行时失败语义、重试、回滚细节：已由[运行时与集成契约](https://github.com/0xnicholas/Fdesforce/issues/8)定稿，见 [`runtime-contract.md`](runtime-contract.md)。
 - 客户环境内的身份、权限与部署：[客户环境内的身份、权限与部署](https://github.com/0xnicholas/Fdesforce/issues/12)。
 - 评测方法、数据集和 scorer：[评测、验收与可观测性](https://github.com/0xnicholas/Fdesforce/issues/10)。
 - 运行时可替换性（LangGraph 映射缺口）：[LangGraph 运行时映射缺口](https://github.com/0xnicholas/Fdesforce/issues/16)。
-- 升级、迁移与回滚的操作流程：本文给出模型与状态；具体流程见[运行时与集成契约](https://github.com/0xnicholas/Fdesforce/issues/8)与[架构综合与实施切片](https://github.com/0xnicholas/Fdesforce/issues/13)。
+- 升级、迁移与回滚的操作流程：契约见[运行时与集成契约](https://github.com/0xnicholas/Fdesforce/issues/8)；端到端切片见[架构综合与实施切片](https://github.com/0xnicholas/Fdesforce/issues/13)。
 - 成本模型、Agent 安全威胁模型、长会话记忆：地图的「Not yet specified」。
 - 多 Solution 共享 Context Graph：v0 不做，留到未来多 Solution 拓扑。
 - 可视化工作台/前端、首客场景、行业加速器、多租户托管：地图的「Out of scope」。
@@ -601,6 +605,7 @@ flowchart LR
 | Spec / 工具链 | YAML + Zod schema；per-Customer Git；init 物化 Template + `solution.lock`；CLI-first；Extension-only code；OCI 分发 |
 | 运行时可移植性 | Spec 中立，v0 单 generator；换 runtime 需新 generator + Extension 打包 + Bundle 拓扑（见 ADR-0002） |
 | 语义层 | Ontology 全局 Template + Customer 扩展；Semantic Model/Context Source 为 Customer 级；Context Recipe 为 Solution/Capability 级；Context Graph 为 Deployment 级 |
+| 运行时契约 | context-service 独占 `/v1` REST；签名 ExecutionContext；独立 append-only 审计库；v0 embedded 图（单写者、10k/50k），生产后端待 #15 |
 | 治理 | Policy 运行时约束；Eval Suite 测试门禁；Waiver 是 Decision；Release 审批前必须通过 Eval |
 | 生命周期 | 见第 5 节；状态转换由 schema 校验，跨状态动作写入 Decision |
 | 不变量 | 结构性/安全边界由 schema 强制；组织性判断由流程强制 |

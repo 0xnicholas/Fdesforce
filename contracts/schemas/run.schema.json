@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.dev/contracts/schemas/run.schema.json",
+  "title": "Run API",
+  "description": "Client-facing Run request, status, and SSE event shapes.",
+  "$defs": {
+    "RunCreateRequest": {
+      "type": "object",
+      "required": ["capability_id", "input"],
+      "properties": {
+        "capability_id": {
+          "$ref": "./common.schema.json#/$defs/CapabilityId"
+        },
+        "input": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "thread_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "RunCreateResponse": {
+      "type": "object",
+      "required": ["run_id", "trace_id", "status", "stream_url"],
+      "properties": {
+        "run_id": {
+          "$ref": "./common.schema.json#/$defs/RunId"
+        },
+        "trace_id": {
+          "$ref": "./common.schema.json#/$defs/TraceId"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["queued", "running"]
+        },
+        "stream_url": {
+          "type": "string",
+          "format": "uri-reference"
+        }
+      },
+      "additionalProperties": false
+    },
+    "RunStatus": {
+      "type": "object",
+      "required": ["run_id", "trace_id", "capability_id", "status", "started_at"],
+      "properties": {
+        "run_id": {
+          "$ref": "./common.schema.json#/$defs/RunId"
+        },
+        "trace_id": {
+          "$ref": "./common.schema.json#/$defs/TraceId"
+        },
+        "capability_id": {
+          "$ref": "./common.schema.json#/$defs/CapabilityId"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["queued", "running", "waiting_for_human", "succeeded", "failed", "cancelled"]
+        },
+        "started_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        },
+        "finished_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        },
+        "output": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "error": {
+          "$ref": "./common.schema.json#/$defs/ErrorDetail"
+        },
+        "decisions": {
+          "type": "array",
+          "items": {
+            "$ref": "./common.schema.json#/$defs/DecisionId"
+          },
+          "maxItems": 1000
+        },
+        "approvals": {
+          "type": "array",
+          "items": {
+            "$ref": "./common.schema.json#/$defs/ApprovalId"
+          },
+          "maxItems": 1000
+        },
+        "usage": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "RunEvent": {
+      "type": "object",
+      "required": ["run_id", "trace_id", "seq", "type", "timestamp", "payload"],
+      "properties": {
+        "run_id": {
+          "$ref": "./common.schema.json#/$defs/RunId"
+        },
+        "trace_id": {
+          "$ref": "./common.schema.json#/$defs/TraceId"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "run.started",
+            "text.delta",
+            "text.done",
+            "tool.call",
+            "tool.result",
+            "approval.required",
+            "approval.decided",
+            "run.finished",
+            "run.failed",
+            "run.cancelled",
+            "heartbeat"
+          ]
+        },
+        "timestamp": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

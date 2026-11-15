@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.dev/contracts/schemas/common.schema.json",
+  "title": "FDE Runtime Common Types",
+  "description": "Shared identifiers and value objects for fde.runtime/v1.",
+  "$defs": {
+    "Ulid": {
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "RunId": {
+      "type": "string",
+      "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "RetrievalId": {
+      "type": "string",
+      "pattern": "^ret_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "DecisionId": {
+      "type": "string",
+      "pattern": "^dec_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "ProvenanceId": {
+      "type": "string",
+      "pattern": "^prov_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "ApprovalId": {
+      "type": "string",
+      "pattern": "^appr_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "DeploymentId": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "TenantId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"
+    },
+    "SolutionId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"
+    },
+    "CapabilityId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"
+    },
+    "EntityId": {
+      "type": "string",
+      "pattern": "^fde:[A-Za-z0-9._~:-]{1,200}$"
+    },
+    "TraceId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "Digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "Timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "Semver": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-+][A-Za-z0-9.-]+)?$"
+    },
+    "SchemaVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+(\\.[0-9]+)*$"
+    },
+    "Actor": {
+      "type": "object",
+      "required": ["type", "id"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["user", "service", "system"]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "display": {
+          "type": "string",
+          "maxLength": 200
+        }
+      },
+      "additionalProperties": false
+    },
+    "Classification": {
+      "type": "string",
+      "enum": ["public", "internal", "confidential", "restricted"]
+    },
+    "ErrorCode": {
+      "type": "string",
+      "enum": [
+        "invalid_request",
+        "unauthenticated",
+        "forbidden",
+        "not_found",
+        "conflict",
+        "idempotency_conflict",
+        "approval_already_decided",
+        "run_not_suspended",
+        "stream_not_resumable",
+        "validation_failed",
+        "rate_limited",
+        "bad_gateway",
+        "unavailable",
+        "timeout",
+        "internal",
+        "contract_mismatch",
+        "graph_schema_mismatch",
+        "audit_schema_mismatch"
+      ]
+    },
+    "ErrorDetail": {
+      "type": "object",
+      "required": ["code", "message", "retryable", "trace_id"],
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "trace_id": {
+          "$ref": "#/$defs/TraceId"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Error": {
+      "type": "object",
+      "required": ["error"],
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/ErrorDetail"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
