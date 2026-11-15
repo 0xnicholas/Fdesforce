@@ -88,22 +88,131 @@ agents.each do |name, agent|
   expect(SPEC_DIR.join(instructions).file?, "agent #{name} instructions #{instructions} exist") if instructions
 end
 
+PLATFORM_ROLES = %w[end_user approver customer_admin deployment_operator auditor service support].freeze
+
+def schema_at(schema, path)
+  cursor = schema
+  path.to_s.split(".").each do |segment|
+    next if segment == "output"
+
+    return nil unless cursor.is_a?(Hash)
+
+    cursor = cursor.dig("properties", segment)
+  end
+  cursor
+end
+
+def step_index(steps, id)
+  steps.index { |step| step["id"] == id }
+end
+
 workflow_recipes = spec.dig("spec", "semantic", "recipeBindings") || {}
 workflows.each do |name, workflow|
-  (workflow["steps"] || []).each do |step|
+  steps = workflow["steps"] || []
+  _capability_name, capability = capabilities.find do |_, candidate|
+    candidate.dig("implementation", "ref") == name
+  end
+  bound_policies = (capability&.dig("policyRefs") || []).map { |ref| ref.split("@").first }
+
+  steps.each_with_index do |step, index|
     case step["type"]
     when "agent"
       expect(agents.key?(step["agent"]), "workflow #{name} step #{step["id"]} agent #{step["agent"]} exists")
+      if step["outputSchema"]
+        expect(SPEC_DIR.join(step["outputSchema"]).file?,
+               "workflow #{name} step #{step["id"]} outputSchema exists")
+      end
     when "tool"
       expect(tools.key?(step["tool"]), "workflow #{name} step #{step["id"]} tool #{step["tool"]} exists")
     when "context"
       expect(workflow_recipes.key?(step["recipe"]), "workflow #{name} step #{step["id"]} recipe #{step["recipe"]} is bound")
     when "approval"
-      warn("GAP: workflow #{name} step #{step["id"]} uses an approval step grammar that is not in the documented Spec schema")
+      expect(workflow["durable"] == true, "workflow #{name} is durable for approval step #{step["id"]}")
+      expect(step["gates"].is_a?(String), "workflow #{name} step #{step["id"]} declares a gated step")
+      gate = steps[index + 1]
+      expect(gate && gate["id"] == step["gates"],
+             "workflow #{name} step #{step["id"]} gates the next step")
+      if gate
+        expect(gate["type"] == "tool", "workflow #{name} step #{step["id"]} gates a tool step")
+        gated_tool = tools[gate["tool"]] || {}
+        expect(gated_tool["sideEffects"] && gated_tool["sideEffects"] != "read",
+               "workflow #{name} step #{step["id"]} gates a side-effecting tool")
+      end
+      roles = step["approverRoles"] || []
+      expect(roles.any?, "workflow #{name} step #{step["id"]} declares approver roles")
+      expect(roles.uniq.size == roles.size, "workflow #{name} step #{step["id"]} approver roles are unique")
+      expect((roles & PLATFORM_ROLES).empty?,
+             "workflow #{name} step #{step["id"]} uses business roles only")
+      expires = step["expiresAfter"].to_s
+      expect(expires.match?(/\APT(?:\d+H)?(?:\d+M)?(?:\d+S)?\z/) && expires != "PT",
+             "workflow #{name} step #{step["id"]} expiresAfter is an ISO-8601 duration")
+      predicate_ref = step.dig("requiredWhen", "predicate")
+      if predicate_ref
+        expect(template_names.include?(predicate_ref.split("@").first),
+               "workflow #{name} step #{step["id"]} predicate #{predicate_ref} is pinned")
+        expect(bound_policies.include?(predicate_ref.split("@").first),
+               "workflow #{name} step #{step["id"]} predicate is bound to the capability")
+        (step.dig("requiredWhen", "args") || {}).each do |arg, ref|
+          next unless ref.is_a?(Hash) && ref["step"]
+
+          source_index = step_index(steps, ref["step"])
+          expect(source_index && source_index < index,
+                 "workflow #{name} step #{step["id"]} arg #{arg} references an upstream step")
+          source_step = source_index ? steps[source_index] : nil
+          expect(source_step && source_step["outputSchema"],
+                 "workflow #{name} step #{step["id"]} arg #{arg} source declares outputSchema")
+          if source_step && source_step["outputSchema"]
+            schema = yaml(SPEC_DIR.join(source_step["outputSchema"]))
+            expect(!schema_at(schema, ref["path"]).nil?,
+                   "workflow #{name} step #{step["id"]} arg #{arg} path exists in the output schema")
+          end
+        end
+      end
+      evidence_sources = step["evidenceFrom"] || []
+      expect(evidence_sources.any?, "workflow #{name} step #{step["id"]} declares evidence sources")
+      evidence_sources.each do |source|
+        source_index = step_index(steps, source)
+        expect(source_index && source_index < index,
+               "workflow #{name} step #{step["id"]} evidence #{source} is upstream")
+        expect(source_index && %w[context tool].include?(steps[source_index]["type"]),
+               "workflow #{name} step #{step["id"]} evidence #{source} is context/tool")
+      end
+      summary = step["summaryFrom"]
+      if summary
+        source_index = step_index(steps, summary["step"])
+        expect(source_index && source_index < index,
+               "workflow #{name} step #{step["id"]} summary references an upstream step")
+        source_step = source_index ? steps[source_index] : nil
+        expect(source_step && source_step["outputSchema"],
+               "workflow #{name} step #{step["id"]} summary source declares outputSchema")
+        if source_step && source_step["outputSchema"]
+          schema = yaml(SPEC_DIR.join(source_step["outputSchema"]))
+          field = schema_at(schema, summary["path"])
+          expect(field && field["type"] == "string",
+                 "workflow #{name} step #{step["id"]} summary path resolves to a string")
+        end
+      end
     else
       expect(false, "workflow #{name} step #{step["id"]} has a known type")
     end
   end
+end
+
+policy_path = ROOT.join("acme/policies/claims-approval-threshold.yaml")
+policy = yaml(policy_path)
+expect(!policy.nil?, "claims-approval-threshold policy template is readable")
+if policy
+  expect(policy.dig("metadata", "version") == "1.0.0",
+         "claims-approval-threshold version is 1.0.0")
+  amount_parameter = policy.dig("spec", "parameters", "amount") || {}
+  expect(amount_parameter["type"] == "number",
+         "claims-approval-threshold amount parameter is numeric")
+  expect(amount_parameter["direction"] == "lower_is_stricter",
+         "claims-approval-threshold tightens downward")
+  expect(policy.dig("spec", "predicate", "kind") == "threshold",
+         "claims-approval-threshold predicate kind is threshold")
+  expect(policy.dig("spec", "predicate", "parameter") == "amount",
+         "claims-approval-threshold predicate reads the amount parameter")
 end
 
 connector_dir = ROOT.join("acme/customer/connectors")

@@ -1,0 +1,23 @@
+# PROTOTYPE — local fixture for the sample Solution Spec.
+# Policy Templates are versioned platform artifacts; solution.lock pins the
+# exact version + digest. Field names are illustrative until the canonical
+# Policy Template schema lands. The predicate kind is platform-owned: authors
+# bind typed args, they do not write comparison operators in the Spec.
+apiVersion: fde.dev/v0
+kind: PolicyTemplate
+metadata:
+  name: claims-approval-threshold
+  version: 1.0.0
+spec:
+  compatibleSpecMajor: 0
+  parameters:
+    amount:
+      type: number
+      direction: lower_is_stricter
+      overridable: true
+  predicate:
+    kind: threshold
+    input:
+      type: number
+    parameter: amount
+    direction: above

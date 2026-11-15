@@ -32,7 +32,12 @@ export interface ExecutionContextClaims {
 }
 
 export class ContextClient {
-  private async post(path: string, body: unknown, claims: ExecutionContextClaims) {
+  private async post(
+    path: string,
+    body: unknown,
+    claims: ExecutionContextClaims,
+    idempotencyKey = randomUUID(),
+  ) {
     const token = await signExecutionContext({
       iss: `fde://${claims.deploymentId}`,
       aud: 'context-service',
@@ -53,7 +58,7 @@ export class ContextClient {
         'content-type': 'application/json',
         authorization: `Bearer ${token}`,
         traceparent: `00-${claims.traceId}-0000000000000001-01`,
-        'idempotency-key': randomUUID(),
+        'idempotency-key': idempotencyKey,
       },
       body: JSON.stringify(body),
     });
@@ -73,8 +78,17 @@ export class ContextClient {
     return this.post('/v1/decisions', body, claims);
   }
 
-  createApproval(claims: ExecutionContextClaims, body: unknown) {
-    return this.post('/v1/approvals', body, claims);
+  createApproval(claims: ExecutionContextClaims, body: unknown, idempotencyKey?: string) {
+    return this.post('/v1/approvals', body, claims, idempotencyKey);
+  }
+
+  consumeApproval(claims: ExecutionContextClaims, approvalId: string) {
+    return this.post(
+      `/v1/approvals/${approvalId}/consume`,
+      {},
+      claims,
+      `consume:${approvalId}`,
+    );
   }
 
   // GAP: no connector-operation endpoint exists in fde.runtime/v1. A generated

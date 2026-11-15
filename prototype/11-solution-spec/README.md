@@ -14,6 +14,10 @@ symlink so this prototype does not fork them.
 - A full sample **Solution Spec** (`acme/solutions/claims-triage/solution.yaml`)
   with capabilities, agent, workflow, tools, semantic bindings, governance,
   environments, extensions, build and deployment settings.
+- A runtime-neutral **workflow/HITL grammar** (#18): ordered
+  `context | agent | tool | approval` steps, an approval gate over a named
+  side-effecting Tool, and a typed Policy predicate instead of a free-form
+  `when`.
 - A sample `solution.lock`.
 - A generated **Mastra app** skeleton (agent, workflow, tools, Run API, generated
   context client, record-before-act wrapper).
@@ -33,6 +37,7 @@ acme/                         mini customer repo (the build input)
   customer/connectors/        customer-level Connector assets
   customer/context-packages/  symlink to examples/semantic/acme
   environments/               environment profile values and secret refs
+  policies/                   local fixture for the sample Policy Template (#18)
   solutions/claims-triage/    Solution Spec, lock, prompt and schemas
   eval/                       customer-side Eval Dataset (not in the bundle)
 generated/claims-triage/      what `fde build` would emit
@@ -51,11 +56,13 @@ inspect.rb                    throwaway cross-reference checker
 ruby prototype/11-solution-spec/inspect.rb
 ```
 
-Expected result: **85 ok, 4 warnings, 0 failures**. The warnings are intentional
-gap markers, not broken references. The checker parses all YAML/JSON, walks the
-Spec references into the generated tree, checks eval/dataset digests, and runs
-`docker compose config` when Docker is present. Helm rendering is skipped here
-because `helm` is not installed on this machine.
+Expected result: **112 ok, 3 warnings, 0 failures**. The remaining warnings are
+intentional gap markers (unpinned model profile, `builtin` tool, missing Helm),
+not broken references. The checker parses all YAML/JSON, walks the Spec
+references into the generated tree, validates the #18 workflow/approval grammar,
+checks eval/dataset digests, and runs `docker compose config` when Docker is
+present. Helm rendering is skipped here because `helm` is not installed on this
+machine.
 
 To inspect the packaging manually:
 

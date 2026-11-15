@@ -32,6 +32,10 @@ spec:
       policyRefs:
         - pii-redaction@^1.0.0
 
+  # v0 grammar (#18): ordered steps; approval gates the next side-effecting
+  # tool; no general `when`, branch, or parallel. `requiredWhen` is a named
+  # Policy predicate, not an expression. `expiresAfter` is a duration; the
+  # generated adapter resolves it to an absolute `expires_at`.
   workflows:
     document-triage-flow:
       durable: true
@@ -43,17 +47,25 @@ spec:
         - id: triage
           type: agent
           agent: triage-agent
-        # PROPOSED: approval step shape. Domain model only says human_approval: true.
+          outputSchema: files/schemas/triage.output.json
         - id: approval
           type: approval
-          when: "$.triage.output.amount > policy.claims-approval-threshold.amount"
+          gates: commit
+          requiredWhen:
+            predicate: claims-approval-threshold@^1.0.0
+            args:
+              amount:
+                step: triage
+                path: output.amount
           approverRoles: [claims-supervisor]
-          expiresAt: PT24H
-          proposedAction: "approve claim ${triage.output.claimId} for ${triage.output.amount}"
+          expiresAfter: PT24H
+          evidenceFrom: [context]
+          summaryFrom:
+            step: triage
+            path: output.rationale
         - id: commit
           type: tool
           tool: claim-decision
-          when: "$.approval.status == 'approved'"
 
   tools:
     # PROPOSED: a Tool has no implementation discriminator today
