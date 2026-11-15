@@ -254,7 +254,7 @@ Mastra 在每次调用 context-service 前签发一个短时 JWT（ES256）：
 | `tenant_id` | 是 | Customer 标识 |
 | `deployment_id` | 是 | Deployment 标识 |
 | `solution_id` | 是 | Solution 标识 |
-| `run_id` | 是 | 当前 Run |
+| `run_id` | 条件必填 | 当前 Run；retrieve/decisions/approval create/decide/consume 必填，队列/ingest 可省略 |
 | `trace_id` | 是 | 与 `traceparent` 一致 |
 | `roles` | 是 | 角色字符串数组；具体词表由身份 ticket 定 |
 | `scopes` | 是 | 如 `context:retrieve`、`decision:write`、`provenance:read`、`approval:decide`、`approval:consume` |
@@ -263,7 +263,7 @@ Mastra 在每次调用 context-service 前签发一个短时 JWT（ES256）：
 | `kid` | 是 | 签名密钥 ID |
 | `on_behalf_of` | 否 | 服务主体代表用户执行时使用 |
 
-JWT 的 `trace_id` 必须与请求头 `traceparent` 的 trace-id 一致；不一致直接 `403`。
+JWT 的 `trace_id` 必须与请求头 `traceparent` 的 trace-id 一致；不一致直接 `403`。`run_id` 只在 Run 作用域的调用中必填；`GET /v1/approvals`、`GET /v1/runtime-info`、ingest 等非 Run 调用可省略，但 `jti` 仍必须唯一。
 
 ### 5.2 传播链
 

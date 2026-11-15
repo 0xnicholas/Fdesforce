@@ -12,7 +12,6 @@
     "tenant_id",
     "deployment_id",
     "solution_id",
-    "run_id",
     "trace_id",
     "roles",
     "scopes",
