@@ -7,7 +7,7 @@
 ## 1. 范围与前提
 
 - **交付模型**：v0 是单客户 bundle，运行在客户自有服务器/VPC；工作台是构建器/打包器，不是托管运行时。
-- **运行时**：Mastra 是默认执行层；Solution Spec 保持 runtime-agnostic，通过 runtime profile 和 generator 映射到具体版本。
+- **运行时**：Mastra 是 v0 的默认执行层；Solution Spec 保持 runtime-agnostic，通过 runtime profile 和 generator 映射到具体版本。v0 只实现 Mastra generator；换 runtime 是新的 generator + Extension 打包 + Bundle 拓扑，不是配置切换。
 - **语义层**：Semantica + 薄 context-service；TS/Python 通过 REST 隔离，MCP 仅本地/IDE。
 - **许可**：Bundle 只用 Mastra Apache-2.0 core，不含 `ee/`；Semantica MIT；图存储默认 Apache AGE/Oxigraph 或客户自带 Neo4j；Bundle 含 SBOM/notice/license gate。
 - **明确不建模**：Tenant、多租户控制面、Engagement、Workspace。
@@ -55,68 +55,117 @@
 - `status`：`draft | validated | frozen`。
 - `spec_digest`：Spec 内容摘要。
 - `spec`：声明式配置，见下。
+- `lock`：`solution.lock` 的内容摘要和对象引用；固定 Template、Extension、runtime profile、toolchain 和 Customer 级对象的精确版本与 digest。
 - `based_on`：Solution Template 版本、Capability Template 版本、Ontology / Semantic Model 版本、runtime profile。
 - `created_by`、`created_at`、`frozen_at`。
 
-**Solution Spec** 只包含作者内容，不包含生成物：
+**Solution Spec** 只包含作者内容，不包含生成物或环境实际值：
 
-- `solution`：元数据、目标 Customer。
-- `capabilities`：Capability Binding 列表。
-- `agents` / `workflows`：实现定义。
-- `tools` / `connectors`：引用或定义。
-- `semantic`：Semantic Model 引用、Context Recipe 引用。
-- `governance`：Policy 引用、Eval Suite 引用。
-- `environments`：环境能力要求（不是凭据）。
-- `extensions`：Extension 引用和兼容声明。
-- `build`：runtime profile、目标平台、生成器选项。
-- `overlays`：生效的 Overlay 引用。
+- `apiVersion`、`kind`、`metadata`：文档版本、类型和 Customer / Solution 身份。
+- `spec.overlays`：生效的 Overlay 引用；Overlay 的 scope 在 Overlay manifest 中。
+- `spec.capabilities`：Capability Binding，按 id 寻址。
+- `spec.agents` / `spec.workflows`：运行时中立的实现定义，按 id 寻址。
+- `spec.tools`：Tool 定义，按 id 寻址；Connector 只以 `connectorRef` 出现。
+- `spec.semantic`：Customer 级 Semantic Model / Context Source 的引用，以及 Solution 级 Context Recipe。
+- `spec.governance`：Solution 级 Policy / Eval Suite 引用；Capability 级引用是必需的最小集。
+- `spec.environments`：环境能力要求（不是凭据、不是实际容量）。
+- `spec.extensions`：Extension 引用和兼容声明。
+- `spec.build`：runtime profile、目标平台（`compose | helm | airgap`）。
+- `spec.deployment`：逻辑 profile 名、迁移策略默认值。
 
-示意（不是最终 schema）：
+Connector、Context Source、Semantic Model 和 Ontology 扩展是 Customer 级资产，放在 `customer/`，由 Spec 按 id 引用；不在每个 Solution Spec 内联。Template 在 `fde spec init` 时物化为完整 Spec，build 不再解析模板；`solution.lock` 固定来源和精确版本。
+
+示意（字段名不是最终 schema）：
 
 ```yaml
-solution:
-  id: claims-triage
+apiVersion: fde.dev/v0
+kind: SolutionSpec
+metadata:
   customer: acme
-  templates:
-    solution: fde-solution@1.2.0
+  solution: claims-triage
+spec:
   overlays:
-    - customer/acme@1
-capabilities:
-  - id: document-triage
-    template: document-triage@1.0.0
-    implementation:
-      type: agent
-      ref: triage-agent
-    policy_refs: [pii-redaction@1.0.0]
-    eval_refs: [triage-quality@1.0.0]
-agents:
-  - id: triage-agent
-    model_profile: standard
-    tools: [claims-lookup]
-tools:
-  - id: claims-lookup
-    connector: claims-db
-connectors:
-  - id: claims-db
-    type: postgres
-    secret_ref: acme/claims-db
-semantic:
-  model: acme-claims@1
-  recipes: [claims-context@1]
-environments:
-  - id: acme-prod
-    kind: prod
-extensions:
-  - claims-lookup@1
+    - acme-baseline@^1.0.0
+    - claims-triage-tuning@^1.0.0
+  capabilities:
+    document-triage:
+      template: document-triage@^1.0.0
+      implementation:
+        type: agent
+        ref: triage-agent
+      policyRefs: [pii-redaction@^1.0.0]
+      evalRefs: [triage-quality@^1.0.0]
+  agents:
+    triage-agent:
+      modelProfile: standard
+      instructions: files/prompts/triage.md
+      tools: [claims-lookup]
+  tools:
+    claims-lookup:
+      connectorRef: claims-db
+      operation: lookupClaim
+      sideEffects: read
+  semantic:
+    modelRef: acme-claims@^1.0.0
+    contextRecipes:
+      claims-context:
+        sources: [sharepoint-claims]
+        budget: {maxNodes: 50}
+  governance:
+    policies: [data-retention@^2.0.0]
+  environments:
+    acme-prod:
+      kind: prod
+      region: eu-west-1
+      capacityClass: medium
+      networkClass: restricted
+      secretStoreKind: vault
+  build:
+    runtimeProfile: mastra-1.83-node26@^1.0.0
+    targets: [compose, helm, airgap]
+  deployment:
+    profile: standard
+    migrationPolicy: manual
+```
+
+同目录 `solution.lock` 记录物化来源、精确版本和 digest：
+
+```yaml
+lockVersion: 1
+specDigest: sha256:...
+materializedFrom:
+  solutionTemplate: fde-solution@1.2.0@sha256:...
+templates:
+  document-triage: 1.0.0@sha256:...
+  pii-redaction: 1.0.0@sha256:...
+  triage-quality: 1.0.0@sha256:...
+runtime:
+  profile: mastra-1.83-node26@1@sha256:...
+  mastra: 1.83.0
+  node: 26.2.0
+  semantica: 0.7.0
+  contextService: 0.1.0
+toolchain:
+  generator: 0.1.0
+  image: ghcr.io/acme-fde/toolchain@sha256:...
+customerObjects:
+  connectors:
+    claims-db: sha256:...
+  contextSources:
+    sharepoint-claims: sha256:...
+  semanticModels:
+    acme-claims: 1.0.0@sha256:...
 ```
 
 规则：
 
-- Spec 是声明式、可验证、可 diff 的；生成物（Mastra app、context-service 配置、部署清单、迁移、SBOM/notice、签名）不入 Spec。
-- Spec 不含 secret 值，只含 secret 引用。
-- `validated` 要求 schema、引用完整性、版本兼容性和 Template/Overlay 合并全部通过。
+- Spec 是声明式、可验证、可 diff 的；生成物（Mastra app、context-service 配置、部署清单、迁移、SBOM/notice、签名、镜像 digest、端口）不入 Spec。
+- Spec 不含 secret 值，只含 secret 引用；Environment 实际值、模型 provider 细节和容量在 `environments/<env>.yaml` 中配置。
+- 实体集合按 id 寻址（`capabilities`、`agents`、`tools` 等是 map，不是数组）；有序序列保留数组，Overlay 只能改 allowlist 路径。
+- `validated` 要求 schema、引用完整性、版本兼容性、Overlay allowlist、lock 新鲜度和 Template/Overlay 合并全部通过。
 - `frozen` 后不可修改；Release 必须 pin 一个 frozen Revision。
-- 同一个 Spec + pinned Templates + Extensions + 工具链必须能重建出同一个 Bundle digest。
+- 同一个 Spec + lock + pinned Extensions + toolchain 镜像必须能重建出同一个 Bundle digest。
+- Spec 保持 runtime-agnostic；v0 只实现 Mastra generator，换 runtime 需要新的 generator、Extension 打包和 Bundle 拓扑，不是改一个 runtime profile 字段。
 
 ### 3.4 Environment
 
@@ -126,9 +175,10 @@ extensions:
 - `status`：`provisioning | active | retired`。
 - `health`：`healthy | degraded | unreachable`（独立于生命周期）。
 - `network_policy`、`secret_store_ref`、`capacity`。
+- `profile_values`：命名 profile（如 `model_profile`、`deployment_profile`）的具体非 secret 值。
 - `created_at`、`retired_at`。
 
-规则：Environment 属于 Customer，不属于某个 Solution；同一 Environment 可以承载多个 Solution 的 Deployment。Spec 只声明环境要求，实际凭据、网络和容量在 Environment 中配置。
+规则：Environment 属于 Customer，不属于某个 Solution；同一 Environment 可以承载多个 Solution 的 Deployment。Spec 只声明环境要求；命名 profile 的具体值、实际凭据、网络和容量在 Environment 中配置。
 
 ### 3.5 Capability / Capability Template / Capability Binding
 
@@ -188,8 +238,9 @@ extensions:
 - `connector_id`、`name`、`type`。
 - `endpoint`、`secret_ref`。
 - `data_contract`、`rate_limit`、`allowed_operations`。
+- Customer 级资产：可被多个 Solution 引用；Solution Spec 只写 `connectorRef`，不内联 endpoint 或 secret。
 
-规则：Agent 和 Workflow 是 Capability 的实现，不是跨客户复用单位；复用通过 Capability Template 和实现模板完成。Tool 的副作用必须显式声明；Connector 的凭据只以引用出现。
+规则：Agent 和 Workflow 是 Capability 的实现，不是跨客户复用单位；复用通过 Capability Template 和实现模板完成。Tool 的副作用必须显式声明；Connector 的凭据只以引用出现，Connector 定义本身也只在 Customer 级维护。
 
 ### 3.7 Template / Overlay / Extension
 
@@ -213,12 +264,12 @@ extensions:
 **Extension**：
 
 - `extension_id`、`name`、`version`。
-- `interface`：`tool | connector | recipe | scorer`。
+- `interface`：`tool | connector | recipe | scorer`；v0 实现 `tool | connector`，`recipe | scorer` 标记 experimental。
 - `compatible_spec_major`、`compatible_template_majors`。
-- `artifact_ref`：镜像或包 digest。
+- `artifact_ref`：按接口打包为 `ts-package`（tool/connector）或 `python-wheel`（recipe/scorer）；v0 不支持任意容器镜像 Extension。
 - `resource_requirements`、`owner`。
 
-规则：Template 版本不可变；Overlay 不 fork Template；Extension 是唯一的客户代码入口，必须声明接口和兼容范围，不能直接修改生成物。升级时 Template 新版本 + Overlay 重放 + Extension 兼容性检查。
+规则：Template 版本不可变；Overlay 不 fork Template，按 allowlist 路径 `add | set | remove`，实体集合按 id 寻址；Extension 是唯一的客户代码入口，必须声明接口和兼容范围，不能直接修改生成物。升级时 Template 新版本 + Overlay 重放 + Extension 兼容性检查。
 
 ### 3.8 Bundle
 
@@ -226,8 +277,8 @@ extensions:
 - `solution_id`、`solution_revision_id`。
 - `status`：`building | built | verified | signed | failed`。
 - `manifest`：组件、镜像、版本、端口、环境变量、卷、健康检查。
-- `artifacts`：生成的 Mastra app、context-service、图存储配置、迁移脚本、Policy/Eval 定义、部署清单、SBOM/notice、校验和、签名。
-- `build_provenance`：generator 版本、Template 版本、工具链版本、构建者、时间戳。
+- `artifacts`：生成的 Mastra app、context-service、图存储配置、迁移脚本、Policy/Eval Suite 定义与 scorer、部署清单、SBOM/notice、校验和、签名。
+- `build_provenance`：generator 版本、Template/lock 版本、runtime profile、工具链镜像 digest、构建者、时间戳。
 - `compatibility_matrix`：runtime × template × ontology × eval × extension。
 - `license_gate_result`。
 - `signature`。
@@ -237,7 +288,8 @@ extensions:
 
 - Bundle 不可变、内容寻址；不以版本号作为身份。
 - Bundle 不含 secret 值，只含 secret 引用。
-- 同一 Spec + pinned Templates + Extensions + 工具链必须重建出同一 digest。
+- Bundle 包含 Eval Suite 定义与 scorer，不包含 Eval 数据集；数据集按环境和权限在评测时解析。
+- 同一 Spec + lock + pinned Extensions + 工具链镜像必须重建出同一 digest。
 - 生成的 Bundle 必须包含 SBOM/notice，并通过 license gate。
 - Bundle 1:1 对应 Release 的候选产物；未签名的 Bundle 不能成为 Release。
 
@@ -246,7 +298,7 @@ extensions:
 - `release_id`、`solution_id`、`version`（semver）。
 - `bundle_digest`。
 - `status`：`draft | approved | superseded | recalled`。
-- `pinned_versions`：Spec Revision、Template、Ontology、Semantic Model、runtime。
+- `pinned_versions`：Spec Revision、lock digest、Template、Ontology、Semantic Model、runtime profile。
 - `release_notes`、`approved_by`、`approved_at`、`approval_decision_id`。
 - `signature`、`recalled_reason`。
 
@@ -478,13 +530,17 @@ flowchart LR
 
 ## 7. 版本与兼容性
 
+- Spec schema 用 `apiVersion` 的 major 表示；`fde spec migrate` 负责跨 major。
+- Solution Spec 不写 Solution 版本；Revision 由系统生成单调编号，Release 才分配 semver。
+- Spec 写 Template/Extension/runtime profile 的兼容范围；`solution.lock` 固定精确版本 + digest；build 只读 lock。
+- runtime profile 是平台维护的版本化 profile；toolchain 镜像 digest 随 lock 固定，保证同 Spec + lock + toolchain → 同 Bundle digest。
 - Template / Capability Template / Ontology / Policy / Eval Suite 用 semver，版本不可变。
 - Overlay 声明兼容的 Template major；minor/patch 自动跟随，major 升级必须显式迁移。
 - Solution Revision 单调递增；Release 用 semver 并 pin 精确版本。
 - Bundle 用内容摘要，不以版本号作为身份。
 - 每次 Release 生成兼容性矩阵：runtime × template × ontology × eval × extension；不兼容时构建失败。
-- 升级：新 Template minor/patch + Overlay 重放 + Extension 兼容性检查 + 新 Bundle/Release。
-- 回滚：重新部署上一个 Release；迁移必须可逆，否则显式拒绝回滚。
+- 升级：新 Template minor/patch + Overlay 重放 + Extension 兼容性检查 + 新 Bundle/Release；`fde spec update` 物化新默认值。
+- 回滚：重新部署上一个 Release；迁移必须可逆，不可逆时要求恢复快照/计划，否则显式拒绝回滚。
 - Customer Overlay 优先于 Solution Overlay；Customer Overlay 只用于客户级强制约束，Solution Overlay 用于调优。
 
 ## 8. 场景走查
@@ -528,7 +584,7 @@ flowchart LR
 - 运行时失败语义、重试、回滚细节：[运行时与集成契约](https://github.com/0xnicholas/Fdesforce/issues/8)。
 - 客户环境内的身份、权限与部署：[客户环境内的身份、权限与部署](https://github.com/0xnicholas/Fdesforce/issues/12)。
 - 评测方法、数据集和 scorer：[评测、验收与可观测性](https://github.com/0xnicholas/Fdesforce/issues/10)。
-- Solution Spec 的最终 schema 和配置工具形态：[Solution Spec 与配置工具形态](https://github.com/0xnicholas/Fdesforce/issues/7)。
+- 运行时可替换性（LangGraph 映射缺口）：[LangGraph 运行时映射缺口](https://github.com/0xnicholas/Fdesforce/issues/16)。
 - 升级、迁移与回滚的操作流程：本文给出模型与状态；具体流程见[运行时与集成契约](https://github.com/0xnicholas/Fdesforce/issues/8)与[架构综合与实施切片](https://github.com/0xnicholas/Fdesforce/issues/13)。
 - 成本模型、Agent 安全威胁模型、长会话记忆：地图的「Not yet specified」。
 - 多 Solution 共享 Context Graph：v0 不做，留到未来多 Solution 拓扑。
@@ -542,6 +598,8 @@ flowchart LR
 | 能力边界 | Capability 是契约与治理单位；Agent/Workflow 是实现；Tool/Connector 是动作与接入 |
 | 复用 | versioned immutable Template + 声明式 Overlay + versioned Extension；禁止 fork |
 | 构建发布 | Bundle 内容寻址不可变；Release 是签署/批准记录；Deployment 绑定 Solution × Environment；Run 是执行 |
+| Spec / 工具链 | YAML + Zod schema；per-Customer Git；init 物化 Template + `solution.lock`；CLI-first；Extension-only code；OCI 分发 |
+| 运行时可移植性 | Spec 中立，v0 单 generator；换 runtime 需新 generator + Extension 打包 + Bundle 拓扑（见 ADR-0002） |
 | 语义层 | Ontology 全局 Template + Customer 扩展；Semantic Model/Context Source 为 Customer 级；Context Recipe 为 Solution/Capability 级；Context Graph 为 Deployment 级 |
 | 治理 | Policy 运行时约束；Eval Suite 测试门禁；Waiver 是 Decision；Release 审批前必须通过 Eval |
 | 生命周期 | 见第 5 节；状态转换由 schema 校验，跨状态动作写入 Decision |

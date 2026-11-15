@@ -19,11 +19,11 @@ Solution 的一次不可变配置快照；草稿可变，Release 冻结一个 Re
 _Avoid_: Version, Draft
 
 **Solution Spec**:
-Solution Revision 的声明式内容，是生成物的唯一真相来源。
+Solution Revision 的声明式内容，是生成物的唯一真相来源；不包含生成物、secret 值或环境实际值。
 _Avoid_: Config, Manifest
 
 **Environment**:
-Customer 拥有的部署目标（如 dev/staging/prod），可承载多个 Solution 的 Deployment。
+Customer 拥有的部署目标（如 dev/staging/prod），可承载多个 Solution 的 Deployment，并提供命名 profile 的具体非 secret 值（profile_values）。
 _Avoid_: Stage, Cluster, Tenant
 
 ## 能力与实现
@@ -53,7 +53,7 @@ Agent 或 Workflow 可调用的、有 schema 的动作；可以是纯代码，�
 _Avoid_: Function, Action
 
 **Connector**:
-对外部系统的接入，拥有凭证引用、数据契约和限流规则，并向 Tool 或 Context Source 提供能力。
+对外部系统的接入，拥有凭证引用、数据契约和限流规则，并向 Tool 或 Context Source 提供能力；它是 Customer 级资产，可被多个 Solution 引用。
 _Avoid_: Integration, Adapter
 
 ## 复用与定制
