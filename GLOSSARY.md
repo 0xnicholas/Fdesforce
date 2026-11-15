@@ -181,5 +181,5 @@ _Avoid_: Project
 _Avoid_: Draft
 
 **Tenant**:
-多租户控制面概念，v0 不建模；运行时 `X-Tenant-Id` 只是技术 header。
+多租户控制面概念，v0 不建模；运行时租户隔离由 `ExecutionContext` 的 `tenant_id` 表达。
 _Avoid_: Customer
