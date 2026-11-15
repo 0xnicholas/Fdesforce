@@ -501,6 +501,7 @@ stateDiagram-v2
 - `mastra-state` 用 libsql/SQLite 卷；客户提供 Postgres 时可替换，但 v0 默认单节点 SQLite。
 - `graph` 和 `audit` 必须是不同卷；审计卷单独备份/保留。
 - 所有镜像/依赖 pin 精确版本 + digest；Bundle 含 SBOM/notice、签名、build provenance。
+- 工作台构建/交付链：`fde build` 生成 Bundle（compose/helm/airgap 清单、配置、迁移、SBOM/notice），用 cosign/KMS 签 Bundle；`fde release approve` 签 Release；客户侧 `fde install verify` 双验后安装。Bundle 的 OCI artifact 与镜像可镜像到客户私有 registry；air-gapped 用离线包 + checksums。
 
 ### 9.2 启动顺序与健康
 
