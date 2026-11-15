@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://acme.example/fde/claim-decision.input.json",
+  "title": "claim-decision input",
+  "type": "object",
+  "required": ["claimId", "outcome", "rationale", "evidenceRefs"],
+  "properties": {
+    "claimId": { "type": "string" },
+    "outcome": { "type": "string", "enum": ["approve", "deny", "refer"] },
+    "rationale": { "type": "string", "maxLength": 4000 },
+    "evidenceRefs": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,44 @@
+# PROTOTYPE — build provenance sketch.
+apiVersion: fde.dev/v0
+kind: BuildProvenance
+bundleDigest: sha256:1717171717171717171717171717171717171717171717171717171717171717
+builtAt: 2026-11-15T00:00:00Z
+builder: fde-build 0.1.0
+inputs:
+  spec: sha256:ad68782bf3d23c01f3a96d1e8485046d8cb7364e8995672b1f6fbdf5143c4f9a
+  lock: sha256:1818181818181818181818181818181818181818181818181818181818181818
+  customerContextPackage: acme-claims-context@1.0.0@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+  templates:
+    document-triage: 1.0.0
+    pii-redaction: 1.0.0
+    claims-approval-threshold: 1.0.0
+    claims-triage-quality: 1.0.0
+    claims-context: 1.0.0
+  extensions:
+    acme-claims-connector: 1.0.0
+toolchain:
+  image: ghcr.io/acme-fde/toolchain@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  runtimeProfile: mastra-1.83-node26@1.0.0
+  node: 26.2.0
+  python: 3.12.2
+licenseGate:
+  status: passed
+  excluded:
+    - "@mastra/editor"
+    - "node_modules/@mastra/core/dist/**/ee/**"
+  notices: sbom/THIRD_PARTY_NOTICES.md
+  sbom: sbom/sbom.spdx.json
+modelResolution:
+  profile: standard
+  provider: azure-openai
+  model: gpt-5.1
+  # GAP: this resolution comes from the Environment at build time. It is not
+  # versioned or pinned in solution.lock, so the same Spec + lock can produce a
+  # different model binding.
+  pinned: false
+determinism:
+  rebuildable: false
+  reasons:
+    - model profile is not pinned
+    - generated skeleton is hand-written for the prototype
+    - secret refs are resolved from Environment values

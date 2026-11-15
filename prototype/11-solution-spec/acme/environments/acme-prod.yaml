@@ -1,0 +1,40 @@
+# PROTOTYPE — throwaway sample. Environment-specific values only; no secret values.
+apiVersion: fde.dev/v0
+kind: Environment
+metadata:
+  customer: acme
+  name: acme-prod
+spec:
+  kind: prod
+  region: eu-west-1
+  status: active
+  networkPolicy: restricted
+  secretStoreRef: vault/acme-prod
+  capacity:
+    contextService: {cpu: "0.5", memory: 1Gi}
+    mastraApp: {cpu: "1", memory: 1Gi}
+  profileValues:
+    modelProfile:
+      standard:
+        provider: azure-openai
+        model: gpt-5.1
+        endpoint: https://acme-openai.openai.azure.com
+        # PROPOSED: Environment has no documented secretRef map, so refs are
+        # parked in profile values here. The generated Deployment needs stable
+        # secret names, not a free-form URL-shaped key.
+        apiKeyRef: secret://acme-prod/azure-openai/key
+        temperature: 0.1
+        maxOutputTokens: 2000
+    deploymentProfile:
+      standard:
+        replicas: 1
+        ingressHost: claims.acme.example
+        ingressTlsSecretRef: secret://acme-prod/ingress-tls
+  # PROPOSED: deployment-scoped secret refs the generated manifests depend on.
+  secretRefs:
+    executionContextSigningKey: secret://acme-prod/fde/execution-context-signing
+    executionContextPublicKey: secret://acme-prod/fde/execution-context-public
+    claimsDbUrl: secret://acme-prod/claims-db/url
+    claimsDbCredentials: secret://acme-prod/claims-db/credentials
+    sharepointClientId: secret://acme-prod/sharepoint/client-id
+    sharepointClientSecret: secret://acme-prod/sharepoint/client-secret

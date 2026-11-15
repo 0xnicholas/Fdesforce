@@ -1,0 +1,16 @@
+# PROTOTYPE — throwaway sample.
+apiVersion: fde.dev/v0
+kind: Connector
+metadata:
+  customer: acme
+  name: sharepoint-claims
+spec:
+  type: sharepoint
+  endpointRef: https://acme.sharepoint.com/sites/claims
+  secretRef: secret://acme-prod/sharepoint/client-secret
+  dataContract: contracts/sharepoint-claims.md
+  allowedOperations:
+    - searchDocuments
+    - readDocument
+  rateLimit:
+    requestsPerMinute: 60

@@ -1,0 +1,45 @@
+# PROTOTYPE — throwaway generated-tree manifest.
+# This file is a proposed artifact: it maps every generated output back to its
+# source pointer so a stack trace or failed build can be traced to the Spec.
+apiVersion: fde.dev/v0
+kind: GeneratedBundleTree
+prototype: true
+bundle:
+  customer: acme
+  solution: claims-triage
+  specDigest: sha256:ad68782bf3d23c01f3a96d1e8485046d8cb7364e8995672b1f6fbdf5143c4f9a
+  generator: 0.1.0
+  runtimeProfile: mastra-1.83-node26@1.0.0
+  runtimeContract: fde.runtime/v1
+components:
+  mastra-app:
+    image: ghcr.io/acme-fde/claims-triage-mastra-app@sha256:1515151515151515151515151515151515151515151515151515151515151515
+    port: 4111
+    volumes: [mastra-state]
+  context-service:
+    image: ghcr.io/acme-fde/claims-triage-context-service@sha256:1616161616161616161616161616161616161616161616161616161616161616
+    port: 8011
+    volumes: [graph, audit]
+  migrate:
+    image: ghcr.io/acme-fde/claims-triage-context-service@sha256:1616161616161616161616161616161616161616161616161616161616161616
+    oneShot: true
+  ingest:
+    image: ghcr.io/acme-fde/claims-triage-context-service@sha256:1616161616161616161616161616161616161616161616161616161616161616
+    oneShot: true
+volumes:
+  mastra-state: {owner: mastra-app}
+  graph: {owner: context-service, rebuildable: true}
+  audit: {owner: context-service, appendOnly: true, rebuildable: false}
+sources:
+  mastra-app/src/agents/triage-agent.ts: solution.yaml#/spec/agents/triage-agent
+  mastra-app/src/workflows/document-triage-flow.ts: solution.yaml#/spec/workflows/document-triage-flow
+  mastra-app/src/tools/claims-lookup.ts: solution.yaml#/spec/tools/claims-lookup
+  mastra-app/src/tools/claim-decision.ts: solution.yaml#/spec/tools/claim-decision
+  mastra-app/src/runtime/runtime-info.ts: solution.lock#/runtime
+  context-service/config/recipe.claims-context.yaml: customer/context-packages/acme-claims-context/recipes/claims-context.yaml
+  context-service/config/permissions.yaml: customer/context-packages/acme-claims-context/permissions.yaml
+  context-service/config/sources.yaml: customer/context-packages/acme-claims-context/context-sources
+  context-service/migrations/001_audit_schema.sql: solution.lock#/runtime/auditSchema
+  context-service/migrations/002_graph_schema.yaml: solution.lock#/runtime/graphSchema
+  deploy/compose.yaml: solution.yaml#/spec/build/targets
+  eval/suites/claims-triage-quality.yaml: solution.yaml#/spec/capabilities/document-triage/evalRefs

@@ -1,0 +1,22 @@
+# PROTOTYPE — generated skeleton.
+# Source: customer/context-packages/acme-claims-context/context-sources/*.yaml
+# Compiled at build time from the frozen CCP; the runtime does not read the CCP.
+sources:
+  - id: claims-db
+    connectorRef: claims-db
+    dataset: public.claims
+    classification: confidential
+    freshness:
+      staleAfter: PT1H
+      watermark: updated_at
+    schedule: "*/15 * * * *"
+    mode: incremental
+  - id: sharepoint-claims
+    connectorRef: sharepoint-claims
+    dataset: sites/claims/documents
+    classification: confidential
+    freshness:
+      staleAfter: PT24H
+      watermark: modified
+    schedule: "0 * * * *"
+    mode: incremental

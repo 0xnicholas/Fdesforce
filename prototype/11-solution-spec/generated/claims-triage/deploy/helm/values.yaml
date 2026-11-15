@@ -1,0 +1,35 @@
+# PROTOTYPE — generated Helm values.
+# Source: acme/environments/acme-prod.yaml + solution.lock#/runtime
+customer: acme
+solution: claims-triage
+bundleDigest: sha256:1717171717171717171717171717171717171717171717171717171717171717
+
+images:
+  mastraApp: ghcr.io/acme-fde/claims-triage-mastra-app@sha256:1515151515151515151515151515151515151515151515151515151515151515
+  contextService: ghcr.io/acme-fde/claims-triage-context-service@sha256:1616161616161616161616161616161616161616161616161616161616161616
+
+mastraApp:
+  port: 4111
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "1", memory: 1Gi}
+
+contextService:
+  port: 8011
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: 500m, memory: 1Gi}
+
+persistence:
+  graph: {size: 5Gi, storageClass: ""}
+  audit: {size: 2Gi, storageClass: ""}
+  mastraState: {size: 2Gi, storageClass: ""}
+
+secrets:
+  # GAP: the chart cannot express which secretRef feeds which env var.
+  existingSecret: acme-claims-triage-secrets
+
+ingress:
+  enabled: true
+  host: claims.acme.example
+  tlsSecretName: acme-claims-triage-tls

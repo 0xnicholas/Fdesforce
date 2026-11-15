@@ -1,0 +1,28 @@
+@prefix acme: <https://fde.dev/customer/acme/ontology#> .
+@prefix ic: <https://fde.dev/ontology/insurance-claims#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+<https://fde.dev/customer/acme/ontology> a owl:Ontology ;
+    rdfs:label "Acme Claims Ontology Extension" ;
+    skos:definition "Customer-specific extensions to the insurance-claims domain ontology." ;
+    owl:versionInfo "1.0.0" .
+
+acme:ClaimPriority a owl:Class ;
+    rdfs:label "Claim Priority" ;
+    skos:definition "Acme's internal triage priority for a claim." .
+
+acme:priority a owl:ObjectProperty ;
+    rdfs:label "priority" ;
+    rdfs:domain ic:Claim ;
+    rdfs:range acme:ClaimPriority .
+
+acme:high a acme:ClaimPriority ;
+    rdfs:label "high" .
+
+acme:normal a acme:ClaimPriority ;
+    rdfs:label "normal" .
+
+acme:low a acme:ClaimPriority ;
+    rdfs:label "low" .

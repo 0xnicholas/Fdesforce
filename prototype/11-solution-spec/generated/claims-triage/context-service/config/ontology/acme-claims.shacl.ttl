@@ -1,0 +1,66 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ic: <https://fde.dev/ontology/insurance-claims#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ic:ClaimShape a sh:NodeShape ;
+    sh:targetClass ic:Claim ;
+    sh:property [
+        sh:path ic:claimId ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path ic:status ;
+        sh:minCount 1 ;
+        sh:in ( "new" "triage" "approved" "rejected" "closed" ) ;
+    ] ;
+    sh:property [
+        sh:path ic:amount ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 0 ;
+    ] ;
+    sh:property [
+        sh:path ic:hasPolicy ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class ic:Policy ;
+    ] .
+
+ic:PolicyShape a sh:NodeShape ;
+    sh:targetClass ic:Policy ;
+    sh:property [
+        sh:path ic:policyNumber ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path ic:hasCoverage ;
+        sh:minCount 1 ;
+        sh:class ic:Coverage ;
+    ] .
+
+ic:CoverageShape a sh:NodeShape ;
+    sh:targetClass ic:Coverage ;
+    sh:property [
+        sh:path ic:coverageType ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path ic:coverageLimit ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 0 ;
+    ] .
+
+ic:CustomerShape a sh:NodeShape ;
+    sh:targetClass ic:Customer ;
+    sh:property [
+        sh:path ic:customerId ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] .

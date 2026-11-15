@@ -1,0 +1,100 @@
+# PROTOTYPE — generated deployment manifest.
+# Source: solution.lock#/runtime + GENERATED.yaml#/components
+# Compose is one of three targets; Helm mirrors the same topology.
+name: acme-claims-triage
+
+x-bundle: &bundle
+  customer: acme
+  solution: claims-triage
+  specDigest: sha256:ad68782bf3d23c01f3a96d1e8485046d8cb7364e8995672b1f6fbdf5143c4f9a
+  bundleDigest: sha256:1717171717171717171717171717171717171717171717171717171717171717
+  runtimeContract: fde.runtime/v1
+
+services:
+  migrate:
+    image: ghcr.io/acme-fde/claims-triage-context-service@sha256:1616161616161616161616161616161616161616161616161616161616161616
+    command: ["python", "-m", "app.migrate"]
+    environment:
+      GRAPH_PATH: /data/graph/graph.json
+      AUDIT_PATH: /data/audit/audit.sqlite
+    volumes:
+      - graph:/data/graph
+      - audit:/data/audit
+    restart: "no"
+    networks: [bundle]
+
+  context-service:
+    image: ghcr.io/acme-fde/claims-triage-context-service@sha256:1616161616161616161616161616161616161616161616161616161616161616
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      GRAPH_PATH: /data/graph/graph.json
+      AUDIT_PATH: /data/audit/audit.sqlite
+      GRAPH_BACKEND: embedded
+      # GAP: secretRef -> env resolution is not part of the bundle contract.
+      # Empty defaults keep `docker compose config` parseable; a real install
+      # must fail closed when these are missing.
+      EXECUTION_CONTEXT_PUBLIC_KEY: ${EXECUTION_CONTEXT_PUBLIC_KEY:-}
+    volumes:
+      - graph:/data/graph
+      - audit:/data/audit
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/readyz')"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    networks: [bundle]
+
+  ingest:
+    image: ghcr.io/acme-fde/claims-triage-context-service@sha256:1616161616161616161616161616161616161616161616161616161616161616
+    command: ["python", "-m", "app.ingest"]
+    depends_on:
+      context-service:
+        condition: service_healthy
+    environment:
+      CONTEXT_SERVICE_URL: http://context-service:8011
+    # GAP: fde.runtime/v1 has no ingest endpoint; the real job must call
+    # context-service, not write the graph volume directly (single writer).
+    restart: "no"
+    networks: [bundle]
+
+  mastra-app:
+    image: ghcr.io/acme-fde/claims-triage-mastra-app@sha256:1515151515151515151515151515151515151515151515151515151515151515
+    depends_on:
+      context-service:
+        condition: service_healthy
+    environment:
+      CONTEXT_SERVICE_URL: http://context-service:8011
+      PORT: "4111"
+      CONTEXT_RECIPE_ID: claims-context
+      # GAP: signing key discovery is install-time convention, not a field.
+      EXECUTION_CONTEXT_JWK: ${EXECUTION_CONTEXT_JWK:-}
+      EXECUTION_CONTEXT_KID: ${EXECUTION_CONTEXT_KID:-proto}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+    volumes:
+      - mastra-state:/app/.mastra
+    ports:
+      - "127.0.0.1:${MASTRA_PORT:-4111}:4111"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4111/readyz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+    networks: [bundle, edge]
+
+volumes:
+  mastra-state:
+  graph:
+  audit:
+
+networks:
+  # context-service is reachable only inside the bundle.
+  bundle:
+    internal: true
+  # mastra-app is the single customer-facing entry point.
+  edge: {}

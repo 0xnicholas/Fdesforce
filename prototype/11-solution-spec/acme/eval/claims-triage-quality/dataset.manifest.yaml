@@ -1,0 +1,31 @@
+apiVersion: fde.dev/v0
+kind: EvalDataset
+metadata:
+  customer: acme
+  name: acme-claims-triage
+  version: 1.0.0
+spec:
+  capabilityRef: document-triage@1.0.0
+  status: frozen
+  digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+  caseCount: 5
+  targetCaseCount: 50
+  sampleFile: dataset.sample.jsonl
+  note: Sample only; a release dataset requires at least 50 cases and at least 10 holdout cases.
+  splits:
+    dev: 2
+    holdout: 1
+    regression: 1
+    judge-calibration: 1
+  sourceSummary:
+    sme: 3
+    historical: 1
+    synthetic: 1
+  redactionSummary:
+    applied: true
+    method: synthetic-and-redacted
+  compatibility:
+    specMajor: v0
+    runtimeContract: fde.runtime/v1
+    graphSchema: 1
+    auditSchema: 1

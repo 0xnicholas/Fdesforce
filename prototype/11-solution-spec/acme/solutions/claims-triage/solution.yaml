@@ -1,0 +1,120 @@
+# PROTOTYPE — throwaway sample. Field names are illustrative; comments marked
+# PROPOSED are not in the documented Solution Spec shape yet.
+apiVersion: fde.dev/v0
+kind: SolutionSpec
+metadata:
+  customer: acme
+  solution: claims-triage
+spec:
+  overlays:
+    - acme-baseline@^1.0.0
+    - claims-triage-tuning@^1.0.0
+
+  capabilities:
+    document-triage:
+      template: document-triage@^1.0.0
+      implementation:
+        type: workflow
+        ref: document-triage-flow
+      policyRefs:
+        - pii-redaction@^1.0.0
+        - claims-approval-threshold@^1.0.0
+      evalRefs:
+        - claims-triage-quality@^1.0.0
+
+  agents:
+    triage-agent:
+      modelProfile: standard
+      instructions: files/prompts/triage.md
+      tools:
+        - retrieve-context
+        - claims-lookup
+      policyRefs:
+        - pii-redaction@^1.0.0
+
+  workflows:
+    document-triage-flow:
+      durable: true
+      timeout: PT5M
+      steps:
+        - id: context
+          type: context
+          recipe: claims-context
+        - id: triage
+          type: agent
+          agent: triage-agent
+        # PROPOSED: approval step shape. Domain model only says human_approval: true.
+        - id: approval
+          type: approval
+          when: "$.triage.output.amount > policy.claims-approval-threshold.amount"
+          approverRoles: [claims-supervisor]
+          expiresAt: PT24H
+          proposedAction: "approve claim ${triage.output.claimId} for ${triage.output.amount}"
+        - id: commit
+          type: tool
+          tool: claim-decision
+          when: "$.approval.status == 'approved'"
+
+  tools:
+    # PROPOSED: a Tool has no implementation discriminator today
+    # (connectorRef is optional, but built-in and Extension tools are not addressable).
+    retrieve-context:
+      builtin: retrieve_context
+      sideEffects: read
+    claims-lookup:
+      connectorRef: claims-db
+      operation: lookupClaim
+      sideEffects: read
+      inputSchema: files/schemas/claims-lookup.input.json
+      outputSchema: files/schemas/claims-lookup.output.json
+    claim-decision:
+      connectorRef: claims-db
+      operation: recordDecision
+      sideEffects: write
+      inputSchema: files/schemas/claim-decision.input.json
+      outputSchema: files/schemas/claim-decision.output.json
+      # PROPOSED: record-before-act needs to know what evidence and classification
+      # go into the intent Decision; the documented Tool entity has no such fields.
+      evidence:
+        from: [context, triage]
+      decision:
+        classification: confidential
+        retentionClass: standard
+
+  semantic:
+    contextPackageRef: acme-claims-context@^1.0.0
+    recipeBindings:
+      claims-context:
+        recipeRef: claims-context@^1.0.0
+        budget:
+          maxNodes: 50
+          maxTokens: 4000
+          maxHops: 2
+
+  governance:
+    policies:
+      - data-retention@^2.0.0
+    # PROPOSED: documented as "Solution-level Policy / Eval Suite refs", but the
+    # example only shows policies; this field name is not fixed.
+    evalSuites:
+      - claims-context@^1.0.0
+
+  environments:
+    acme-prod:
+      kind: prod
+      region: eu-west-1
+      capacityClass: medium
+      networkClass: restricted
+      secretStoreKind: vault
+
+  extensions:
+    - acme-claims-connector@^1.0.0
+
+  build:
+    runtimeProfile: mastra-1.83-node26@^1.0.0
+    # PROPOSED: "airgap" is a delivery mode, not a platform like compose/helm.
+    targets: [compose, helm, airgap]
+
+  deployment:
+    profile: standard
+    migrationPolicy: manual

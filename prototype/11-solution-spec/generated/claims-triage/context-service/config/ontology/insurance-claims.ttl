@@ -1,0 +1,113 @@
+@prefix ic: <https://fde.dev/ontology/insurance-claims#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<https://fde.dev/ontology/insurance-claims> a owl:Ontology ;
+    rdfs:label "Insurance Claims Domain Ontology" ;
+    skos:definition "Reusable domain vocabulary for insurance claim triage." ;
+    owl:versionInfo "1.0.0" .
+
+ic:Claim a owl:Class ;
+    rdfs:label "Claim" ;
+    skos:definition "A request for payment under an insurance policy." .
+
+ic:Policy a owl:Class ;
+    rdfs:label "Policy" ;
+    skos:definition "An insurance contract that defines coverage and obligations." .
+
+ic:Customer a owl:Class ;
+    rdfs:label "Customer" ;
+    skos:definition "The person or organization insured by a policy." .
+
+ic:Coverage a owl:Class ;
+    rdfs:label "Coverage" ;
+    skos:definition "A specific protection and limit within a policy." .
+
+ic:ClaimDocument a owl:Class ;
+    rdfs:label "Claim Document" ;
+    skos:definition "A document that supports a claim decision, such as a policy or an incident report." .
+
+ic:FraudFlag a owl:Class ;
+    rdfs:label "Fraud Flag" ;
+    skos:definition "A risk indicator associated with a claim or customer." .
+
+ic:hasPolicy a owl:ObjectProperty ;
+    rdfs:label "has policy" ;
+    rdfs:domain ic:Claim ;
+    rdfs:range ic:Policy .
+
+ic:hasCoverage a owl:ObjectProperty ;
+    rdfs:label "has coverage" ;
+    rdfs:domain ic:Policy ;
+    rdfs:range ic:Coverage .
+
+ic:forCustomer a owl:ObjectProperty ;
+    rdfs:label "for customer" ;
+    rdfs:domain ic:Policy ;
+    rdfs:range ic:Customer .
+
+ic:documentsPolicy a owl:ObjectProperty ;
+    rdfs:label "documents policy" ;
+    rdfs:domain ic:ClaimDocument ;
+    rdfs:range ic:Policy .
+
+ic:documentsCoverage a owl:ObjectProperty ;
+    rdfs:label "documents coverage" ;
+    rdfs:domain ic:ClaimDocument ;
+    rdfs:range ic:Coverage .
+
+ic:hasFraudFlag a owl:ObjectProperty ;
+    rdfs:label "has fraud flag" ;
+    rdfs:domain ic:Claim ;
+    rdfs:range ic:FraudFlag .
+
+ic:claimId a owl:DatatypeProperty ;
+    rdfs:label "claim id" ;
+    rdfs:domain ic:Claim ;
+    rdfs:range xsd:string .
+
+ic:policyNumber a owl:DatatypeProperty ;
+    rdfs:label "policy number" ;
+    rdfs:domain ic:Policy ;
+    rdfs:range xsd:string .
+
+ic:customerId a owl:DatatypeProperty ;
+    rdfs:label "customer id" ;
+    rdfs:domain ic:Customer ;
+    rdfs:range xsd:string .
+
+ic:status a owl:DatatypeProperty ;
+    rdfs:label "status" ;
+    rdfs:range xsd:string .
+
+ic:amount a owl:DatatypeProperty ;
+    rdfs:label "amount" ;
+    rdfs:domain ic:Claim ;
+    rdfs:range xsd:decimal .
+
+ic:incidentDate a owl:DatatypeProperty ;
+    rdfs:label "incident date" ;
+    rdfs:domain ic:Claim ;
+    rdfs:range xsd:date .
+
+ic:coverageType a owl:DatatypeProperty ;
+    rdfs:label "coverage type" ;
+    rdfs:domain ic:Coverage ;
+    rdfs:range xsd:string .
+
+ic:coverageLimit a owl:DatatypeProperty ;
+    rdfs:label "coverage limit" ;
+    rdfs:domain ic:Coverage ;
+    rdfs:range xsd:decimal .
+
+ic:documentType a owl:DatatypeProperty ;
+    rdfs:label "document type" ;
+    rdfs:domain ic:ClaimDocument ;
+    rdfs:range xsd:string .
+
+ic:fraudFlag a owl:DatatypeProperty ;
+    rdfs:label "fraud flag" ;
+    rdfs:domain ic:FraudFlag ;
+    rdfs:range xsd:boolean .

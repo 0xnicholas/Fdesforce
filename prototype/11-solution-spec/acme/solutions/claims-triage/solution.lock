@@ -1,0 +1,42 @@
+# PROTOTYPE — throwaway sample.
+# Documented lock shape. The `extensions` block is required by the domain model
+# but is missing from the lock example in docs/domain-model.md §3.3. There is no
+# block for model profiles; see GAPS in the ticket resolution.
+lockVersion: 1
+specDigest: sha256:ad68782bf3d23c01f3a96d1e8485046d8cb7364e8995672b1f6fbdf5143c4f9a
+materializedFrom:
+  solutionTemplate: fde-solution@1.2.0@sha256:1111111111111111111111111111111111111111111111111111111111111111
+templates:
+  document-triage: 1.0.0@sha256:2222222222222222222222222222222222222222222222222222222222222222
+  pii-redaction: 1.0.0@sha256:3333333333333333333333333333333333333333333333333333333333333333
+  claims-approval-threshold: 1.0.0@sha256:4444444444444444444444444444444444444444444444444444444444444444
+  claims-triage-quality: 1.0.0@sha256:5555555555555555555555555555555555555555555555555555555555555555
+  claims-context: 1.0.0@sha256:6666666666666666666666666666666666666666666666666666666666666666
+  data-retention: 2.0.0@sha256:7777777777777777777777777777777777777777777777777777777777777777
+  acme-baseline: 1.0.0@sha256:8888888888888888888888888888888888888888888888888888888888888888
+  claims-triage-tuning: 1.0.0@sha256:9999999999999999999999999999999999999999999999999999999999999999
+runtime:
+  profile: mastra-1.83-node26@1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  contractVersion: 1.0.0
+  graphSchema: 1
+  auditSchema: 1
+  mastra: 1.83.0
+  node: 26.2.0
+  python: 3.12.2
+  semantica: 0.7.0
+  contextService: 0.1.0
+toolchain:
+  generator: 0.1.0
+  image: ghcr.io/acme-fde/toolchain@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+extensions:
+  acme-claims-connector: 1.0.0@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+customerObjects:
+  customerContextPackage: acme-claims-context@1.0.0@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+  connectors:
+    claims-db: sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+    sharepoint-claims: sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+  contextSources:
+    claims-db: sha256:1212121212121212121212121212121212121212121212121212121212121212
+    sharepoint-claims: sha256:1313131313131313131313131313131313131313131313131313131313131313
+  semanticModels:
+    acme-claims: 1.0.0@sha256:1414141414141414141414141414141414141414141414141414141414141414

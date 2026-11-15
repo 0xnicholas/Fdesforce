@@ -1,0 +1,19 @@
+# PROTOTYPE — throwaway sample.
+apiVersion: fde.dev/v0
+kind: Connector
+metadata:
+  customer: acme
+  name: claims-db
+spec:
+  type: postgres
+  endpointRef: secret://acme-prod/claims-db/url
+  secretRef: secret://acme-prod/claims-db/credentials
+  # GAP: `dataContract` and `allowedOperations` have no documented schema.
+  # The Solution Spec binds `operation: lookupClaim` / `recordDecision`, but
+  # nothing here declares their input/output types, scopes, or side effects.
+  dataContract: contracts/claims-db.md
+  allowedOperations:
+    - lookupClaim
+    - recordDecision
+  rateLimit:
+    requestsPerMinute: 120

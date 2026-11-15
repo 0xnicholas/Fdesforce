@@ -1,0 +1,20 @@
+# PROTOTYPE — generated skeleton.
+# Source: solution.lock#/runtime/graphSchema
+schemaVersion: "1"
+backend: embedded
+reversible: true
+nodeTypes:
+  - Claim
+  - Policy
+  - Coverage
+  - Customer
+  - ClaimDocument
+  - FraudFlag
+edgeTypes:
+  - hasPolicy
+  - hasCoverage
+  - forCustomer
+  - documentsPolicy
+limits:
+  nodes: 10000
+  edges: 50000

@@ -1,0 +1,213 @@
+# PROTOTYPE — generated Helm skeleton.
+# GAP: the same bundle renders differently than compose: compose uses a
+# one-shot `migrate` service, while this chart makes migrate an initContainer so
+# it can share the PVCs. The generator has no topology abstraction that keeps
+# compose/helm/airgap isomorphic.
+{{- $name := .Release.Name -}}
+{{- $labels := dict "app.kubernetes.io/name" "claims-triage" "app.kubernetes.io/instance" .Release.Name -}}
+{{- $contextImage := .Values.images.contextService -}}
+{{- $mastraImage := .Values.images.mastraApp -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}-graph
+  labels: {{- toYaml $labels | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- if .Values.persistence.graph.storageClass }}
+  storageClassName: {{ .Values.persistence.graph.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.graph.size }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}-audit
+  labels: {{- toYaml $labels | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- if .Values.persistence.audit.storageClass }}
+  storageClassName: {{ .Values.persistence.audit.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.audit.size }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}-mastra-state
+  labels: {{- toYaml $labels | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- if .Values.persistence.mastraState.storageClass }}
+  storageClassName: {{ .Values.persistence.mastraState.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.mastraState.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-context-service
+  labels: {{- toYaml $labels | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ $name }}-context-service
+  template:
+    metadata:
+      labels:
+        app: {{ $name }}-context-service
+    spec:
+      initContainers:
+        - name: migrate
+          image: {{ $contextImage }}
+          command: ["python", "-m", "app.migrate"]
+          env:
+            - name: AUDIT_PATH
+              value: /data/audit/audit.sqlite
+          volumeMounts:
+            - {name: audit, mountPath: /data/audit}
+      containers:
+        - name: context-service
+          image: {{ $contextImage }}
+          ports:
+            - {name: http, containerPort: {{ .Values.contextService.port }}}
+          env:
+            - {name: GRAPH_PATH, value: /data/graph/graph.json}
+            - {name: AUDIT_PATH, value: /data/audit/audit.sqlite}
+            - {name: GRAPH_BACKEND, value: embedded}
+          envFrom:
+            # GAP: secretRef mapping to env names is not in the bundle contract.
+            - secretRef: {name: {{ .Values.secrets.existingSecret }}}
+          volumeMounts:
+            - {name: graph, mountPath: /data/graph}
+            - {name: audit, mountPath: /data/audit}
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+          resources: {{- toYaml .Values.contextService.resources | nindent 12 }}
+      volumes:
+        - name: graph
+          persistentVolumeClaim: {claimName: {{ $name }}-graph}
+        - name: audit
+          persistentVolumeClaim: {claimName: {{ $name }}-audit}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-context-service
+  labels: {{- toYaml $labels | nindent 4 }}
+spec:
+  selector:
+    app: {{ $name }}-context-service
+  ports:
+    - {name: http, port: {{ .Values.contextService.port }}, targetPort: http}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-mastra-app
+  labels: {{- toYaml $labels | nindent 4 }}
+spec:
+  replicas: {{ .Values.mastraApp.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: {{ $name }}-mastra-app
+  template:
+    metadata:
+      labels:
+        app: {{ $name }}-mastra-app
+    spec:
+      containers:
+        - name: mastra-app
+          image: {{ $mastraImage }}
+          ports:
+            - {name: http, containerPort: {{ .Values.mastraApp.port }}}
+          env:
+            - {name: CONTEXT_SERVICE_URL, value: "http://{{ $name }}-context-service:{{ .Values.contextService.port }}"}
+            - {name: PORT, value: "{{ .Values.mastraApp.port }}"}
+          envFrom:
+            - secretRef: {name: {{ .Values.secrets.existingSecret }}}
+          volumeMounts:
+            - {name: mastra-state, mountPath: /app/.mastra}
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+          resources: {{- toYaml .Values.mastraApp.resources | nindent 12 }}
+      volumes:
+        - name: mastra-state
+          persistentVolumeClaim: {claimName: {{ $name }}-mastra-state}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-mastra-app
+  labels: {{- toYaml $labels | nindent 4 }}
+spec:
+  selector:
+    app: {{ $name }}-mastra-app
+  ports:
+    - {name: http, port: {{ .Values.mastraApp.port }}, targetPort: http}
+{{- if .Values.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}
+  labels: {{- toYaml $labels | nindent 4 }}
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [{{ .Values.ingress.host | quote }}]
+      secretName: {{ .Values.ingress.tlsSecretName }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $name }}-mastra-app
+                port: {name: http}
+{{- end }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}-ingest
+  labels: {{- toYaml $labels | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: wait-for-context-service
+          image: {{ $contextImage }}
+          command:
+            - sh
+            - -c
+            - >-
+              until python -c "import urllib.request; urllib.request.urlopen('http://{{ $name }}-context-service:{{ .Values.contextService.port }}/readyz')"; do sleep 3; done
+      containers:
+        - name: ingest
+          image: {{ $contextImage }}
+          command: ["python", "-m", "app.ingest"]
+          env:
+            - {name: CONTEXT_SERVICE_URL, value: "http://{{ $name }}-context-service:{{ .Values.contextService.port }}"}

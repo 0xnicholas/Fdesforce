@@ -1,0 +1,156 @@
+apiVersion: fde.dev/v0
+kind: MetricCatalog
+metadata:
+  name: fde-core
+  version: 1.0.0
+spec:
+  metrics:
+    - metricId: recall_at_budget
+      family: context
+      definition: Expected facts retrieved within the context budget.
+      formula: expected_facts_retrieved / expected_facts
+      unit: ratio
+      direction: higher_is_better
+      source: context_eval
+      aggregation: mean
+      owner: fde-platform
+
+    - metricId: citation_validity
+      family: grounding
+      definition: Every cited item has a valid source_ref@version and matches the retrieval snapshot.
+      formula: valid_citations / total_citations
+      unit: ratio
+      direction: higher_is_better
+      source: eval_runner
+      aggregation: per_case
+      owner: fde-platform
+
+    - metricId: citation_coverage
+      family: grounding
+      definition: Factual claims in the answer that carry a source citation; claim segmentation is deterministic in v0.
+      formula: cited_claims / total_claims
+      unit: ratio
+      direction: higher_is_better
+      source: eval_runner
+      aggregation: mean
+      owner: fde-platform
+
+    - metricId: groundedness
+      family: grounding
+      definition: Answer claims supported by the cited facts.
+      formula: supported_claims / total_claims
+      unit: ratio
+      direction: higher_is_better
+      source: judge
+      aggregation: mean
+      owner: fde-platform
+
+    - metricId: task_success
+      family: outcome
+      definition: Case-level task success against the rubric.
+      formula: rubric_score
+      unit: ratio
+      direction: higher_is_better
+      source: eval_runner
+      aggregation: mean
+      owner: fde-platform
+
+    - metricId: refusal_precision
+      family: abstention
+      definition: Refusals that were correct out of all refusals.
+      formula: correct_refusals / total_refusals
+      unit: ratio
+      direction: higher_is_better
+      source: eval_runner
+      aggregation: mean
+      owner: fde-platform
+
+    - metricId: refusal_recall
+      family: abstention
+      definition: Should-refuse cases that were refused.
+      formula: correct_refusals / should_refuse
+      unit: ratio
+      direction: higher_is_better
+      source: eval_runner
+      aggregation: mean
+      owner: fde-platform
+
+    - metricId: pii_leak_rate
+      family: safety
+      definition: Cases with unredacted PII in output, audit, or telemetry.
+      formula: pii_cases / total_cases
+      unit: ratio
+      direction: zero_is_good
+      source: eval_runner
+      aggregation: mean
+      owner: fde-platform
+
+    - metricId: unauthorized_side_effect_rate
+      family: safety
+      definition: Tool calls outside the allowlist or declared side effects.
+      formula: unauthorized_calls / total_calls
+      unit: ratio
+      direction: zero_is_good
+      source: eval_runner
+      aggregation: mean
+      owner: fde-platform
+
+    - metricId: decision_coverage
+      family: auditability
+      definition: Side-effect Runs with complete intent and outcome Decisions.
+      formula: complete_decision_runs / side_effect_runs
+      unit: ratio
+      direction: higher_is_better
+      source: audit
+      aggregation: mean
+      owner: fde-platform
+
+    - metricId: audit_write_success
+      family: auditability
+      definition: Successful audit writes out of attempts.
+      formula: successful_writes / write_attempts
+      unit: ratio
+      direction: higher_is_better
+      source: audit
+      aggregation: mean
+      owner: fde-platform
+
+    - metricId: retrieve_latency_p95
+      family: ops
+      definition: p95 Context retrieve latency.
+      formula: p95(retrieve_latency_ms)
+      unit: ms
+      direction: lower_is_better
+      source: otel
+      aggregation: p95
+      owner: fde-platform
+
+    - metricId: run_latency_p95
+      family: ops
+      definition: p95 Run completion latency.
+      formula: p95(run_latency_ms)
+      unit: ms
+      direction: lower_is_better
+      source: otel
+      aggregation: p95
+      owner: fde-platform
+
+    - metricId: cost_per_successful_run
+      family: cost
+      definition: Model and tool cost per successful Run.
+      formula: total_cost_usd / successful_runs
+      unit: usd
+      direction: lower_is_better
+      source: otel
+      aggregation: mean
+      owner: fde-platform
+
+    - metricId: online_eval_coverage
+      family: eval_ops
+      definition: Configured online samples that were actually scored.
+      formula: scored_samples / configured_samples
+      unit: ratio
+      direction: higher_is_better
+      source: eval_store
+      aggregation: mean
+      owner: fde-platform

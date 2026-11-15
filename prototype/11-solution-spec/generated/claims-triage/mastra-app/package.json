@@ -1,0 +1,20 @@
+{
+  "name": "@acme-fde/claims-triage-mastra-app",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "mastra build",
+    "start": "node --experimental-strip-types src/server.ts",
+    "dev": "mastra dev"
+  },
+  "dependencies": {
+    "@mastra/core": "1.83.0",
+    "@mastra/libsql": "1.30.0",
+    "jose": "^6.0.0",
+    "mastra": "1.39.0",
+    "zod": "^3.25.0"
+  }
+}

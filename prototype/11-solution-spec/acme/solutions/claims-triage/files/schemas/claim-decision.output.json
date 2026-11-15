@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://acme.example/fde/claim-decision.output.json",
+  "title": "claim-decision output",
+  "type": "object",
+  "required": ["decisionId", "status"],
+  "properties": {
+    "decisionId": { "type": "string", "pattern": "^dec_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "status": { "type": "string", "enum": ["recorded", "rejected"] }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,16 @@
+# PROTOTYPE — generated skeleton. Versions are illustrative; the real build
+# pins them through the lock file and toolchain image.
+[project]
+name = "acme-claims-triage-context-service"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi==0.115.6",
+  "uvicorn[standard]==0.34.0",
+  "pydantic==2.10.4",
+  "PyYAML==6.0.2",
+  "semantica==0.7.0",
+]
+
+[project.scripts]
+context-service = "app.main:main"
