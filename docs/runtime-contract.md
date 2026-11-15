@@ -50,7 +50,7 @@ flowchart LR
 | 图存储 | v0 为 embedded Context Graph（JSON 快照 + 进程内图）；未来通过 `GraphStore` 端口替换 | 不是审计库；不保存 Decision/Provenance 的权威副本 |
 | 审计库 | append-only、哈希链式保存 Decision/Provenance/审批 | 不与主图共用快照生命周期；不存完整 PII |
 | `mastra-state` | workflow snapshot、thread/memory、流式状态 | 不是语义真相源；不参与跨 Solution 共享 |
-| 工作台 | 构建、签名、打包、交付 bundle | 不托管运行时；不持有客户数据 |
+| 工作台 | 构建、校验/冻结 Customer Context Package、签名、打包、交付 bundle | 不托管运行时；不持有客户数据 |
 | 客户运维 | 主机、网络、TLS ingress、IdP、secret store、备份介质 | 不修改 bundle 内的生成物 |
 
 **v0 只有两个应用网络服务**：`mastra-app` 和 `context-service`。Semantica 不单独起服务；图与审计是 context-service 拥有的持久化卷。这样跨语言接缝只有一个，也避免 Semantica 原生 serving 的两套状态问题。
@@ -210,7 +210,7 @@ flowchart LR
 | Run 生命周期 | `mastra-state` + `mastra-app` | 无 | Run 的权威状态在 Mastra；Decision 引用 `run_id` |
 | Workflow snapshot | `mastra-state` | 无 | 支撑 HITL/重启恢复；不是语义事实 |
 | Thread / memory | `mastra-state` | 无 | 运行编排状态；不写入 Context Graph |
-| Context Recipe | Solution Spec / Bundle | 无 | 运行时只读 recipe 定义 |
+| Context Recipe | Solution Spec / Bundle（定义可来自 Customer Context Package） | 无 | 运行时只读 recipe 定义 |
 | Policy / Eval 定义 | Bundle | 无 | 执行结果写 Decision |
 | Release / Deployment | 工作台 + 客户侧记录 | 无 | 本契约只定义运行时读取的版本字段 |
 
@@ -741,6 +741,7 @@ sequenceDiagram
 - 「评测、验收与可观测性」：指标/SLO、评测集/scorer、看板、验收阈值、PII 保留值。
 - 「生产检索索引与 100k+ 规模上限」：生产图存储、索引组合、Neo4j serving adapter、迁移路径。
 - 「LangGraph 运行时映射缺口」：可移植性与第二 runtime；本契约保持 context-service 运行时中立，但不承诺双运行时。
+- 语义建模、Customer Context Package、Context Recipe 编排、权限注解与 context eval：见 [`semantic-modeling.md`](semantic-modeling.md)。
 
 v0 已知限制：
 

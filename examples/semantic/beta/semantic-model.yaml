@@ -1,0 +1,41 @@
+apiVersion: fde.dev/v0
+kind: SemanticModel
+metadata:
+  customer: beta
+  name: beta-kyc
+  version: 1.0.0
+spec:
+  ontology:
+    modules:
+      - ref: kyc-ontology@1.0.0
+        source: template
+        digest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+    extensions: []
+  sources:
+    - ref: beta-dms
+      contextSource: context-sources/beta-dms.yaml
+    - ref: core-banking
+      contextSource: context-sources/core-banking.yaml
+  entityMappings:
+    - ref: mappings/beta-dms.yaml
+    - ref: mappings/core-banking.yaml
+  resolution:
+    keys:
+      Customer: [customer_id]
+      KYCReview: [review_id]
+    sourcePrecedence:
+      Customer: [core-banking, beta-dms]
+    merge:
+      strategy: same_as
+      minConfidence: 0.9
+  freshness:
+    defaultStaleAfter: PT12H
+    perSource:
+      core-banking: PT1H
+      beta-dms: PT12H
+  recipes:
+    - ref: recipes/kyc-context.yaml
+  permissions:
+    ref: permissions.yaml
+  evals:
+    - ref: evals/kyc-context.golden.yaml

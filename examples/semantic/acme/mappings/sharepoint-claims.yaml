@@ -1,0 +1,25 @@
+apiVersion: fde.dev/v0
+kind: DocumentMapping
+metadata:
+  customer: acme
+  source: sharepoint-claims
+spec:
+  connectorRef: sharepoint-claims
+  paths:
+    - "policies/**/*.md"
+    - "claims/**/*.pdf"
+  parser: markdown+pdf
+  chunking:
+    strategy: heading
+    maxTokens: 800
+  extraction:
+    entityTypes: ["ic:Policy", "ic:Coverage", "ic:ClaimDocument"]
+    relationTypes: ["ic:documentsPolicy", "ic:documentsCoverage"]
+    mode: candidate
+    minConfidence: 0.7
+  provenance:
+    sourceRef: "sharepoint://{path}"
+    version: "{etag}"
+  schedule: "0 * * * *"
+  freshness:
+    staleAfter: PT24H

@@ -1,0 +1,28 @@
+apiVersion: fde.dev/v0
+kind: PermissionProfile
+metadata:
+  customer: acme
+  name: acme-claims-baseline
+spec:
+  defaults:
+    unknownClassification: restricted
+    pii: redact
+  classifications:
+    "ic:Claim": {classification: confidential, pii: identifier}
+    "ic:Policy": {classification: internal}
+    "ic:Customer": {classification: restricted, pii: contact}
+    "ic:Coverage": {classification: confidential}
+    "ic:ClaimDocument": {classification: confidential, pii: sensitive}
+  properties:
+    "ic:claimId": {classification: confidential}
+    "ic:customerName": {classification: restricted, pii: contact, columnMask: redact}
+    "ic:customerEmail": {classification: restricted, pii: contact, columnMask: hash}
+    "ic:amount": {classification: confidential}
+    "ic:coverageLimit": {classification: confidential}
+  rowFilters:
+    "ic:Claim": "tenant_id = :tenant_id AND customer_id IN (:allowed_customer_ids)"
+    "ic:Customer": "tenant_id = :tenant_id AND customer_id IN (:allowed_customer_ids)"
+  scopes:
+    "ic:Claim": ["claims:read"]
+    "ic:Customer": ["customer:pii:read"]
+    "ic:ClaimDocument": ["claims:documents:read"]

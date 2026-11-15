@@ -1,0 +1,27 @@
+apiVersion: fde.dev/v0
+kind: CustomerContextPackage
+metadata:
+  customer: beta
+  name: beta-kyc-context
+  version: 1.0.0
+  status: frozen
+spec:
+  semanticModelRef: semantic-model.yaml
+  contextSources:
+    - context-sources/beta-dms.yaml
+    - context-sources/core-banking.yaml
+  recipes:
+    - recipes/kyc-context.yaml
+  permissionsRef: permissions.yaml
+  evals:
+    - evals/kyc-context.golden.yaml
+  compatibility:
+    specMajor: v0
+    runtimeContract: fde.runtime/v1
+    graphSchema: 1
+    auditSchema: 1
+  provenance:
+    createdBy: fde://beta
+    createdAt: 2026-11-15T08:00:00Z
+    decisions:
+      - dec_01ARZ3NDEKTSV4RRFFQ69G5FAW

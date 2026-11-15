@@ -120,21 +120,45 @@ _Avoid_: Exception, Override
 版本化的词汇表和约束（classes/properties/SHACL），可以来自 Template，也可以由 Customer 扩展。
 _Avoid_: Schema, Vocabulary
 
+**Domain Ontology**:
+跨 Customer 复用的、版本化的领域本体模板，提供类、属性、关系和 SHACL 约束的起点。
+_Avoid_: Customer Ontology, Schema
+
+**Customer Ontology Extension**:
+Customer 对 Domain Ontology 的版本化扩展，只包含客户特有的类、属性和 SHACL 约束。
+_Avoid_: Fork, Custom Ontology
+
 **Semantic Model**:
-Customer 对 Ontology 的绑定，包含选定的模块、实体映射和解析/合并规则。
+Customer 对 Ontology 的绑定，包含选定的模块、实体映射、解析/合并规则、源优先级和时效规则。
 _Avoid_: Knowledge Model
 
-**Context Source**:
-一个已配置的外部数据源或数据集，带有凭证引用、分类和新鲜度要求。
-_Avoid_: Data Source
+**Entity Mapping**:
+从外部表、视图或文档到 Ontology 类/属性的声明式映射，包含键、属性、关系和摄取水位。
+_Avoid_: ETL, Mapping table
+
+**Competency Question**:
+一个 Capability 的上下文必须能回答的业务问题；用于确定 Ontology 模块、Context Source 和 Context Eval。
+_Avoid_: Requirement, Query
 
 **Context Recipe**:
-声明式的上下文检索和组装方案。
+声明式的上下文检索和组装方案；可由 Customer Context Package 提供可复用定义，Solution 引用并可收紧覆盖。
 _Avoid_: Prompt, Retriever
 
+**Context Recipe Binding**:
+Solution 对 Customer 级 Context Recipe 的引用和收紧配置；不能放宽权限 baseline。
+_Avoid_: Override, Instance
+
+**Context Eval Suite**:
+版本化的上下文质量评测定义，包含 golden questions、期望事实、指标和阈值。
+_Avoid_: Eval, Benchmark
+
 **Context Graph**:
-由 Context Source 物化出的图数据，可重建，不是作者实体。
+按 Semantic Model 和 Entity Mapping 从 Context Source 物化出的图数据，可重建，不是作者实体。
 _Avoid_: Knowledge Graph
+
+**Customer Context Package (CCP)**:
+一个 Customer 的版本化、不可变语义上下文资产包，聚合 Ontology 选择与客户扩展、Semantic Model、Context Source 定义、Entity Mapping、Context Recipe、权限 baseline 和 Context Eval Suite；不包含客户数据、secret 或生成物。
+_Avoid_: Context Bundle, Knowledge Pack
 
 **Decision**:
 一次被记录的选择，包含理由、证据、actor 和 provenance；`subject` 可以是 Run、Evaluation、Release、Deployment 或 Solution Revision。

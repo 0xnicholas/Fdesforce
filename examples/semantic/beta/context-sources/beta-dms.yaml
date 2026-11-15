@@ -1,0 +1,14 @@
+apiVersion: fde.dev/v0
+kind: ContextSource
+metadata:
+  customer: beta
+  name: beta-dms
+spec:
+  connectorRef: beta-dms
+  dataset: sites/kyc
+  classification: restricted
+  freshness:
+    staleAfter: PT12H
+    watermark: etag
+  schedule: "0 */2 * * *"
+  mode: incremental

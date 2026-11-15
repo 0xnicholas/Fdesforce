@@ -1,0 +1,25 @@
+apiVersion: fde.dev/v0
+kind: DocumentMapping
+metadata:
+  customer: beta
+  source: beta-dms
+spec:
+  connectorRef: beta-dms
+  paths:
+    - "kyc/**/*.pdf"
+    - "kyc/**/*.md"
+  parser: markdown+pdf
+  chunking:
+    strategy: heading
+    maxTokens: 600
+  extraction:
+    entityTypes: ["kyc:IdentityDocument", "kyc:ProofOfAddress", "kyc:KYCReview"]
+    relationTypes: ["kyc:supportsReview"]
+    mode: candidate
+    minConfidence: 0.8
+  provenance:
+    sourceRef: "beta-dms://{path}"
+    version: "{etag}"
+  schedule: "0 */2 * * *"
+  freshness:
+    staleAfter: PT12H

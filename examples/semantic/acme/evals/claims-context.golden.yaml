@@ -1,0 +1,40 @@
+apiVersion: fde.dev/v0
+kind: ContextEvalSuite
+metadata:
+  customer: acme
+  name: claims-context
+  version: 1.0.0
+spec:
+  recipeRef: claims-context@1.0.0
+  thresholds:
+    recallAtBudget: 0.8
+    citationValidity: 1.0
+    silentStale: 0
+    silentConflict: 0
+  questions:
+    - id: q1
+      question: "理赔单 C-1001 由哪张保单覆盖，保额多少？"
+      input: {claim_id: "C-1001"}
+      expectedEntities:
+        - ic:Claim/C-1001
+        - ic:Policy/P-2001
+        - ic:Coverage/COV-1
+      requiredCitations:
+        - claims-db://public.claims/C-1001
+        - claims-db://public.policies/P-2001
+    - id: q2
+      question: "高级客户的退款政策是什么？"
+      input: {query: "refund policy premium customer"}
+      expectedEntities:
+        - ic:Policy/P-REFUND-30
+        - ic:ClaimDocument/DOC-REFUND
+      requiredCitations:
+        - sharepoint://claims/policies/refund.md
+    - id: q3
+      question: "这个理赔单是否关联到历史欺诈标记？"
+      input: {claim_id: "C-1001"}
+      expectedEntities:
+        - ic:Claim/C-1001
+        - ic:FraudFlag/FF-7
+      requiredCitations:
+        - claims-db://public.fraud_flags/FF-7

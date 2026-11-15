@@ -1,0 +1,27 @@
+apiVersion: fde.dev/v0
+kind: EntityMapping
+metadata:
+  customer: beta
+  source: core-banking
+spec:
+  connectorRef: core-banking
+  dataset: core.customers
+  entity: "kyc:Customer"
+  key: [customer_id]
+  properties:
+    customer_id: {property: "kyc:customerId", type: string}
+    legal_name: {property: "kyc:legalName", type: string}
+    country: {property: "kyc:country", type: string}
+    risk_rating: {property: "kyc:riskRating", type: string}
+  relations:
+    - property: "kyc:holdsAccount"
+      targetEntity: "kyc:Account"
+      targetKey: account_id
+      join:
+        table: core.accounts
+        on: customers.customer_id = accounts.customer_id
+  watermark:
+    column: updated_at
+    mode: updated_at
+  filters:
+    - "tenant_id = :tenant_id"

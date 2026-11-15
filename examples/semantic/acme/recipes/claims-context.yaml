@@ -1,0 +1,47 @@
+apiVersion: fde.dev/v0
+kind: ContextRecipe
+metadata:
+  customer: acme
+  name: claims-context
+  version: 1.0.0
+spec:
+  semanticModelRef: acme-claims@1.0.0
+  inputSchema:
+    type: object
+    required: [claim_id]
+    properties:
+      claim_id: {type: string}
+      query: {type: string}
+  stages:
+    - type: resolve
+      entity: "ic:Claim"
+      key: claim_id
+    - type: structured
+      source: claims-db
+      entities: ["ic:Claim", "ic:Policy", "ic:Coverage", "ic:Customer"]
+    - type: graph
+      from: resolved
+      relations:
+        - "ic:hasPolicy"
+        - "ic:hasCoverage"
+        - "ic:forCustomer"
+        - "ic:documentsPolicy"
+      maxHops: 2
+    - type: lexical
+      source: sharepoint-claims
+      query: "$query"
+      topK: 20
+    - type: merge
+      dedupe: [entity_id, content_hash]
+    - type: rank
+      weights: {structured: 0.5, graph: 0.3, lexical: 0.2}
+      freshnessBoost: 0.1
+    - type: mask
+      permissions: permissions.yaml
+    - type: budget
+      maxNodes: 50
+      maxTokens: 4000
+      maxHops: 2
+  output:
+    render: mastra
+    includeCitations: true

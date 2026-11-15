@@ -1,0 +1,27 @@
+apiVersion: fde.dev/v0
+kind: PermissionProfile
+metadata:
+  customer: beta
+  name: beta-kyc-baseline
+spec:
+  defaults:
+    unknownClassification: restricted
+    pii: redact
+  classifications:
+    "kyc:Customer": {classification: restricted, pii: identifier}
+    "kyc:IdentityDocument": {classification: restricted, pii: sensitive}
+    "kyc:ProofOfAddress": {classification: restricted, pii: contact}
+    "kyc:Account": {classification: restricted, pii: identifier}
+    "kyc:KYCReview": {classification: confidential}
+  properties:
+    "kyc:legalName": {classification: restricted, pii: contact, columnMask: redact}
+    "kyc:customerId": {classification: restricted, pii: identifier, columnMask: tokenize}
+    "kyc:country": {classification: internal}
+    "kyc:riskRating": {classification: confidential}
+  rowFilters:
+    "kyc:Customer": "tenant_id = :tenant_id AND customer_id IN (:allowed_customer_ids)"
+    "kyc:KYCReview": "tenant_id = :tenant_id AND reviewer_roles ?| :roles"
+  scopes:
+    "kyc:Customer": ["kyc:read"]
+    "kyc:IdentityDocument": ["kyc:pii:read"]
+    "kyc:KYCReview": ["kyc:review"]

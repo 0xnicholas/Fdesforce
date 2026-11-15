@@ -1,0 +1,32 @@
+apiVersion: fde.dev/v0
+kind: ContextEvalSuite
+metadata:
+  customer: beta
+  name: kyc-context
+  version: 1.0.0
+spec:
+  recipeRef: kyc-context@1.0.0
+  thresholds:
+    recallAtBudget: 0.9
+    citationValidity: 1.0
+    silentStale: 0
+    silentConflict: 0
+  questions:
+    - id: q1
+      question: "客户 C-900 的 KYC 复核需要哪些身份文件？"
+      input: {review_id: "R-900"}
+      expectedEntities:
+        - kyc:KYCReview/R-900
+        - kyc:Customer/C-900
+        - kyc:IdentityDocument/ID-1
+      requiredCitations:
+        - beta-dms://kyc/C-900/identity.pdf
+    - id: q2
+      question: "客户 C-900 的风险评级和账户状态是什么？"
+      input: {review_id: "R-900"}
+      expectedEntities:
+        - kyc:Customer/C-900
+        - kyc:Account/A-1
+      requiredCitations:
+        - core-banking://core.customers/C-900
+        - core-banking://core.accounts/A-1

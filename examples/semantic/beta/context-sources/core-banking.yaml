@@ -1,0 +1,14 @@
+apiVersion: fde.dev/v0
+kind: ContextSource
+metadata:
+  customer: beta
+  name: core-banking
+spec:
+  connectorRef: core-banking
+  dataset: core.customers
+  classification: restricted
+  freshness:
+    staleAfter: PT1H
+    watermark: updated_at
+  schedule: "*/15 * * * *"
+  mode: incremental

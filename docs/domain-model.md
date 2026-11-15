@@ -22,7 +22,7 @@
 | 复用与定制 | Template, Overlay, Extension | 跨客户复用与客户差异 |
 | 构建与发布 | Bundle, Release, Deployment, Deployment Revision | 从 Spec 到可部署产物 |
 | 运行与治理 | Run, Policy, Eval Suite, Evaluation, Waiver, Decision, Provenance | 执行、约束、验收、溯源 |
-| 语义与上下文 | Ontology, Semantic Model, Context Source, Context Recipe, Context Graph | 语义绑定与上下文组装 |
+| 语义与上下文 | Ontology, Semantic Model, Context Source, Context Recipe, Context Graph, Customer Context Package | 语义绑定、上下文打包与组装 |
 
 ## 3. 实体与关键属性
 
@@ -56,7 +56,7 @@
 - `spec_digest`：Spec 内容摘要。
 - `spec`：声明式配置，见下。
 - `lock`：`solution.lock` 的内容摘要和对象引用；固定 Template、Extension、runtime profile、toolchain 和 Customer 级对象的精确版本与 digest。
-- `based_on`：Solution Template 版本、Capability Template 版本、Ontology / Semantic Model 版本、runtime profile。
+- `based_on`：Solution Template 版本、Capability Template 版本、Ontology / Semantic Model / Customer Context Package 版本、runtime profile。
 - `created_by`、`created_at`、`frozen_at`。
 
 **Solution Spec** 只包含作者内容，不包含生成物或环境实际值：
@@ -66,14 +66,14 @@
 - `spec.capabilities`：Capability Binding，按 id 寻址。
 - `spec.agents` / `spec.workflows`：运行时中立的实现定义，按 id 寻址。
 - `spec.tools`：Tool 定义，按 id 寻址；Connector 只以 `connectorRef` 出现。
-- `spec.semantic`：Customer 级 Semantic Model / Context Source 的引用，以及 Solution 级 Context Recipe。
+- `spec.semantic`：Customer Context Package 的引用（`contextPackageRef`），以及 Solution 级 Context Recipe Binding / 收紧覆盖。
 - `spec.governance`：Solution 级 Policy / Eval Suite 引用；Capability 级引用是必需的最小集。
 - `spec.environments`：环境能力要求（不是凭据、不是实际容量）。
 - `spec.extensions`：Extension 引用和兼容声明。
 - `spec.build`：runtime profile、目标平台（`compose | helm | airgap`）。
 - `spec.deployment`：逻辑 profile 名、迁移策略默认值。
 
-Connector、Context Source、Semantic Model 和 Ontology 扩展是 Customer 级资产，放在 `customer/`，由 Spec 按 id 引用；不在每个 Solution Spec 内联。Template 在 `fde spec init` 时物化为完整 Spec，build 不再解析模板；`solution.lock` 固定来源和精确版本。
+Connector、Context Source、Semantic Model 和 Ontology 扩展是 Customer 级资产；Customer Context Package 是这些语义资产的版本化聚合，放在 `customer/context-packages/`，由 Spec 按 id 引用；不在每个 Solution Spec 内联。Template 在 `fde spec init` 时物化为完整 Spec，build 不再解析模板；`solution.lock` 固定来源和精确版本。
 
 示意（字段名不是最终 schema）：
 
@@ -106,10 +106,10 @@ spec:
       operation: lookupClaim
       sideEffects: read
   semantic:
-    modelRef: acme-claims@^1.0.0
-    contextRecipes:
+    contextPackageRef: acme-claims-context@^1.0.0
+    recipeBindings:
       claims-context:
-        sources: [sharepoint-claims]
+        recipeRef: claims-context@^1.0.0
         budget: {maxNodes: 50}
   governance:
     policies: [data-retention@^2.0.0]
@@ -153,6 +153,7 @@ toolchain:
   generator: 0.1.0
   image: ghcr.io/acme-fde/toolchain@sha256:...
 customerObjects:
+  customerContextPackage: acme-claims-context@1.0.0@sha256:...
   connectors:
     claims-db: sha256:...
   contextSources:
@@ -165,6 +166,7 @@ customerObjects:
 
 - Spec 是声明式、可验证、可 diff 的；生成物（Mastra app、context-service 配置、部署清单、迁移、SBOM/notice、签名、镜像 digest、端口）不入 Spec。
 - Spec 不含 secret 值，只含 secret 引用；Environment 实际值、模型 provider 细节和容量在 `environments/<env>.yaml` 中配置。
+- Solution Spec 只引用 frozen CCP；Context Recipe Binding 只能收紧 filters/budget/ranking，不能放宽权限 baseline 或省略 mask/budget。
 - 实体集合按 id 寻址（`capabilities`、`agents`、`tools` 等是 map，不是数组）；有序序列保留数组，Overlay 只能改 allowlist 路径。
 - `validated` 要求 schema、引用完整性、版本兼容性、Overlay allowlist、lock 新鲜度和 Template/Overlay 合并全部通过。
 - `frozen` 后不可修改；Release 必须 pin 一个 frozen Revision。
@@ -383,13 +385,13 @@ customerObjects:
 
 - `ontology_id`、`version`（semver）。
 - `modules`、`classes`、`properties`、`shacl_shapes`。
-- `source`：`template | customer`。
+- `source`：`template`（Domain Ontology）或 `customer`（Customer Ontology Extension）。
 - `status`：`active | deprecated`。
 
 **Semantic Model**：
 
 - `semantic_model_id`、`customer_id`、`version`。
-- `ontology_refs`、`entity_mappings`、`resolution_rules`、`merge_rules`。
+- `ontology_refs`、`entity_mappings`、`resolution_rules`、`merge_rules`、`source_precedence`、`freshness_rules`。
 - `status`。
 
 **Context Source**：
@@ -401,8 +403,9 @@ customerObjects:
 **Context Recipe**：
 
 - `context_recipe_id`、`name`、`version`。
+- `scope`：`customer | solution | capability`；Customer 级定义可被 Solution 引用并收紧覆盖。
 - `semantic_model_ref`、`source_refs`。
-- `graph_queries`、`filters`、`ranking`、`budget`、`output_schema`。
+- `stages`、`filters`、`ranking`、`budget`、`output_schema`。
 - `eval_suite_refs`。
 
 **Context Graph**：
@@ -414,7 +417,7 @@ customerObjects:
 规则：
 
 - Ontology 是全局 Template + Customer 扩展；Semantic Model 是 Customer 级、版本化。
-- Context Source 是 Customer 级配置；Context Recipe 是 Solution/Capability 级；Context Graph 是 Deployment 级物化。
+- Context Source 是 Customer 级配置；Context Recipe 可以是 Customer 级可复用定义，或在 Solution/Capability 级绑定；Context Graph 是 Deployment 级物化。
 - 同一 Customer 的多个 Solution 共享 Semantic Model 和 Context Source 定义，但运行时图各自独立；v0 不假设跨 Solution 共享图。
 - Context Graph 可重建；所有断言带 provenance，不泄漏 Semantica/Neo4j 内部 ID。
 
@@ -436,6 +439,27 @@ customerObjects:
 
 规则：Runtime Decision 挂 Run；治理 Decision（Release 批准、Waiver、回滚）挂对应治理对象；配置 Decision（为什么选这个 Overlay/Extension）挂 Solution Revision。context-service 拥有稳定 ID（entity_id / decision_id / provenance_id），所有写入显式 `track_entity` / `track_relationship`，不依赖 Semantica 自动接线。
 
+### 3.15 Customer Context Package
+
+**Customer Context Package（CCP）** 是一个 Customer 的版本化、不可变语义上下文资产包：
+
+- `context_package_id`、`customer_id`、`name`、`version`（semver）。
+- `status`：`draft | validated | frozen`。
+- `digest`、`source_commit`。
+- `ontology_refs`：Domain Ontology 模块版本 + Customer Ontology Extension。
+- `semantic_model_ref`、`context_source_refs`、`entity_mapping_refs`。
+- `context_recipe_refs`、`permission_profile_ref`、`context_eval_refs`。
+- `compatibility`：spec major、runtime contract、graph/audit schema。
+- `created_by`、`frozen_at`、`decision_id`。
+
+规则：
+
+- CCP 是 Customer 级、声明式源工件；不包含客户数据、secret、生成图或运行时状态。
+- frozen 后不可变；Solution Spec 通过 `contextPackageRef` 引用，`solution.lock` pin 版本 + digest。
+- 同一 Customer 的多个 Solution 可以 pin 同一个 CCP；运行时图仍然各自独立。
+- Connector 不在 CCP 内，只以 `connectorRef` 出现；Connector 仍是独立 Customer 级资产。
+- Bundle 构建时编译 CCP；CCP 不直接产生运行时服务。
+
 ## 4. 关系
 
 ```mermaid
@@ -456,9 +480,13 @@ flowchart LR
   Deployment --> Run
   Run --> Decision
   Decision --> Provenance
-  Customer --> SemanticModel
+  Customer --> ContextPackage
+  ContextPackage --> Ontology
+  ContextPackage --> SemanticModel
+  ContextPackage --> ContextSource
+  ContextPackage --> ContextRecipe
+  SolutionRevision --> ContextPackage
   SemanticModel --> Ontology
-  Customer --> ContextSource
   ContextSource --> ContextRecipe
   Deployment --> ContextGraph
   ContextSource --> ContextGraph
@@ -478,6 +506,7 @@ flowchart LR
 - Release 1—1 Bundle；Release 1—N Deployment Revision；Deployment 1—N Deployment Revision。
 - Deployment N—1 Environment；Deployment N—1 Solution；Deployment 1—N Run。
 - Run 1—N Decision；Decision N—1 Provenance。
+- Customer 1—N Context Package；Context Package N—M Ontology / Semantic Model / Context Source / Context Recipe；Solution Revision N—1 Context Package（pin 版本）。
 - Customer 1—N Semantic Model；Semantic Model N—M Ontology；Customer 1—N Context Source；Context Recipe N—M Context Source；Deployment 1—1 Context Graph；Context Graph N—M Context Source。
 - Evaluation N—1 Eval Suite；Evaluation N—1 Bundle/Release；Waiver N—1 门禁；Waiver 1—1 Decision。
 
@@ -495,6 +524,7 @@ flowchart LR
 | Run | `queued → running → waiting_for_human → succeeded` / `failed` / `cancelled` | `waiting_for_human` 需要审批请求；失败/取消终态 |
 | Evaluation | `queued → running → passed` / `failed` / `error` | 引用 Bundle/Release；结果写入 Decision |
 | Context Source | `draft → active → paused → retired` | paused 停止摄取；retired 不再被 Recipe 引用 |
+| Customer Context Package | `draft → validated → frozen` | validated 要求 schema/SHACL/权限/context eval 通过；frozen 后不可变 |
 | Environment | `provisioning → active → retired` | health 是独立属性，不改变生命周期 |
 
 ## 6. 不变量
@@ -503,12 +533,13 @@ flowchart LR
 
 - 所有实体有稳定 ID；引用完整；删除被引用实体必须失败。
 - 无跨 Customer 引用；Deployment 的 Customer、Environment、Solution 必须一致。
-- Release 必须 pin 精确的 Bundle digest、Spec Revision、Template、Ontology、Semantic Model、runtime 版本。
+- Release 必须 pin 精确的 Bundle digest、Spec Revision、Template、Ontology、Semantic Model、Customer Context Package、runtime 版本。
 - Bundle 和 Release 不可变；变更必须产生新 digest / 新 Release。
 - 每个 Capability Binding 必须有 contract、至少一个实现、至少一个 Policy、至少一个 Eval Suite。
 - 同一 Solution × Environment 只能有一个 active Deployment。
 - 每个 Run 必须引用 Deployment；每个 Decision 必须有 trace/actor/provenance。
 - Spec、Bundle、Deployment 中只能出现 secret 引用，不能出现 secret 值。
+- CCP 只能被 frozen 版本引用；CCP 不含客户数据、secret 或生成物；Solution 不能放宽 CCP 的权限 baseline。
 - Bundle 必须含 SBOM/notice 并通过 license gate。
 - schema 变更必须有迁移声明；没有迁移的破坏性变更不能构建。
 - 生成物必须与 source digest 一致；手改生成物会在 CI 中失败。
@@ -524,10 +555,10 @@ flowchart LR
 
 ### 6.3 构建与可重建性
 
-构建流水线：Validate Spec → Freeze Revision → Build Bundle → Verify/Sign → Release → Deploy → Run。
+构建流水线：Validate Spec + CCP → Freeze Revision → Build Bundle → Verify/Sign → Release → Deploy → Run。
 
-- Validate：schema、引用、Template/Overlay 合并、Extension 兼容性。
-- Build：generator 从 Spec + pinned Templates + Extensions + 锁文件生成 Bundle。
+- Validate：schema、引用、Template/Overlay 合并、Extension 兼容性；CCP 的 schema/SHACL/权限/context eval。
+- Build：generator 从 Spec + pinned Templates + Extensions + frozen CCP + 锁文件生成 Bundle。
 - Verify：contract tests、Eval Suite、SBOM/license、可重建性检查（重跑构建对比 digest）。
 - Sign：签名 Bundle；Release 审批引用签名。
 - Deploy：执行迁移，记录 Deployment Revision，健康检查通过后 active。
@@ -541,6 +572,7 @@ flowchart LR
 - Template / Capability Template / Ontology / Policy / Eval Suite 用 semver，版本不可变。
 - Overlay 声明兼容的 Template major；minor/patch 自动跟随，major 升级必须显式迁移。
 - Solution Revision 单调递增；Release 用 semver 并 pin 精确版本。
+- Customer Context Package 用 semver，frozen 后不可变；Solution lock pin 版本 + digest；ontology/mapping major 变更要求新 CCP 版本。
 - Bundle 用内容摘要，不以版本号作为身份。
 - 每次 Release 生成兼容性矩阵：runtime × template × ontology × eval × extension；不兼容时构建失败。
 - 升级：新 Template minor/patch + Overlay 重放 + Extension 兼容性检查 + 新 Bundle/Release；`fde spec update` 物化新默认值。
@@ -553,7 +585,7 @@ flowchart LR
 
 1. Customer `acme`，Solution `claims-triage`，Environment `acme-staging` 和 `acme-prod`。
 2. FDE 选择 Solution Template `fde-solution@1.2.0`、Capability Template `document-triage@1.0.0`、Ontology Template `insurance-claims@1.0.0`、Policy Template `pii-redaction@1.0.0`、Eval Suite Template `triage-quality@1.0.0`。
-3. Solution Overlay 设置置信度阈值 0.8，绑定 Context Source `sharepoint-claims` 和 `claims-db`，选择 Agent 实现 `triage-agent`。
+3. Solution Overlay 设置置信度阈值 0.8，绑定 Context Source `sharepoint-claims` 和 `claims-db`，选择 Agent 实现 `triage-agent`；FDE 冻结 Customer Context Package `acme-claims-context@1.0.0`（ontology/mapping/Recipe/permissions/context eval），Solution Spec pin 该版本。
 4. Validate 通过；Spec Revision 7 冻结。
 5. Build 生成 Bundle `sha256:abc...`，包含 Mastra app、context-service、图存储配置、迁移、Policy/Eval、部署清单、SBOM/notice、签名和 build provenance。
 6. Eval Suite `triage-quality@1.0.0` 对 Bundle 运行并通过；license gate 通过；Bundle 签名。
@@ -565,7 +597,7 @@ flowchart LR
 ### 8.2 第二个客户复用：Beta Bank 的 KYC 复核
 
 1. Customer `beta`，Solution `kyc-review`，Environment `beta-prod`。
-2. 复用 Capability Template `document-triage@1.0.0`，但选择不同的 Ontology Template `kyc-ontology@1.0.0` 和新的 Semantic Model `beta-kyc@1`。
+2. 复用 Capability Template `document-triage@1.0.0`，但选择不同的 Ontology Template `kyc-ontology@1.0.0`、新的 Semantic Model `beta-kyc@1` 和 Customer Context Package `beta-kyc-context@1.0.0`。
 3. Beta 的 Solution Overlay 使用更严格的 Policy `pii-retention-eu@2.0.0`、不同的 Context Source `beta-dms` 和 `core-banking`、Eval 阈值 0.9，选择 Agent 实现 `kyc-agent`。
 4. 不 fork Template；所有版本显式 pin；构建新的 Bundle `sha256:def...`，Release `1.0.0`，部署到 `beta-prod`。
 5. `document-triage@1.0.1` 发布后，Acme 和 Beta 各自重放 Overlay、运行兼容性检查和 Eval，构建新 Bundle/Release；两个客户的运行时和 Context Graph 完全隔离。
@@ -581,7 +613,7 @@ flowchart LR
 
 ## 9. 开放问题与边界
 
-以下问题不在本 ticket 内解决，已留在对应 ticket 或地图的 fog：
+语义建模与 Customer Context Package 已由「语义建模与上下文组装方法」定稿，见 [`semantic-modeling.md`](semantic-modeling.md)；以下只列仍未决或由相邻 ticket 承接的问题。
 
 - 生产图存储、Neo4j serving adapter、稳定实体 ID 映射：v0 已由[运行时与集成契约](https://github.com/0xnicholas/Fdesforce/issues/8)定为 embedded 图；生产后端与迁移路径待[生产检索索引与 100k+ 规模上限](https://github.com/0xnicholas/Fdesforce/issues/15)。
 - 检索索引的部署形态、重建与降级：[生产检索索引与 100k+ 规模上限](https://github.com/0xnicholas/Fdesforce/issues/15)。
@@ -604,7 +636,9 @@ flowchart LR
 | 构建发布 | Bundle 内容寻址不可变；Release 是签署/批准记录；Deployment 绑定 Solution × Environment；Run 是执行 |
 | Spec / 工具链 | YAML + Zod schema；per-Customer Git；init 物化 Template + `solution.lock`；CLI-first；Extension-only code；OCI 分发 |
 | 运行时可移植性 | Spec 中立，v0 单 generator；换 runtime 需新 generator + Extension 打包 + Bundle 拓扑（见 ADR-0002） |
-| 语义层 | Ontology 全局 Template + Customer 扩展；Semantic Model/Context Source 为 Customer 级；Context Recipe 为 Solution/Capability 级；Context Graph 为 Deployment 级 |
+| 语义层 | Ontology 全局 Template + Customer 扩展；Semantic Model/Context Source 为 Customer 级；Context Recipe 可为 Customer 级可复用定义或在 Solution/Capability 级绑定；Context Graph 为 Deployment 级 |
+| 语义上下文打包 | Customer Context Package 是客户级、版本化、不可变的声明式源工件；Solution pin，Bundle 编译；不含数据/secret/生成物（见 ADR-0004） |
+| 上下文组装 | FDE 编写确定性 Recipe；Agent 只选 `recipe_id` + 参数；分层权限与 Context Eval gate（见 ADR-0004） |
 | 运行时契约 | context-service 独占 `/v1` REST；签名 ExecutionContext；独立 append-only 审计库；v0 embedded 图（单写者、10k/50k），生产后端待 #15 |
 | 治理 | Policy 运行时约束；Eval Suite 测试门禁；Waiver 是 Decision；Release 审批前必须通过 Eval |
 | 生命周期 | 见第 5 节；状态转换由 schema 校验，跨状态动作写入 Decision |

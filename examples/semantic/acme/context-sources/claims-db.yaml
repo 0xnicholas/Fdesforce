@@ -1,0 +1,14 @@
+apiVersion: fde.dev/v0
+kind: ContextSource
+metadata:
+  customer: acme
+  name: claims-db
+spec:
+  connectorRef: claims-db
+  dataset: public.claims
+  classification: confidential
+  freshness:
+    staleAfter: PT1H
+    watermark: updated_at
+  schedule: "*/15 * * * *"
+  mode: incremental

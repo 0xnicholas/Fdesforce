@@ -1,0 +1,47 @@
+apiVersion: fde.dev/v0
+kind: SemanticModel
+metadata:
+  customer: acme
+  name: acme-claims
+  version: 1.0.0
+spec:
+  ontology:
+    modules:
+      - ref: insurance-claims@1.0.0
+        source: template
+        digest: sha256:1111111111111111111111111111111111111111111111111111111111111111
+    extensions:
+      - path: ontology/acme-claims-extension.ttl
+        digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+      - path: ontology/acme-claims.shacl.ttl
+        digest: sha256:3333333333333333333333333333333333333333333333333333333333333333
+  sources:
+    - ref: claims-db
+      contextSource: context-sources/claims-db.yaml
+    - ref: sharepoint-claims
+      contextSource: context-sources/sharepoint-claims.yaml
+  entityMappings:
+    - ref: mappings/claims-db.yaml
+    - ref: mappings/sharepoint-claims.yaml
+  resolution:
+    keys:
+      Claim: [claim_id]
+      Policy: [policy_number]
+      Customer: [customer_id]
+    sourcePrecedence:
+      Claim: [claims-db, sharepoint-claims]
+      Policy: [claims-db, sharepoint-claims]
+    merge:
+      strategy: same_as
+      minConfidence: 0.8
+  freshness:
+    defaultStaleAfter: PT24H
+    perSource:
+      claims-db: PT1H
+      sharepoint-claims: PT24H
+  recipes:
+    - ref: recipes/claims-context.yaml
+  permissions:
+    ref: permissions.yaml
+  evals:
+    - ref: evals/claims-context.golden.yaml

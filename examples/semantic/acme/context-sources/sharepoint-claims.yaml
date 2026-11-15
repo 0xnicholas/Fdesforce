@@ -1,0 +1,14 @@
+apiVersion: fde.dev/v0
+kind: ContextSource
+metadata:
+  customer: acme
+  name: sharepoint-claims
+spec:
+  connectorRef: sharepoint-claims
+  dataset: sites/claims
+  classification: confidential
+  freshness:
+    staleAfter: PT24H
+    watermark: etag
+  schedule: "0 * * * *"
+  mode: incremental

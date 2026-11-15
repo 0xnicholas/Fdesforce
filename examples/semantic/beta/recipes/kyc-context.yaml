@@ -1,0 +1,45 @@
+apiVersion: fde.dev/v0
+kind: ContextRecipe
+metadata:
+  customer: beta
+  name: kyc-context
+  version: 1.0.0
+spec:
+  semanticModelRef: beta-kyc@1.0.0
+  inputSchema:
+    type: object
+    required: [review_id]
+    properties:
+      review_id: {type: string}
+      query: {type: string}
+  stages:
+    - type: resolve
+      entity: "kyc:KYCReview"
+      key: review_id
+    - type: structured
+      source: core-banking
+      entities: ["kyc:Customer", "kyc:Account", "kyc:KYCReview"]
+    - type: graph
+      from: resolved
+      relations:
+        - "kyc:holdsAccount"
+        - "kyc:supportsReview"
+      maxHops: 2
+    - type: lexical
+      source: beta-dms
+      query: "$query"
+      topK: 10
+    - type: merge
+      dedupe: [entity_id, content_hash]
+    - type: rank
+      weights: {structured: 0.6, graph: 0.2, lexical: 0.2}
+      freshnessBoost: 0.1
+    - type: mask
+      permissions: permissions.yaml
+    - type: budget
+      maxNodes: 30
+      maxTokens: 3000
+      maxHops: 2
+  output:
+    render: mastra
+    includeCitations: true

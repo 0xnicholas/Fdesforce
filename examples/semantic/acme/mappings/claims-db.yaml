@@ -1,0 +1,40 @@
+apiVersion: fde.dev/v0
+kind: EntityMapping
+metadata:
+  customer: acme
+  source: claims-db
+spec:
+  connectorRef: claims-db
+  dataset: public.claims
+  entity: "ic:Claim"
+  key: [claim_id]
+  properties:
+    claim_id: {property: "ic:claimId", type: string}
+    policy_number: {property: "ic:policyNumber", type: string}
+    status: {property: "ic:status", type: string}
+    amount: {property: "ic:amount", type: decimal}
+    incident_date: {property: "ic:incidentDate", type: date}
+  relations:
+    - property: "ic:hasPolicy"
+      targetEntity: "ic:Policy"
+      targetKey: policy_number
+      join:
+        table: public.policies
+        on: claims.policy_number = policies.policy_number
+    - property: "ic:hasCoverage"
+      targetEntity: "ic:Coverage"
+      targetKey: coverage_id
+      join:
+        table: public.coverages
+        on: policies.policy_number = coverages.policy_number
+    - property: "ic:forCustomer"
+      targetEntity: "ic:Customer"
+      targetKey: customer_id
+      join:
+        table: public.customers
+        on: policies.customer_id = customers.customer_id
+  watermark:
+    column: updated_at
+    mode: updated_at
+  filters:
+    - "tenant_id = :tenant_id"
