@@ -1,0 +1,666 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.dev/contracts/schemas/bundle-topology.schema.json",
+  "title": "FDE Runtime and Bundle Topology",
+  "description": "RuntimeTopology is the generator-owned fragment; BundleTopology is the composed, single deployment-topology source rendered to Compose, Helm, and airgap.",
+  "$ref": "#/$defs/Topology",
+  "$defs": {
+    "Name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"
+    },
+    "ProfileRef": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9.-]{1,62}@[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "ComponentRole": {
+      "type": "string",
+      "enum": [
+        "runtime-app",
+        "context-service",
+        "state-store",
+        "graph-store",
+        "audit-store",
+        "job",
+        "collector"
+      ]
+    },
+    "Port": {
+      "type": "object",
+      "required": ["name", "containerPort"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,30}$"
+        },
+        "containerPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "protocol": {
+          "type": "string",
+          "enum": ["tcp", "udp"]
+        },
+        "expose": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "VolumeMount": {
+      "type": "object",
+      "required": ["name", "mountPath"],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/Name"
+        },
+        "mountPath": {
+          "type": "string",
+          "pattern": "^/[A-Za-z0-9._/-]{1,200}$"
+        },
+        "readOnly": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "SecretRef": {
+      "type": "object",
+      "required": ["store", "key"],
+      "properties": {
+        "store": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "EnvVar": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Z_][A-Z0-9_]{0,100}$"
+        },
+        "value": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "secretRef": {
+          "$ref": "#/$defs/SecretRef"
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": ["value"]
+        },
+        {
+          "required": ["secretRef"]
+        }
+      ]
+    },
+    "HealthCheck": {
+      "type": "object",
+      "required": ["path", "port"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^/[A-Za-z0-9._/-]{0,200}$"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "initialDelaySeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "periodSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "failureThreshold": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "ResourceSpec": {
+      "type": "object",
+      "required": ["cpu", "memory"],
+      "properties": {
+        "cpu": {
+          "type": "string",
+          "pattern": "^[0-9]+(\\.[0-9]+)?$"
+        },
+        "memory": {
+          "type": "string",
+          "pattern": "^[0-9]+(Mi|Gi)$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ImageSpec": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["image"],
+          "properties": {
+            "image": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["build"],
+          "properties": {
+            "build": {
+              "type": "object",
+              "required": ["context", "dockerfile"],
+              "properties": {
+                "context": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "dockerfile": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "target": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Component": {
+      "type": "object",
+      "required": ["name", "role", "image"],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/Name"
+        },
+        "role": {
+          "$ref": "#/$defs/ComponentRole"
+        },
+        "image": {
+          "$ref": "#/$defs/ImageSpec"
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Port"
+          },
+          "uniqueItems": true
+        },
+        "volumes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/VolumeMount"
+          },
+          "uniqueItems": true
+        },
+        "env": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EnvVar"
+          },
+          "uniqueItems": true
+        },
+        "secretRefs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SecretRef"
+          },
+          "uniqueItems": true
+        },
+        "healthCheck": {
+          "$ref": "#/$defs/HealthCheck"
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Name"
+          },
+          "uniqueItems": true
+        },
+        "resources": {
+          "$ref": "#/$defs/ResourceSpec"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Volume": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/Name"
+        },
+        "size": {
+          "type": "string",
+          "pattern": "^[0-9]+(Mi|Gi)$"
+        },
+        "backup": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 300
+        }
+      },
+      "additionalProperties": false
+    },
+    "JobStep": {
+      "type": "object",
+      "required": ["id", "command"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Name"
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "runBefore": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Name"
+          },
+          "uniqueItems": true
+        },
+        "runAfter": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Name"
+          },
+          "uniqueItems": true
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "volumes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/VolumeMount"
+          },
+          "uniqueItems": true
+        },
+        "secretRefs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SecretRef"
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "Job": {
+      "type": "object",
+      "required": ["name", "owner", "steps"],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/Name"
+        },
+        "owner": {
+          "type": "string",
+          "enum": ["context-service", "runtime", "platform"]
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/JobStep"
+          },
+          "minItems": 1
+        },
+        "volumes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/VolumeMount"
+          },
+          "uniqueItems": true
+        },
+        "secretRefs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SecretRef"
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "SecretBinding": {
+      "type": "object",
+      "required": ["secretRef", "target", "name"],
+      "properties": {
+        "secretRef": {
+          "$ref": "#/$defs/SecretRef"
+        },
+        "target": {
+          "type": "string",
+          "enum": ["env", "file"]
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^([A-Za-z_][A-Za-z0-9_.-]{0,100}|/[A-Za-z0-9._/-]{1,200})$"
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "DeploymentNaming": {
+      "type": "object",
+      "required": ["componentNameTemplate"],
+      "properties": {
+        "componentNameTemplate": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": ".*\\{\\{component\\}\\}.*"
+        },
+        "namespaceTemplate": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "additionalProperties": false
+    },
+    "Network": {
+      "type": "object",
+      "required": ["name", "internal"],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/Name"
+        },
+        "internal": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Ingress": {
+      "type": "object",
+      "required": ["component", "port"],
+      "properties": {
+        "component": {
+          "$ref": "#/$defs/Name"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "hostTemplate": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "tls": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "StartupOrder": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Name"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "RuntimeMetadata": {
+      "type": "object",
+      "required": ["profile", "profileDigest", "generatorVersion"],
+      "properties": {
+        "profile": {
+          "$ref": "#/$defs/ProfileRef"
+        },
+        "profileDigest": {
+          "$ref": "./common.schema.json#/$defs/Digest"
+        },
+        "generatorVersion": {
+          "$ref": "./common.schema.json#/$defs/Semver"
+        }
+      },
+      "additionalProperties": false
+    },
+    "BundleMetadata": {
+      "type": "object",
+      "required": ["solution", "revision", "profile", "profileDigest"],
+      "properties": {
+        "solution": {
+          "$ref": "#/$defs/Name"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "profile": {
+          "$ref": "#/$defs/ProfileRef"
+        },
+        "profileDigest": {
+          "$ref": "./common.schema.json#/$defs/Digest"
+        }
+      },
+      "additionalProperties": false
+    },
+    "RuntimeTopologySpec": {
+      "type": "object",
+      "required": [
+        "components",
+        "volumes",
+        "jobs",
+        "startupOrder",
+        "secretBindings",
+        "deploymentNaming"
+      ],
+      "properties": {
+        "components": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Component"
+          },
+          "minItems": 1
+        },
+        "volumes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Volume"
+          },
+          "uniqueItems": true
+        },
+        "jobs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Job"
+          }
+        },
+        "startupOrder": {
+          "$ref": "#/$defs/StartupOrder"
+        },
+        "secretBindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SecretBinding"
+          }
+        },
+        "deploymentNaming": {
+          "$ref": "#/$defs/DeploymentNaming"
+        }
+      },
+      "additionalProperties": false
+    },
+    "BundleTopologySpec": {
+      "type": "object",
+      "required": [
+        "components",
+        "volumes",
+        "jobs",
+        "startupOrder",
+        "secretBindings",
+        "deploymentNaming",
+        "networks"
+      ],
+      "properties": {
+        "components": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Component"
+          },
+          "minItems": 1
+        },
+        "volumes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Volume"
+          },
+          "uniqueItems": true
+        },
+        "jobs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Job"
+          }
+        },
+        "startupOrder": {
+          "$ref": "#/$defs/StartupOrder"
+        },
+        "secretBindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SecretBinding"
+          }
+        },
+        "deploymentNaming": {
+          "$ref": "#/$defs/DeploymentNaming"
+        },
+        "networks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Network"
+          },
+          "minItems": 1
+        },
+        "ingress": {
+          "$ref": "#/$defs/Ingress"
+        }
+      },
+      "additionalProperties": false
+    },
+    "RuntimeTopology": {
+      "type": "object",
+      "required": ["apiVersion", "kind", "metadata", "spec"],
+      "properties": {
+        "apiVersion": {
+          "type": "string",
+          "const": "fde.dev/v0"
+        },
+        "kind": {
+          "type": "string",
+          "const": "RuntimeTopology"
+        },
+        "metadata": {
+          "$ref": "#/$defs/RuntimeMetadata"
+        },
+        "spec": {
+          "$ref": "#/$defs/RuntimeTopologySpec"
+        }
+      },
+      "additionalProperties": false
+    },
+    "BundleTopology": {
+      "type": "object",
+      "required": ["apiVersion", "kind", "metadata", "spec"],
+      "properties": {
+        "apiVersion": {
+          "type": "string",
+          "const": "fde.dev/v0"
+        },
+        "kind": {
+          "type": "string",
+          "const": "BundleTopology"
+        },
+        "metadata": {
+          "$ref": "#/$defs/BundleMetadata"
+        },
+        "spec": {
+          "$ref": "#/$defs/BundleTopologySpec"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Topology": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/RuntimeTopology"
+        },
+        {
+          "$ref": "#/$defs/BundleTopology"
+        }
+      ]
+    }
+  }
+}

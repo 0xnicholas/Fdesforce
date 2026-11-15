@@ -83,7 +83,7 @@ evalDatasets:
 
 runtime:
   profile: mastra-1.83-node26@1@sha256:2323232323232323232323232323232323232323232323232323232323232323
-  contractVersion: 1.2.0
+  contractVersion: 1.3.0
   graphSchema: 1
   auditSchema: 1
   mastra: 1.83.0

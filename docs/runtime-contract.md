@@ -2,7 +2,7 @@
 
 > 状态：决策稿，对应 ticket「运行时与集成契约」。
 > 范围：v0 单客户 bundle；Mastra + 薄 context-service + Semantica；不做多租户、UI、首客场景。
-> 契约版本：`fde.runtime/v1.2.0`。机器可读接口与 schema 见 [`contracts/`](../contracts/)。
+> 契约版本：`fde.runtime/v1.3.0`。机器可读接口与 schema 见 [`contracts/`](../contracts/)。
 > 术语：见 [`GLOSSARY.md`](../GLOSSARY.md)。
 
 ## 1. 结论摘要
@@ -198,6 +198,7 @@ Admin 端点只对 `customer_admin` 开放，客户应用不调用；`halt` 语�
 | `timeout` | 504 | true | 上游/内部超时 |
 | `internal` | 500 | false | 未分类错误 |
 | `contract_mismatch` | 503 | false | 契约 major/capability 不匹配 |
+| `runtime_capability_mismatch` | 503 | false | Runtime Profile/能力与 lock 不一致 |
 | `graph_schema_mismatch` | 503 | false | 图 schema 版本不匹配 |
 | `audit_schema_mismatch` | 503 | false | 审计 schema 版本不匹配 |
 
@@ -638,9 +639,10 @@ sequenceDiagram
 
 - 契约版本：`fde.runtime/v1`，语义版本 `MAJOR.MINOR.PATCH`。
 - 引用约定：工件/manifest 里的 `fde.runtime/v1` 指 major line（additive minor 向后兼容，引用 major 即可）；文档头部写当前 minor 全版本；正文依赖某 minor 才引入的字段时在该处标注（如「≥v1.1」）。
-- 当前 minor 为 `1.2.0`：v1.1 的 Decision 字段不变；v1.2 增加 `RetrievalItem.trust`/`source_kind`、`PolicyEvaluation.enforcement_point=output.emit`、kill switch admin 端点。这些字段是 additive，旧客户端可读旧 payload；缺失 `trust`/`source_kind` 按 `untrusted`/`other` 处理。v1.1 的 intent/outcome 新必填字段仍是语义收紧，旧客户端不能继续写 intent。
+- 当前 minor 为 `1.3.0`：v1.1 的 Decision 字段不变；v1.2 增加 `RetrievalItem.trust`/`source_kind`、`PolicyEvaluation.enforcement_point=output.emit`、kill switch admin 端点；v1.3 统一 `runtime-info` 的 `service` 为 `runtime-app`（`mastra-app` 保留为 deprecated alias）、增加 `runtime` 对象与 `capability_details`、`backend.graph: postgres`。这些字段是 additive，旧客户端可读旧 payload；缺失 `trust`/`source_kind` 按 `untrusted`/`other` 处理。v1.1 的 intent/outcome 新必填字段仍是语义收紧，旧客户端不能继续写 intent。
 - `GET /v1/runtime-info` 返回：`contract_version`、`service`、`service_version`、`graph_schema_version`、`audit_schema_version`、`backend`、`capabilities[]`、`limits`、`components[]`、`started_at`。
-- `mastra-app` 启动时调用 context-service 的 `runtime-info`；major 不匹配、缺少必需 capability、schema 版本不匹配 → fail closed（`contract_mismatch` / `graph_schema_mismatch` / `audit_schema_mismatch`）。
+- `runtime-info` v1.3 additive 字段：`service` 统一为 `runtime-app`（`mastra-app` 保留为 v1.0 deprecated alias，不强制携带 v1.3 字段）；`service: runtime-app` 时增加 `runtime` 对象与 `capability_details`；context-service 仍只返回自己的组件信息。结构见 [`contracts/schemas/runtime-info.schema.json`](../contracts/schemas/runtime-info.schema.json) 与 [`docs/runtime-adapter.md`](runtime-adapter.md)。
+- `mastra-app` 启动时调用 context-service 的 `runtime-info`；major 不匹配、缺少必需 capability、schema 版本不匹配 → fail closed（`contract_mismatch` / `runtime_capability_mismatch` / `graph_schema_mismatch` / `audit_schema_mismatch`）。
 - 契约演进：additive 字段/端点走 minor；breaking 走 `/v2` 或 negotiated media type；保留至少一个 minor 周期的弃用窗口。
 
 ### 10.2 Lock 与兼容矩阵
@@ -803,17 +805,20 @@ sequenceDiagram
 | 产物 | 路径 | 说明 |
 |---|---|---|
 | 契约文档 | `docs/runtime-contract.md` | 本文件 |
-| 客户端 API | `contracts/runtime-api-v1.openapi.yaml` | 客户应用 ↔ mastra-app |
-| 内部 API | `contracts/context-service-v1.openapi.yaml` | mastra-app ↔ context-service |
-| JSON Schema | `contracts/schemas/*.json` | ExecutionContext、retrieval、decision、approval、run、runtime-info、error |
+| 客户端 API | `contracts/runtime-api-v1.openapi.yaml` | 客户应用 ↔ 生成的 runtime app（v0 为 mastra-app） |
+| 内部 API | `contracts/context-service-v1.openapi.yaml` | runtime app（v0 为 mastra-app）↔ context-service |
+| JSON Schema | `contracts/schemas/*.json` | ExecutionContext、retrieval、decision、approval、run、runtime-info、runtime-profile、runtime-capabilities、bundle-topology、error |
 | Conformance cases | `contracts/conformance/cases.md` | 契约验收用例（C1–C40） |
+| Adapter conformance | `contracts/conformance/adapter-cases.md` | runtime adapter 验收用例（A1–A11） |
 | 安全与部署决策 | `docs/security-and-deployment.md` | 身份、权限、审计、部署与 RACI |
 | Agent 安全决策 | `docs/agent-security.md` | prompt injection、tool abuse、数据外泄的确定性控制 |
 | Decision 审计绑定 | `docs/decision-audit-binding.md` | record-before-act evidence、Policy 覆盖、outbox、coverage |
+| 运行时 Adapter 决策 | [`docs/runtime-adapter.md`](runtime-adapter.md) | RuntimeGenerator、Runtime Profile/Capabilities、Bundle Topology、握手与迁移边界 |
 | ADR | `docs/adr/0003-runtime-and-integration-contract.md` | 运行时契约决策记录 |
 | ADR | `docs/adr/0006-identity-permissions-and-deployment.md` | 身份/权限/部署决策记录 |
 | ADR | `docs/adr/0008-decision-audit-binding.md` | Decision Binding 与审计决策记录 |
 | ADR | `docs/adr/0009-agent-security-controls.md` | Agent 安全控制决策记录 |
+| ADR | `docs/adr/0010-runtime-adapter-port.md` | 构建期 adapter 端口决策记录 |
 
 一致性规则：
 

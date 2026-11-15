@@ -159,6 +159,7 @@
         "timeout",
         "internal",
         "contract_mismatch",
+        "runtime_capability_mismatch",
         "graph_schema_mismatch",
         "audit_schema_mismatch"
       ]

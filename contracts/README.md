@@ -4,7 +4,7 @@ Machine-readable artifacts for `fde.runtime/v1`. The narrative contract lives in
 
 | File | Surface |
 |---|---|
-| `runtime-api-v1.openapi.yaml` | Client-facing API exposed by `mastra-app` |
+| `runtime-api-v1.openapi.yaml` | Client-facing API exposed by the generated runtime app (`mastra-app` in v0) |
 | `context-service-v1.openapi.yaml` | Internal API owned by `context-service` |
 | `schemas/common.schema.json` | Shared IDs, classification, retention, policy evaluation |
 | `schemas/execution-context.schema.json` | Signed identity assertion |
@@ -12,9 +12,13 @@ Machine-readable artifacts for `fde.runtime/v1`. The narrative contract lives in
 | `schemas/decision.schema.json` | Decision write and provenance read |
 | `schemas/approval.schema.json` | HITL approval request/decision |
 | `schemas/run.schema.json` | Run API request/status/SSE event |
-| `schemas/runtime-info.schema.json` | Version/capability handshake |
+| `schemas/runtime-info.schema.json` | Version/capability handshake (`v1.3` adds `runtime` + `capability_details`) |
+| `schemas/runtime-profile.schema.json` | Runtime profile artifact referenced by `build.runtimeProfile` |
+| `schemas/runtime-capabilities.schema.json` | Shared Runtime Capability declaration and handshake detail map |
+| `schemas/bundle-topology.schema.json` | `RuntimeTopology` fragment and composed `BundleTopology` |
 | `schemas/error.schema.json` | Unified error envelope |
-| `conformance/cases.md` | Contract acceptance cases |
+| `conformance/cases.md` | Runtime contract acceptance cases (C1–C40) |
+| `conformance/adapter-cases.md` | Runtime adapter acceptance cases (A1–A11) |
 
 ## Evaluation artifacts
 
@@ -22,8 +26,8 @@ Metric Catalog, Eval Suite, Eval Dataset, Evaluation, and Acceptance Report are 
 
 ## Versioning
 
-- Contract version: `fde.runtime/v1` (semantic version). Current minor: `1.2.0` (Agent security; see [`docs/agent-security.md`](../docs/agent-security.md)).
-- Additive fields or endpoints: minor.
+- Contract version: `fde.runtime/v1` (semantic version). Current minor: `1.3.0` (Runtime adapter; see [`docs/runtime-adapter.md`](../docs/runtime-adapter.md)).
+- Additive fields or endpoints: minor. Version history: `1.0.0` (runtime contract, #8) → `1.1.0` (decision audit binding, #20) → `1.2.0` (agent security, #21) → `1.3.0` (runtime adapter, #17: `runtime-info` unified to `runtime-app` + `runtime`/`capability_details` + `backend.graph: postgres` + A1–A11).
 - Breaking changes: `/v2` or a negotiated media type, with at least one minor cycle of deprecation.
 - Generated TS clients and Python models come from these files; do not hand-edit them.
 

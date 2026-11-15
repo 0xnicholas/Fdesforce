@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.dev/contracts/schemas/runtime-profile.schema.json",
+  "title": "FDE Runtime Profile",
+  "description": "Versioned, content-addressed runtime profile referenced by Solution Spec build.runtimeProfile and pinned by solution.lock.",
+  "$ref": "#/$defs/RuntimeProfile",
+  "$defs": {
+    "Name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"
+    },
+    "ProfileName": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9.-]{1,62}$"
+    },
+    "RuntimeFamily": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,62}$"
+    },
+    "RuntimeLanguage": {
+      "type": "string",
+      "enum": ["typescript", "python"]
+    },
+    "Metadata": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/ProfileName"
+        },
+        "version": {
+          "$ref": "./common.schema.json#/$defs/Semver"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500
+        }
+      },
+      "additionalProperties": false
+    },
+    "Generator": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/Name"
+        },
+        "version": {
+          "$ref": "./common.schema.json#/$defs/Semver"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PackagePins": {
+      "type": "object",
+      "description": "Exact package versions. Ranges are not allowed; resolve them in the profile artifact.",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9@/._-]{1,200}$"
+      },
+      "additionalProperties": {
+        "$ref": "./common.schema.json#/$defs/Semver"
+      }
+    },
+    "Licensing": {
+      "type": "object",
+      "required": ["runtime", "requiresLicenseKey", "egress"],
+      "properties": {
+        "runtime": {
+          "type": "string",
+          "enum": ["Apache-2.0", "MIT", "Elastic-2.0", "other"]
+        },
+        "requiresLicenseKey": {
+          "type": "boolean"
+        },
+        "egress": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProfileSpec": {
+      "type": "object",
+      "required": [
+        "generator",
+        "family",
+        "language",
+        "runtimeVersion",
+        "contractVersion",
+        "packages",
+        "capabilities",
+        "licensing"
+      ],
+      "properties": {
+        "generator": {
+          "$ref": "#/$defs/Generator"
+        },
+        "family": {
+          "$ref": "#/$defs/RuntimeFamily"
+        },
+        "language": {
+          "$ref": "#/$defs/RuntimeLanguage"
+        },
+        "runtimeVersion": {
+          "$ref": "./common.schema.json#/$defs/Semver"
+        },
+        "contractVersion": {
+          "$ref": "./common.schema.json#/$defs/Semver"
+        },
+        "packages": {
+          "$ref": "#/$defs/PackagePins"
+        },
+        "capabilities": {
+          "$ref": "./runtime-capabilities.schema.json#/$defs/RuntimeCapabilities"
+        },
+        "licensing": {
+          "$ref": "#/$defs/Licensing"
+        }
+      },
+      "additionalProperties": false
+    },
+    "RuntimeProfile": {
+      "type": "object",
+      "required": ["apiVersion", "kind", "metadata", "spec"],
+      "properties": {
+        "apiVersion": {
+          "type": "string",
+          "const": "fde.dev/v0"
+        },
+        "kind": {
+          "type": "string",
+          "const": "RuntimeProfile"
+        },
+        "metadata": {
+          "$ref": "#/$defs/Metadata"
+        },
+        "spec": {
+          "$ref": "#/$defs/ProfileSpec"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

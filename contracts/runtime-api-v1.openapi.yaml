@@ -3,13 +3,14 @@ info:
   title: FDE Runtime API
   version: 1.0.0
   description: |
-    Client-facing runtime API exposed by the generated mastra-app. Customer
-    applications call this API only; context-service is never exposed to end
-    users. Authentication uses the customer's IdP/session token; the exact
-    grant is defined by the identity and deployment ticket.
+    Client-facing runtime API exposed by the generated runtime app
+    (mastra-app in v0). Customer applications call this API only;
+    context-service is never exposed to end users. Authentication uses the
+    customer's IdP/session token; the exact grant is defined by the identity
+    and deployment ticket.
 servers:
   - url: https://{mastra_host}
-    description: Customer ingress for the generated mastra-app
+    description: Customer ingress for the generated runtime app
     variables:
       mastra_host:
         default: fde.example.internal

@@ -2,7 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://fde.dev/contracts/schemas/runtime-info.schema.json",
   "title": "Runtime Info",
-  "description": "Version, capability, and limit handshake for fde.runtime/v1.",
+  "description": "Version, capability, and limit handshake for fde.runtime/v1. v1.3 adds the runtime descriptor and structured capability_details for runtime-app; context-service keeps returning only its own component information.",
+  "$ref": "#/$defs/RuntimeInfo",
   "$defs": {
     "ComponentInfo": {
       "type": "object",
@@ -11,9 +12,11 @@
         "name": {
           "type": "string",
           "enum": [
+            "runtime-app",
+            "runtime-state",
             "mastra-app",
-            "context-service",
             "mastra-state",
+            "context-service",
             "graph-store",
             "audit-store"
           ]
@@ -32,6 +35,49 @@
         },
         "schema_version": {
           "$ref": "./common.schema.json#/$defs/SchemaVersion"
+        }
+      },
+      "additionalProperties": false
+    },
+    "RuntimeDescriptor": {
+      "type": "object",
+      "required": [
+        "family",
+        "language",
+        "version",
+        "profile_digest",
+        "generator_version",
+        "state_store",
+        "topology",
+        "licensing"
+      ],
+      "properties": {
+        "family": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "language": {
+          "type": "string",
+          "enum": ["typescript", "python"]
+        },
+        "version": {
+          "$ref": "./common.schema.json#/$defs/Semver"
+        },
+        "profile_digest": {
+          "$ref": "./common.schema.json#/$defs/Digest"
+        },
+        "generator_version": {
+          "$ref": "./common.schema.json#/$defs/Semver"
+        },
+        "state_store": {
+          "$ref": "./runtime-capabilities.schema.json#/$defs/StateStoreKind"
+        },
+        "topology": {
+          "$ref": "./runtime-capabilities.schema.json#/$defs/TopologyMode"
+        },
+        "licensing": {
+          "$ref": "./runtime-profile.schema.json#/$defs/Licensing"
         }
       },
       "additionalProperties": false
@@ -78,12 +124,18 @@
         },
         "service": {
           "type": "string",
-          "enum": ["mastra-app", "context-service"]
+          "enum": ["runtime-app", "mastra-app", "context-service"]
         },
         "service_version": {
           "type": "string",
           "minLength": 1,
           "maxLength": 100
+        },
+        "runtime": {
+          "$ref": "#/$defs/RuntimeDescriptor"
+        },
+        "capability_details": {
+          "$ref": "./runtime-capabilities.schema.json#/$defs/CapabilityDetails"
         },
         "graph_schema_version": {
           "$ref": "./common.schema.json#/$defs/SchemaVersion"
@@ -130,7 +182,22 @@
           "$ref": "./common.schema.json#/$defs/Timestamp"
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "service": {
+                "enum": ["runtime-app"]
+              }
+            },
+            "required": ["service"]
+          },
+          "then": {
+            "required": ["runtime", "capability_details"]
+          }
+        }
+      ]
     }
   }
 }

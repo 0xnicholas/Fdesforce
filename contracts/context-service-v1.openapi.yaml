@@ -3,7 +3,8 @@ info:
   title: FDE Context Service API
   version: 1.0.0
   description: |
-    Internal runtime API owned by context-service. Mastra is the only caller.
+    Internal runtime API owned by context-service. The generated runtime app
+    (mastra-app in v0) is the only caller.
     Every endpoint except /healthz, /readyz, and /v1/runtime-info requires a
     signed ExecutionContext JWT and a W3C traceparent header.
 servers:

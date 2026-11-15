@@ -76,6 +76,10 @@ _Avoid_: Plugin, Add-on
 不可变、内容寻址的构建产物，包含运行一个 Solution 所需的全部组件和元数据。
 _Avoid_: Package, Artifact, Build
 
+**Bundle Topology**:
+Bundle 内组件、端口、卷、作业、启动依赖、健康检查和 secret 绑定的唯一部署拓扑声明；Compose/Helm/airgap 从它渲染。
+_Avoid_: Deployment manifest, Compose file
+
 **Release**:
 对一个 Bundle 的批准和签署记录，按 Solution 全局唯一、不可变，是部署的单位。
 _Avoid_: Version, Build

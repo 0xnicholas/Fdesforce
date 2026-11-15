@@ -165,7 +165,7 @@ flowchart LR
 | [0007](adr/0007-lock-completeness-and-eval-evidence.md) | lock v1、Model Profile、Evaluation 签名 | CLI、Release 链 | S1/S2.3 |
 | [0008](adr/0008-decision-audit-binding.md) | DecisionBinding、record-before-act | @fde/runtime | S2.2 |
 | [0009](adr/0009-agent-security-controls.md) | Agent 安全确定性基线 | mastra-app、@fde/runtime | S2.5 |
-| 0010（#17，合并时重编号） | RuntimeGenerator 端口、能力矩阵、BundleTopology | generator、topology | S1 |
+| 0010（#17） | RuntimeGenerator 端口、能力矩阵、BundleTopology | generator、topology | S1 |
 | [0011](adr/0011-architecture-synthesis-and-slices.md) | 本综合：合并顺序、版本约定、切片划分 | — | — |
 
 研究票的结论（Mastra/Semantica 选型 #3/#4、许可审计 #14、检索后端 #15、LangGraph 缺口 #16）不产生 ADR，其结论已并入上表各 ADR 的前提。

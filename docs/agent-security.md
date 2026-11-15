@@ -2,7 +2,7 @@
 
 > 状态：决策稿，对应 ticket「Agent 专项安全：prompt injection、tool abuse 与 data exfiltration」(#21)。
 > 范围：v0 单客户 bundle 的 agent 行为层；不覆盖多租户、UI、首客场景、生产化合规。
-> 契约版本：`fde.runtime/v1.2.0`（在 v1.1 上 additive；`output.emit` 与 admin 端点是新增面）。
+> 契约版本：`fde.runtime/v1.3.0`（在 v1.1 上 additive；`output.emit` 与 admin 端点是新增面）。
 > 关联：[运行时与集成契约](runtime-contract.md) · [客户环境内的身份、权限与部署](security-and-deployment.md) · [record-before-act 与审计绑定](decision-audit-binding.md) · [评测、验收与可观测性](evaluation-and-observability.md) · [ADR-0009](adr/0009-agent-security-controls.md)
 > 术语：[`GLOSSARY.md`](../GLOSSARY.md) · 威胁边界：[`security-and-deployment.md`](security-and-deployment.md) §2 · 审计字段：[`decision-audit-binding.md`](decision-audit-binding.md) §4
 

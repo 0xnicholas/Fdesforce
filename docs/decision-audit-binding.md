@@ -2,7 +2,7 @@
 
 > 状态：决策稿，对应 ticket「record-before-act evidence 与审计绑定」(#20)。
 > 范围：v0 单客户 bundle；只定 Spec 字段、Decision 契约、生成物/运行时映射与 conformance，不改生产实现。
-> 契约版本：`fde.runtime/v1.1`（在 `v1` 上 additive；intent/outcome 的新必填字段是语义收紧）。
+> 契约版本：`fde.runtime/v1.3.0`（intent/outcome 字段在 v1.1 引入；intent/outcome 的新必填字段是语义收紧）。
 > 关联：[运行时与集成契约](runtime-contract.md) · [客户环境内的身份、权限与部署](security-and-deployment.md) · [评测、验收与可观测性](evaluation-and-observability.md) · [ADR-0008](adr/0008-decision-audit-binding.md) · [Workflow/HITL step grammar](https://github.com/0xnicholas/Fdesforce/issues/18) · [solution.lock 完整性](https://github.com/0xnicholas/Fdesforce/issues/19)
 > 术语：[`GLOSSARY.md`](../GLOSSARY.md)
 

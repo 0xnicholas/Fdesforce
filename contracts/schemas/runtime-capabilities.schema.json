@@ -1,0 +1,427 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.dev/contracts/schemas/runtime-capabilities.schema.json",
+  "title": "FDE Runtime Capabilities",
+  "description": "Capability declaration for a Runtime Profile and the runtime-info handshake. Describes the generated runtime app (runtime primitive + generator adapter), not the raw runtime library.",
+  "$ref": "#/$defs/RuntimeCapabilities",
+  "$defs": {
+    "Support": {
+      "type": "string",
+      "enum": ["native", "adapter", "degraded", "none"]
+    },
+    "EvalHooks": {
+      "type": "string",
+      "enum": ["native", "external", "none"]
+    },
+    "StateStoreKind": {
+      "type": "string",
+      "enum": ["sqlite", "libsql", "postgres"]
+    },
+    "DurabilityMode": {
+      "type": "string",
+      "enum": ["sync", "async", "exit"]
+    },
+    "ExtensionArtifactKind": {
+      "type": "string",
+      "enum": ["ts-package", "python-wheel", "http"]
+    },
+    "TopologyMode": {
+      "type": "string",
+      "enum": ["split", "merged-container", "agent-server"]
+    },
+    "Limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 300
+      },
+      "uniqueItems": true,
+      "maxItems": 10
+    },
+    "DegradedRequiresLimitations": {
+      "if": {
+        "properties": {
+          "support": {
+            "const": "degraded"
+          }
+        },
+        "required": ["support"]
+      },
+      "then": {
+        "required": ["limitations"],
+        "properties": {
+          "limitations": {
+            "minItems": 1
+          }
+        }
+      }
+    },
+    "CapabilityNode": {
+      "type": "object",
+      "required": ["support"],
+      "properties": {
+        "support": {
+          "$ref": "#/$defs/Support"
+        },
+        "limitations": {
+          "$ref": "#/$defs/Limitations"
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "$ref": "#/$defs/DegradedRequiresLimitations"
+        }
+      ]
+    },
+    "DurableWorkflow": {
+      "type": "object",
+      "required": ["support", "durabilityModes", "autoResume"],
+      "properties": {
+        "support": {
+          "$ref": "#/$defs/Support"
+        },
+        "limitations": {
+          "$ref": "#/$defs/Limitations"
+        },
+        "durabilityModes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DurabilityMode"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "autoResume": {
+          "$ref": "#/$defs/Support"
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "$ref": "#/$defs/DegradedRequiresLimitations"
+        }
+      ]
+    },
+    "Hitl": {
+      "type": "object",
+      "required": [
+        "support",
+        "interrupt",
+        "resume",
+        "approvalResource",
+        "expiry",
+        "multipleInterrupts",
+        "consume"
+      ],
+      "properties": {
+        "support": {
+          "$ref": "#/$defs/Support"
+        },
+        "limitations": {
+          "$ref": "#/$defs/Limitations"
+        },
+        "interrupt": {
+          "$ref": "#/$defs/Support"
+        },
+        "resume": {
+          "$ref": "#/$defs/Support"
+        },
+        "approvalResource": {
+          "$ref": "#/$defs/Support"
+        },
+        "expiry": {
+          "$ref": "#/$defs/Support"
+        },
+        "multipleInterrupts": {
+          "$ref": "#/$defs/Support"
+        },
+        "consume": {
+          "$ref": "#/$defs/Support"
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "$ref": "#/$defs/DegradedRequiresLimitations"
+        }
+      ]
+    },
+    "Streaming": {
+      "type": "object",
+      "required": ["support", "tokenStream", "toolEvents", "interruptEvents", "transport"],
+      "properties": {
+        "support": {
+          "$ref": "#/$defs/Support"
+        },
+        "limitations": {
+          "$ref": "#/$defs/Limitations"
+        },
+        "tokenStream": {
+          "$ref": "#/$defs/Support"
+        },
+        "toolEvents": {
+          "$ref": "#/$defs/Support"
+        },
+        "interruptEvents": {
+          "$ref": "#/$defs/Support"
+        },
+        "transport": {
+          "$ref": "#/$defs/Support"
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "$ref": "#/$defs/DegradedRequiresLimitations"
+        }
+      ]
+    },
+    "Observability": {
+      "type": "object",
+      "required": ["support", "otel", "evalHooks"],
+      "properties": {
+        "support": {
+          "$ref": "#/$defs/Support"
+        },
+        "limitations": {
+          "$ref": "#/$defs/Limitations"
+        },
+        "otel": {
+          "$ref": "#/$defs/Support"
+        },
+        "evalHooks": {
+          "$ref": "#/$defs/EvalHooks"
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "$ref": "#/$defs/DegradedRequiresLimitations"
+        }
+      ]
+    },
+    "Memory": {
+      "type": "object",
+      "required": ["support", "thread", "longTerm", "ttl"],
+      "properties": {
+        "support": {
+          "$ref": "#/$defs/Support"
+        },
+        "limitations": {
+          "$ref": "#/$defs/Limitations"
+        },
+        "thread": {
+          "$ref": "#/$defs/Support"
+        },
+        "longTerm": {
+          "$ref": "#/$defs/Support"
+        },
+        "ttl": {
+          "$ref": "#/$defs/Support"
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "$ref": "#/$defs/DegradedRequiresLimitations"
+        }
+      ]
+    },
+    "Tools": {
+      "type": "object",
+      "required": ["support", "native", "mcp", "connectorOperations"],
+      "properties": {
+        "support": {
+          "$ref": "#/$defs/Support"
+        },
+        "limitations": {
+          "$ref": "#/$defs/Limitations"
+        },
+        "native": {
+          "$ref": "#/$defs/Support"
+        },
+        "mcp": {
+          "$ref": "#/$defs/Support"
+        },
+        "connectorOperations": {
+          "$ref": "#/$defs/Support"
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "$ref": "#/$defs/DegradedRequiresLimitations"
+        }
+      ]
+    },
+    "Extensions": {
+      "type": "object",
+      "required": ["support", "artifactKinds"],
+      "properties": {
+        "support": {
+          "$ref": "#/$defs/Support"
+        },
+        "limitations": {
+          "$ref": "#/$defs/Limitations"
+        },
+        "artifactKinds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExtensionArtifactKind"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "$ref": "#/$defs/DegradedRequiresLimitations"
+        }
+      ]
+    },
+    "StateStore": {
+      "type": "object",
+      "required": ["support", "kinds", "schemaVersion", "encryption", "retention"],
+      "properties": {
+        "support": {
+          "$ref": "#/$defs/Support"
+        },
+        "limitations": {
+          "$ref": "#/$defs/Limitations"
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/StateStoreKind"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "schemaVersion": {
+          "$ref": "./common.schema.json#/$defs/SchemaVersion"
+        },
+        "encryption": {
+          "$ref": "#/$defs/Support"
+        },
+        "retention": {
+          "$ref": "#/$defs/Support"
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "$ref": "#/$defs/DegradedRequiresLimitations"
+        }
+      ]
+    },
+    "Topology": {
+      "type": "object",
+      "required": ["support", "modes", "singleWriter"],
+      "properties": {
+        "support": {
+          "$ref": "#/$defs/Support"
+        },
+        "limitations": {
+          "$ref": "#/$defs/Limitations"
+        },
+        "modes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TopologyMode"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "singleWriter": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "$ref": "#/$defs/DegradedRequiresLimitations"
+        }
+      ]
+    },
+    "Offline": {
+      "type": "object",
+      "required": ["support"],
+      "properties": {
+        "support": {
+          "$ref": "#/$defs/Support"
+        },
+        "limitations": {
+          "$ref": "#/$defs/Limitations"
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "$ref": "#/$defs/DegradedRequiresLimitations"
+        }
+      ]
+    },
+    "RuntimeCapabilities": {
+      "type": "object",
+      "required": [
+        "durableWorkflow",
+        "hitl",
+        "streaming",
+        "observability",
+        "memory",
+        "tools",
+        "extensions",
+        "stateStore",
+        "topology",
+        "offline"
+      ],
+      "properties": {
+        "durableWorkflow": {
+          "$ref": "#/$defs/DurableWorkflow"
+        },
+        "hitl": {
+          "$ref": "#/$defs/Hitl"
+        },
+        "streaming": {
+          "$ref": "#/$defs/Streaming"
+        },
+        "observability": {
+          "$ref": "#/$defs/Observability"
+        },
+        "memory": {
+          "$ref": "#/$defs/Memory"
+        },
+        "tools": {
+          "$ref": "#/$defs/Tools"
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        },
+        "stateStore": {
+          "$ref": "#/$defs/StateStore"
+        },
+        "topology": {
+          "$ref": "#/$defs/Topology"
+        },
+        "offline": {
+          "$ref": "#/$defs/Offline"
+        }
+      },
+      "additionalProperties": false
+    },
+    "CapabilityDetails": {
+      "type": "object",
+      "description": "Flat capability-path map used by runtime-info. Paths are the same as the RuntimeCapabilities tree, e.g. hitl.consume.",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^(durableWorkflow|hitl|streaming|observability|memory|tools|extensions|stateStore|topology|offline)(\\.[a-zA-Z][a-zA-Z0-9]*)?$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/CapabilityNode"
+      }
+    }
+  }
+}

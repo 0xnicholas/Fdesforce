@@ -1,6 +1,6 @@
 # Runtime Contract Conformance Cases
 
-These cases are the acceptance suite for `fde.runtime/v1` (current minor `1.2`). They are fixed here so the first implementation slice can wire them into CI without re-deciding behavior.
+These cases are the acceptance suite for `fde.runtime/v1` (current minor `1.3`). They are fixed here so the first implementation slice can wire them into CI without re-deciding behavior.
 
 | ID | Case | Expected |
 |---|---|---|
@@ -12,7 +12,7 @@ These cases are the acceptance suite for `fde.runtime/v1` (current minor `1.2`).
 | C6 | Trace propagation | `traceparent` trace-id equals JWT `trace_id`; retrieve, decision, and provenance responses carry the same `trace_id` |
 | C7 | Record-before-act | A failing intent Decision blocks the side-effect Tool; no Tool call is observed |
 | C8 | Approval state machine | `pending → approved → consumed` via `/consume`; expiry produces `expired`; self-approval is denied unless policy allows; consume is idempotent |
-| C9 | Contract handshake | Major contract mismatch or missing capability fails startup closed with `contract_mismatch` |
+| C9 | Contract handshake | Major contract mismatch or missing capability fails startup closed with `contract_mismatch` / `runtime_capability_mismatch` |
 | C10 | 422 normalization | Request-body validation errors use the unified error envelope, not FastAPI's default shape |
 | C11 | SSE event envelope | `seq` is monotonic, `run_id`/`trace_id` present, heartbeat at least every 15s |
 | C12 | Cancellation | `POST /v1/runs/{run_id}/cancel` yields `run.cancelled`; completed Decisions remain in the audit store |
@@ -75,3 +75,5 @@ advisory in v0, not conformance.
 | C40 | Memory trust | Memory renders as a `memory-block` with `trust=untrusted`; memory is not promoted to graph facts or Decision evidence; cross-user/tenant/Solution recall is denied; the full schema assertions wait for #22 |
 
 The runner lands with the first `context-service` implementation. Until then, this table is the contract's test plan; examples and schemas in `docs/runtime-contract.md` and `contracts/schemas/` are the fixtures. The first generator slice must wire C16–C40 into the same runner.
+
+Adapter-level cases (A1–A11) live in [`adapter-cases.md`](./adapter-cases.md); they are owned by the runtime generator and must not be merged into this context-service suite.
