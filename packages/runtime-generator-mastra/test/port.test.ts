@@ -2,16 +2,15 @@
 //
 // The port is shared by every runtime; a generator that skips a method, renames
 // its family or answers `capabilities()` with something the handshake cannot
-// report breaks the CLI and the startup check at once. The four generation
-// generation methods this slice does not own (#28) must fail loudly rather than
-// emit an empty topology, because an empty topology renders a bundle that
-// silently misses the runtime.
+// report breaks the CLI and the startup check at once. Every `generate*` method
+// re-checks the gate and throws rather than emitting an artifact for a Spec the
+// build would have refused.
 import { describe, expect, it } from 'vitest';
 
 import { resolveRuntimeProfile } from '@fde/runtime-generator';
 
 import { mastraGenerator } from '../src/index.js';
-import { exampleProfile, generateInput } from './support/fixtures.js';
+import { exampleProfile, mutatedGenerateInput } from './support/fixtures.js';
 
 describe('identity', () => {
   it('is the mastra family at the version the Runtime Profile pins', () => {
@@ -30,14 +29,17 @@ describe('capabilities', () => {
   });
 });
 
-describe('methods this slice does not own', () => {
-  const input = generateInput();
+describe('generation is gated', () => {
+  const input = mutatedGenerateInput((draft) => {
+    draft['spec']['spec']['agents']['triage-agent'].memory = { thread: { lastMessages: 20 } };
+  });
 
   it.each([
+    ['generateApp', () => mastraGenerator.generateApp(input)],
     ['generateTopology', () => mastraGenerator.generateTopology(input)],
     ['generateMigrations', () => mastraGenerator.generateMigrations(input)],
     ['generateContractTests', () => mastraGenerator.generateContractTests(input)],
-  ])('%s fails loudly instead of emitting an empty artifact', (_name, call) => {
-    expect(call).toThrow(/#28/);
+  ])('%s refuses a Spec the gate rejects', (_name, call) => {
+    expect(call).toThrow(/runtime_grammar_unsupported/);
   });
 });

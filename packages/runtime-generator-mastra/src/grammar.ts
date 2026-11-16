@@ -1,5 +1,5 @@
 import type { Agent, SolutionSpec, Tool } from '@fde/spec';
-import type { RuntimeDiagnostic, RuntimeExtensionView } from '@fde/runtime-generator';
+import type { RuntimeDiagnostic, RuntimeEnvironmentView, RuntimeExtensionView } from '@fde/runtime-generator';
 
 import { BUILTIN_TOOLS } from './builtins.js';
 import { identifier } from './naming.js';
@@ -51,6 +51,29 @@ function extensionPath(spec: SolutionSpec, name: string): string {
   return index < 0 ? 'spec.extensions' : `spec.extensions[${index}]`;
 }
 
+/**
+ * The runtime state store this generator emits is libsql/SQLite: one database file
+ * on the `mastra-state` volume, opened with `node:sqlite` (see
+ * `runtime/state-store.ts`). The shared gate only checks that the Environment's
+ * choice is one the *Profile* can run; a Profile may legitimately list Postgres for
+ * a future generator. This check is the narrower promise this generator can keep:
+ * there is no emitted Postgres schema, so a Postgres Environment fails the build
+ * instead of producing an app that cannot open its registry.
+ */
+export function unsupportedStateStore(environment: RuntimeEnvironmentView): RuntimeDiagnostic[] {
+  const selected = environment.stateStore?.kind;
+  if (selected === undefined || selected === 'sqlite' || selected === 'libsql') return [];
+
+  return [
+    {
+      code: 'runtime_state_store_unsupported',
+      path: `environment.${environment.name}.stateStore.kind`,
+      message: `the Environment selects a ${selected} state store, and this generator emits a libsql/SQLite schema only`,
+      remediation: 'select sqlite or libsql, or wait for the Postgres state store implementation',
+    },
+  ];
+}
+
 export function unsupportedGrammar(
   spec: SolutionSpec,
   extensions: ReadonlyArray<RuntimeExtensionView> = [],
@@ -61,6 +84,7 @@ export function unsupportedGrammar(
 
   diagnostics.push(...unsupportedTools(tools));
   diagnostics.push(...unsupportedAgents(agents, tools));
+  diagnostics.push(...unsupportedCapabilities(spec));
   diagnostics.push(...unsupportedWorkflows(spec));
   diagnostics.push(...unloadableExtensions(spec, extensions));
   diagnostics.push(...identifierCollisions(spec));
@@ -152,6 +176,45 @@ function unsupportedAgents(
     });
 
     return diagnostics;
+  });
+}
+
+/**
+ * A Capability is what a client starts a Run against, so its implementation is
+ * the Run service's entrypoint. This slice's Run service starts workflows: a
+ * `workflow` binding becomes a `CAPABILITY_IDS` entry and a workflow execution
+ * (`runtime/run-service.ts`). An `agent` binding has no Run path yet, and a
+ * binding to a workflow the Spec does not declare would generate an import of a
+ * module that does not exist — both fail the build where the author can see them.
+ */
+function unsupportedCapabilities(spec: SolutionSpec): RuntimeDiagnostic[] {
+  const workflows = spec.spec.workflows ?? {};
+
+  return Object.entries(spec.spec.capabilities).flatMap(([capabilityId, capability]) => {
+    const path = `spec.capabilities.${capabilityId}.implementation`;
+    const implementation = capability.implementation;
+
+    if (implementation.type === 'agent') {
+      return [
+        refuse(
+          path,
+          `Capability ${capabilityId} is implemented by Agent ${implementation.ref}, and this slice starts Workflows only`,
+          'implement the capability as a workflow, or wait for the agent-implemented Run path',
+        ),
+      ];
+    }
+
+    if (workflows[implementation.ref] === undefined) {
+      return [
+        refuse(
+          path,
+          `Capability ${capabilityId} points at Workflow ${implementation.ref}, which the Spec does not declare`,
+          'declare the Workflow under spec.workflows, or point the capability at one that exists',
+        ),
+      ];
+    }
+
+    return [];
   });
 }
 

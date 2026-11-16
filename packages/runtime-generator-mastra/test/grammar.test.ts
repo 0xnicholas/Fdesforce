@@ -303,3 +303,63 @@ describe('the gate composes with the shared one', () => {
     expect(result.requirements.map((requirement) => requirement.capability)).toContain('streaming');
   });
 });
+
+describe('runtime_state_store_unsupported: the store this generator emits', () => {
+  it('refuses a Postgres state store even when the Profile lists it', () => {
+    const input = mutatedGenerateInput((draft) => {
+      (group(draft, 'stateStore') as Mutable)['kinds'] = ['sqlite', 'postgres'];
+      draft['environment'].stateStore = { kind: 'postgres', schemaVersion: '1' };
+    });
+
+    const errors = mastraGenerator.validate(input).errors.filter(
+      (error) => error.code === 'runtime_state_store_unsupported',
+    );
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.path).toBe('environment.acme-prod.stateStore.kind');
+    expect(errors[0]?.message).toContain('libsql/SQLite');
+    expect(() => mastraGenerator.generateMigrations(input)).toThrow(/runtime_state_store_unsupported/);
+  });
+
+  it('accepts the SQLite-compatible libsql selection', () => {
+    const input = mutatedGenerateInput((draft) => {
+      (group(draft, 'stateStore') as Mutable)['kinds'] = ['sqlite', 'libsql', 'postgres'];
+      draft['environment'].stateStore = { kind: 'libsql', schemaVersion: '1' };
+    });
+
+    expect(mastraGenerator.validate(input).errors).toEqual([]);
+  });
+});
+
+describe('runtime_grammar_unsupported: capability implementation', () => {
+  it('refuses an agent-implemented capability: the Run service starts workflows only', () => {
+    const input = mutatedGenerateInput((draft) => {
+      specBody(draft)['capabilities']['document-triage'].implementation = {
+        type: 'agent',
+        ref: 'triage-agent',
+      };
+    });
+
+    const [error] = grammarErrors(mastraGenerator.validate(input));
+
+    expect(error?.code).toBe('runtime_grammar_unsupported');
+    expect(error?.path).toBe('spec.capabilities.document-triage.implementation');
+    expect(error?.message).toContain('triage-agent');
+    expect(error?.remediation).toBeDefined();
+  });
+
+  it('refuses a capability pointing at a workflow the Spec does not declare', () => {
+    const input = mutatedGenerateInput((draft) => {
+      specBody(draft)['capabilities']['document-triage'].implementation = {
+        type: 'workflow',
+        ref: 'missing-flow',
+      };
+    });
+
+    const [error] = grammarErrors(mastraGenerator.validate(input));
+
+    expect(error?.path).toBe('spec.capabilities.document-triage.implementation');
+    expect(error?.message).toContain('missing-flow');
+    expect(() => mastraGenerator.generateApp(input)).toThrow(/runtime_grammar_unsupported/);
+  });
+});

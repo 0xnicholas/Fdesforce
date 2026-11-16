@@ -42,7 +42,7 @@ describe('the file set', () => {
     expect(app().files.every((entry) => entry.mode === 0o644)).toBe(true);
   });
 
-  it('generates exactly the read-only slice: no approval, no write Tool, no memory', () => {
+  it('generates exactly the read-only slice plus its Run API: no approval, no write Tool, no memory', () => {
     const paths = app().files.map((entry) => entry.path);
 
     expect(paths).toEqual([
@@ -51,9 +51,21 @@ describe('the file set', () => {
       'mastra-app/src/agents/triage-agent.ts',
       'mastra-app/src/index.ts',
       'mastra-app/src/mastra.ts',
+      'mastra-app/src/migrate.ts',
+      'mastra-app/src/runtime/canonical.ts',
+      'mastra-app/src/runtime/config.ts',
       'mastra-app/src/runtime/context-client.ts',
+      'mastra-app/src/runtime/errors.ts',
       'mastra-app/src/runtime/execution-context.ts',
+      'mastra-app/src/runtime/identity.ts',
+      'mastra-app/src/runtime/ids.ts',
       'mastra-app/src/runtime/retrieval.ts',
+      'mastra-app/src/runtime/router.ts',
+      'mastra-app/src/runtime/run-registry.ts',
+      'mastra-app/src/runtime/run-service.ts',
+      'mastra-app/src/runtime/sse.ts',
+      'mastra-app/src/runtime/state-store.ts',
+      'mastra-app/src/runtime/wire.ts',
       'mastra-app/src/schemas/claims_lookup_input.ts',
       'mastra-app/src/schemas/claims_lookup_output.ts',
       'mastra-app/src/schemas/triage_output.ts',

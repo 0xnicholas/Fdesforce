@@ -63,20 +63,45 @@ describe('generation is a pure function of its input', () => {
 });
 
 describe('the generated files carry no build-time entropy', () => {
-  it('has no clock, no randomness and no environment read', () => {
+  // A runtime needs a clock and randomness (Run ids are ULIDs, traces are random,
+  // heartbeats have timestamps, backoff has jitter) and a deployment needs
+  // configuration. What must not happen is entropy *anywhere else*: a timestamp
+  // baked into a prompt, a random id in a manifest, an environment value that
+  // changes the tree. So the scan names the four modules allowed to look at the
+  // world at runtime, and everything else has to be a pure function of the input.
+  const RUNTIME_INPUTS: Record<string, ReadonlyArray<string>> = {
+    'mastra-app/src/runtime/ids.ts': ['new Date', 'Date.now'],
+    'mastra-app/src/runtime/context-client.ts': ['Date.now', 'Math.random'],
+    'mastra-app/src/runtime/run-registry.ts': ['Date.now'],
+    'mastra-app/src/runtime/config.ts': ['process.env'],
+  };
+
+  it('reads the clock, randomness or the environment only in the modules that must', () => {
     const offenders = generate().files.flatMap((entry) =>
       [
         { pattern: /\bnew Date\b/, why: 'a timestamp' },
         { pattern: /\bDate\.now\b/, why: 'a timestamp' },
         { pattern: /\bMath\.random\b/, why: 'randomness' },
         { pattern: /\brandomUUID\b/, why: 'a random ID' },
-        { pattern: /\bprocess\.env\b/, why: 'an environment read at build time' },
+        { pattern: /\bprocess\.env\b/, why: 'an environment read' },
       ]
         .filter(({ pattern }) => pattern.test(entry.content))
+        .filter(({ pattern }) => {
+          const allowed = RUNTIME_INPUTS[entry.path] ?? [];
+          return !allowed.some((token) => pattern.test(token));
+        })
         .map(({ why }) => `${entry.path}: ${why}`),
     );
 
     expect(offenders).toEqual([]);
+  });
+
+  it('keeps the manifests themselves free of the clock and the machine', () => {
+    for (const path of ['mastra-app/package.json', 'mastra-app/tsconfig.json', 'mastra-app/Dockerfile']) {
+      const body = generate().files.find((entry) => entry.path === path)?.content ?? '';
+
+      expect(body).not.toMatch(/\bDate\b|\brandom|process\.env/);
+    }
   });
 
   it('writes JSON in canonical form: sorted keys, two spaces, one trailing newline', () => {

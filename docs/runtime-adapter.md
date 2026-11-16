@@ -694,10 +694,10 @@ spec:
 |---|---|
 | `capabilities` | 解析 Profile，返回规范化能力；校验 10 组必填。 |
 | `validate` | 推导 durable/HITL/streaming/memory/tools/extensions/offline 要求；检查 `ts-package`、SQLite/Postgres、split、OTel；`should` 产生 warning。 |
-| `generateApp` | 生成 `src/agents`、`src/workflows`、`src/tools`、`src/runtime/{context-client,execution-context,retrieval}.ts`、`index.ts`、`Dockerfile`；Node 22 entrypoint。`run-service.ts`、`sse.ts`、`record-before-act.ts`、`approvals.ts` 归 #28/#29。v0 骨架只提供 `/healthz`（存活）；`/readyz` 与握手在 #30 落地，拓扑的 healthCheck 随之切换。 |
-| `generateTopology` | `mastra-app` + `mastra-state` 卷 + `runtime-migrate` 作业；端口 4111 暴露；依赖 context-service；health `/readyz`。 |
+| `generateApp` | 生成 `src/agents`、`src/workflows`、`src/tools`、`src/runtime/{context-client,execution-context,retrieval,wire,errors,ids,canonical,sse,state-store,run-registry,router,run-service,config,identity}.ts`、`index.ts`、`migrate.ts`、`Dockerfile`；Node 22 entrypoint。`record-before-act.ts`、`approvals.ts` 归 #29/Slice 2；`identity.ts` 是 #29 的签发接缝（当前 fail closed）。`/readyz` 与握手在 #30 落地，拓扑的 healthCheck 随之切换。 |
+| `generateTopology` | `mastra-app` + `mastra-state` 卷 + `runtime-migrate` 作业；端口 4111 暴露；依赖 context-service；health `/healthz`（`/readyz` 与握手在 #30 落地后切换）。 |
 | `generateMigrations` | libsql/SQLite state store 初始化；不生成 context-service graph/audit 迁移。 |
-| `generateContractTests` | A1–A11 到 Mastra 测试命令/fixture 的映射；A11 比较 `sourceDigest`。 |
+| `generateContractTests` | 本切片映射 A2/A5（smoke，`contract-tests/run-api-smoke.mjs` 从 parity fixture 读 capability/操作/事件/错误表）与 A11（static，比较 `sourceDigest`）；A1/A3/A4/A6–A10/A12 随各自切片接线。 |
 
 ### 12.3 能力与缺口
 

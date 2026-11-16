@@ -1,0 +1,166 @@
+// Seam: `mastraGenerator.generateTopology` — the runtime-owned topology fragment.
+//
+// The generator declares only what it owns: the runtime app, its state store
+// volume and its migration job (`docs/runtime-adapter.md` §8.1, §12.2). The
+// platform composes context-service, the graph/audit volumes and the ingest job
+// around this fragment (#32), so the fragment must be schema-valid on its own and
+// must not invent platform-owned components.
+//
+// The fragment is also where the deployment's shape is fixed: the port the app
+// listens on, the volume it persists to, the job that runs before it, and the
+// startup order. Every one of those is a value the app or the renderer relies on,
+// so the tests assert them against the same constants `generateApp` uses.
+import { describe, expect, it } from 'vitest';
+
+import { RuntimeTopologySchema, checkTopology } from '@fde/spec';
+
+import { digestOf } from '@fde/spec';
+
+import { mastraGenerator } from '../src/index.js';
+import { generateInput } from './support/fixtures.js';
+
+const topology = () => mastraGenerator.generateTopology(generateInput());
+const spec = () => topology().spec;
+
+describe('the runtime topology fragment', () => {
+  it('validates against the topology schema', () => {
+    expect(() => RuntimeTopologySchema.parse(topology())).not.toThrow();
+  });
+
+  it('is pinned to the same Profile identity the lock and the app carry', () => {
+    const input = generateInput();
+    const { metadata } = topology();
+
+    expect(metadata.profile).toBe(`${input.profile.metadata.name}@${input.profile.metadata.version}`);
+    expect(metadata.profileDigest).toBe(digestOf(input.profile));
+    expect(metadata.generatorVersion).toBe(input.profile.spec.generator.version);
+  });
+});
+
+describe('the runtime app component', () => {
+  it('declares exactly one runtime app, built from the generated tree', () => {
+    const components = spec().components;
+
+    expect(components.map((component) => component.name)).toEqual(['mastra-app']);
+    expect(components[0]?.role).toBe('runtime-app');
+    expect(components[0]?.image).toEqual({ build: { context: 'mastra-app', dockerfile: 'Dockerfile' } });
+  });
+
+  it('exposes the app port to the ingress and nothing else', () => {
+    const app = mastraGenerator.generateApp(generateInput());
+    const [component] = spec().components;
+
+    expect(component?.ports).toEqual([{ name: 'http', containerPort: 4111, expose: true }]);
+    // The app component and the topology are two views of one port; a drift here
+    // renders an ingress nobody listens on.
+    expect(component?.ports).toEqual(app.components[0]?.ports);
+  });
+
+  it('mounts its own state volume and lets the app find it', () => {
+    const [component] = spec().components;
+
+    expect(component?.volumes).toEqual([{ name: 'mastra-state', mountPath: '/app/state' }]);
+    expect(component?.env).toContainEqual({ name: 'FDE_STATE_STORE_PATH', value: '/app/state/mastra.db' });
+  });
+
+  it('depends on the platform-owned context-service, the only cross-language seam', () => {
+    expect(spec().components[0]?.dependsOn).toEqual(['context-service']);
+  });
+
+  it('declares a health check that the generated entrypoint actually serves', () => {
+    const app = mastraGenerator.generateApp(generateInput());
+    const [component] = spec().components;
+
+    // The handshake slice (#30) switches this to `/readyz`; until then the
+    // container must be checked against a route that exists — and the route the
+    // emitted router actually serves, not a path the topology invented.
+    expect(component?.healthCheck).toEqual({ path: '/healthz', port: 4111 });
+    const router = app.files.find((entry) => entry.path === 'mastra-app/src/runtime/router.ts')?.content ?? '';
+    expect(router).toContain(`export const PROBE_PATH = '${component?.healthCheck?.path}';`);
+    expect(router).toContain('export const RUNS_PATH');
+  });
+
+  it('reserves the resource envelope the contract states for the runtime app', () => {
+    expect(spec().components[0]?.resources).toEqual({ cpu: '1', memory: '1Gi' });
+  });
+
+  it('bakes the Environment values, sorted, as non-secret configuration', () => {
+    const input = generateInput();
+    input.environment = { ...input.environment, values: { FDE_LOG_LEVEL: 'info', FDE_REGION: 'eu-west-1' } };
+
+    const env = mastraGenerator.generateTopology(input).spec.components[0]?.env ?? [];
+
+    expect(env).toEqual([
+      { name: 'FDE_LOG_LEVEL', value: 'info' },
+      { name: 'FDE_REGION', value: 'eu-west-1' },
+      { name: 'FDE_STATE_STORE_PATH', value: '/app/state/mastra.db' },
+      { name: 'NODE_ENV', value: 'production' },
+    ]);
+  });
+});
+
+describe('the state volume and the migration job', () => {
+  it('declares a backed-up runtime state volume, separate from graph and audit', () => {
+    expect(spec().volumes).toEqual([
+      {
+        name: 'mastra-state',
+        backup: true,
+        description: expect.stringMatching(/Run registry/),
+      },
+    ]);
+  });
+
+  it('runs the state migration before the app starts', () => {
+    const jobs = spec().jobs;
+
+    expect(jobs.map((job) => job.name)).toEqual(['runtime-migrate']);
+    expect(jobs[0]?.owner).toBe('runtime');
+    expect(jobs[0]?.steps.map((step) => step.id)).toEqual(['runtime-state']);
+    expect(jobs[0]?.steps[0]?.runBefore).toEqual(['mastra-app']);
+    expect(jobs[0]?.volumes).toEqual([{ name: 'mastra-state', mountPath: '/app/state' }]);
+  });
+
+  it('runs the migration entrypoint the generated tree ships', () => {
+    const generated = mastraGenerator.generateApp(generateInput());
+    const command = spec().jobs[0]?.steps[0]?.command ?? [];
+
+    expect(command).toEqual(['node', '--experimental-strip-types', 'src/migrate.ts']);
+    expect(generated.files.map((entry) => entry.path)).toContain('mastra-app/src/migrate.ts');
+    expect(generated.entrypoint).toEqual(['node', '--experimental-strip-types', 'src/index.ts']);
+  });
+
+  it('puts the job first in the startup order', () => {
+    expect(spec().startupOrder).toEqual(['runtime-migrate', 'mastra-app']);
+  });
+
+  it('leaves the ingress host and the secrets to the platform', () => {
+    expect(spec().secretBindings).toEqual([]);
+    expect(spec().deploymentNaming).toEqual({
+      componentNameTemplate: 'fde-{{deployment_id}}-{{component}}',
+      namespaceTemplate: 'fde-{{deployment_id}}',
+    });
+  });
+});
+
+describe('what the fragment deliberately leaves out', () => {
+  it('reports only the platform-owned gap: context-service and its dependency edge', () => {
+    const report = checkTopology(topology());
+
+    // The composed BundleTopology is #32's; the fragment is complete for the
+    // components the generator owns, and every remaining complaint is the one the
+    // platform fragment answers.
+    expect(report.errors.map((error) => error.code).sort()).toEqual([
+      'topology_context_service_missing',
+      'topology_reference_missing',
+    ]);
+    expect(report.warnings).toEqual([]);
+  });
+});
+
+describe('the fragment is deterministic', () => {
+  it('is byte-identical for the same input', () => {
+    expect(JSON.stringify(mastraGenerator.generateTopology(generateInput()))).toBe(
+      JSON.stringify(mastraGenerator.generateTopology(generateInput())),
+    );
+  });
+});

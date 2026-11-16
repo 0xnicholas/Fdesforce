@@ -210,6 +210,7 @@ Admin 端点只对 `customer_admin` 开放，客户应用不调用；`halt` 语�
 - `POST /v1/decisions`、`POST /v1/approvals`、`POST /v1/approvals/{id}/decisions`、`POST /v1/approvals/{id}/consume`、`POST /v1/runs` 必须带 `Idempotency-Key`。
 - key 作用域：`tenant_id + endpoint + key`；保留至少 24 小时。
 - 同 key + 同 payload：返回原结果（`200`），`idempotent_replay=true`，ID 不变。
+  - 例外：`POST /v1/runs` 的重放返回该操作声明的 `201` 与原始 body。`RunCreateResponse` 是封闭对象（`additionalProperties: false`），不能携带 `idempotent_replay`；客户端以「同一 `run_id`」判断重放，不以状态码判断。
 - 同 key + 不同 payload：`409 idempotency_conflict`。
 - `decision_id` 由调用方生成；`approval_id` 由 context-service 生成；二者都是 stable ID，重复请求不能产生第二条审计记录。
 

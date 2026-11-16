@@ -5,8 +5,9 @@ the fail-closed capability gate (`docs/runtime-adapter.md` §4, §5, §7).
 
 This package is what every generator shares. It is **not** a generator: the v0
 Mastra implementation (`generateApp`, `generateTopology`, `generateMigrations`,
-`generateContractTests`) is [#27](https://github.com/0xnicholas/Fdesforce/issues/27),
-and the CLI that orchestrates a build around it is
+`generateContractTests`) lives in
+[`@fde/runtime-generator-mastra`](../runtime-generator-mastra/README.md) (#27,
+#28), and the CLI that orchestrates a build around it is
 [#33](https://github.com/0xnicholas/Fdesforce/issues/33).
 
 ```text
