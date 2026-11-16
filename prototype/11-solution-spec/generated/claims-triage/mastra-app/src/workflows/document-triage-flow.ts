@@ -90,6 +90,8 @@ const approvalStep = createStep({
           {
             policy_id: 'claims-approval-threshold',
             version: '1.0.0',
+            enforcement_point: 'approval.request',
+            evaluated_by: 'mastra-app',
             outcome: 'allow',
             reason: 'amount below approval threshold',
           },
@@ -120,7 +122,14 @@ const approvalStep = createStep({
           approver_roles: ['claims-supervisor'],
           expires_at: new Date(Date.now() + CLAIMS_APPROVAL_EXPIRES_AFTER_MS).toISOString(),
           // Placeholder: generated from the context Retrieval Snapshot.
-          evidence: [{ entity_id: 'fde:acme:claim:C-1001', version: '3' }],
+          evidence: [
+            {
+              type: 'graph_entity',
+              entity_id: 'fde:acme:claim:C-1001',
+              version: '3',
+              retrieval_id: 'ret_01ARZ3NDEKTSV4RRFFQ69G5FAV',
+            },
+          ],
           policy_refs: ['claims-approval-threshold@1.0.0'],
         },
         `approval:${claims.runId}:approval`,

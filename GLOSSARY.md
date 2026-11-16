@@ -23,7 +23,7 @@ Solution Revision 的声明式内容，是生成物的唯一真相来源；不�
 _Avoid_: Config, Manifest
 
 **Environment**:
-Customer 拥有的部署目标（如 dev/staging/prod），可承载多个 Solution 的 Deployment，并提供命名 profile 的具体非 secret 值（profile_values）。
+Customer 拥有的部署目标（如 dev/staging/prod），提供命名 profile 的具体非 secret 值（profile_values）；v0 一个 Environment 只承载一个 Solution 的 Deployment。
 _Avoid_: Stage, Cluster, Tenant
 
 ## 能力与实现
@@ -45,7 +45,7 @@ _Avoid_: Instance, Config
 _Avoid_: Bot, Assistant
 
 **Workflow**:
-确定性的编排实现，包含步骤、分支、并行、人工审批和持久化状态，是 Capability 的一种实现。
+确定性的编排实现，包含有序步骤（`context | agent | tool | approval`）、人工审批 gate 和持久化状态，是 Capability 的一种实现；v0 无通用分支/并行/条件语言。
 _Avoid_: Pipeline, Graph
 
 **Tool**:
@@ -92,6 +92,14 @@ _Avoid_: Deployment, Version
 平台维护的、版本化的运行时组件与版本组合；Spec 只引用它，`solution.lock` 固定精确版本。
 _Avoid_: Runtime version, Stack
 
+**Model Profile**:
+平台维护的、版本化且不可变的模型身份与参数组合（provider、model、modelVersion、params、fallback）；Spec 只引用逻辑名 + 兼容范围，`solution.lock` 固定精确版本，Environment 只提供 endpoint/secret。
+_Avoid_: Model config, LLM config
+
+**Runtime Generator**:
+把 Solution Spec、Runtime Profile 和环境非 secret 值转换为运行时 app 源码、迁移、Bundle Topology 与 contract tests 的构建期组件；每个 runtime family 一个，不进入 Bundle，不是运行时抽象层。
+_Avoid_: Runtime adapter, Plugin
+
 **Run**:
 Deployment 内一次 Agent 或 Workflow 的执行，带 trace、actor、状态和 provenance。
 _Avoid_: Job, Execution
@@ -103,16 +111,74 @@ _Avoid_: Job, Execution
 _Avoid_: Rule, Guardrail
 
 **Eval Suite**:
-版本化的评测定义，包含数据集、scorer、阈值和通过标准。
+版本化的评测定义，包含数据集引用、scorer、gate、阈值和通过标准；不内嵌数据集。
 _Avoid_: Test, Benchmark
 
 **Evaluation**:
-一次 Eval Suite 的执行，引用被评测的 Bundle/Release，并记录结果。
+一次 Eval Suite 的执行，引用被评测的 Bundle 或 Run/Deployment，并记录结果。
 _Avoid_: Eval, Test Run
 
 **Waiver**:
-在明确记录理由和审批人的前提下，对一条治理门禁的临时豁免；本身是一条 Decision。
+在明确记录理由、审批人和有效期的前提下，对一条 threshold gate 的临时豁免；不能豁免 blocking gate；本身是一条 Decision。
 _Avoid_: Exception, Override
+
+**Metric Catalog**:
+平台维护的版本化指标定义集合，规定指标的含义、公式、方向、数据源和 owner；Capability 只引用指标和阈值。
+_Avoid_: KPI list, Metrics sheet
+
+**Eval Dataset**:
+客户侧、版本化的评测用例集合，按用途分区并带来源、脱敏状态和 digest；不进入 Bundle。
+_Avoid_: Test data, Golden set
+
+**Scorer**:
+对一次输出或一条评测用例给出分数或判定的评分组件，可以是确定性规则、统计方法或 LLM judge。
+_Avoid_: Judge, Metric
+
+**Gate**:
+发布前必须满足的评测条件；`blocking` 逐 case 零容忍，`threshold` 按指标阈值判断，`no_regression` 对基线比较，`monitor` 只观察不阻塞。
+_Avoid_: Check, Threshold
+
+**Acceptance Report**:
+汇总 Evaluation、SLO 观察窗和未结 Waiver 的技术验收记录，本身是一条 Decision；客户签核流程不在其内。
+_Avoid_: Certificate, Sign-off
+
+**SLO**:
+对运行时服务水平的可观察目标，例如可用性、延迟、错误率和审计写入成功率。
+_Avoid_: SLA, KPI
+
+**Online Evaluation**:
+在生产 Run 上按确定性采样执行的评测，用于发现质量漂移和未知失败。
+_Avoid_: Monitoring, Live test
+
+**Retention Class**:
+数据保留类，决定审计、遥测、评测结果和验收记录的保留期与 legal hold 行为。
+_Avoid_: TTL, Expiry
+
+**Incident Severity**:
+按安全、审计、质量和运维影响划分的事故等级（P1/P2/P3），决定 kill switch、降级和回滚动作。
+_Avoid_: Priority, Alert level
+
+**Output Guard**:
+`mastra-app` 在返回模型输出前执行的确定性过滤：阻断 secret、脱敏或阻断 PII、限制外部链接；结果写入 Decision 和 Audit Event。
+_Avoid_: DLP, Content filter
+
+**Kill Switch**:
+`customer_admin` 执行的事故止血状态，按 deployment/capability/tool 阻断新 Run 与 Tool 调用、取消活跃 Run，并写审计；不是回滚。
+_Avoid_: Circuit breaker, Emergency stop
+
+## 身份与访问
+
+**Platform Role**:
+固定平台角色词表（`end_user`、`approver`、`customer_admin`、`deployment_operator`、`auditor`、`service`、`support`），授予运行时 scope；随 Bundle 发布。
+_Avoid_: Permission, Group
+
+**Business Role**:
+客户 IdP group 透传的业务角色，只用于数据权限、row filter 和 `approver_roles`，不授予平台 scope。
+_Avoid_: Platform Role, Permission
+
+**Break-glass**:
+客户持有的应急管理访问；限时、需审批、写审计，仅用于 IdP 不可用时的管理面恢复。
+_Avoid_: Backdoor, Emergency admin
 
 ## 语义与上下文
 
@@ -161,8 +227,32 @@ _Avoid_: Knowledge Graph
 _Avoid_: Context Bundle, Knowledge Pack
 
 **Decision**:
-一次被记录的选择，包含理由、证据、actor 和 provenance；`subject` 可以是 Run、Evaluation、Release、Deployment 或 Solution Revision。
+一次被记录的选择，包含理由、证据、actor 和 provenance；`subject` 可以是 Run、Evaluation、Release、Deployment、Acceptance Report 或 Solution Revision。
 _Avoid_: Log, Note
+
+**Decision Binding**:
+一次副作用 Tool 调用的审计配置，由 Tool 的内在属性（分类、保留类）与 Capability 的证据选择合并而成；build 取更严者，缺失则 fail closed。
+_Avoid_: Audit config, Wrapper config
+
+**Invocation**:
+一次副作用 Tool 调用的执行尝试，用 `invocation_id` 标识；intent 和 outcome Decision 都挂在它上面。
+_Avoid_: Tool call, Step
+
+**Intent Decision**:
+副作用执行前记录的 Decision，声明拟执行动作、证据、Policy 评估和输入摘要；写入失败则不得执行副作用。
+_Avoid_: Pre-log, Audit draft
+
+**Outcome Decision**:
+副作用执行后记录的 Decision，链接 intent，记录成功、失败或未知结果与输出摘要。
+_Avoid_: Result log, Post-log
+
+**Run Decision**:
+Run 终止时记录的汇总 Decision，覆盖只读与副作用 Run，记录证据、最终输出摘要和模型版本。
+_Avoid_: Run log, Summary
+
+**Decision Coverage**:
+有副作用 Tool invocation 中 intent 与 outcome Decision 完整配对的指标；按 invocation 统计，排除 policy deny 和审批拒绝。
+_Avoid_: Audit rate, Log coverage
 
 **Provenance**:
 对实体、关系和决策的来源与演化记录，用 PROV-O 表达。
@@ -174,13 +264,21 @@ _Avoid_: Audit Log, Lineage
 工作台生成的运行时组件之间、以及客户应用访问运行时之间的版本化接口约定；v0 为 `fde.runtime/v1`。
 _Avoid_: API spec, Integration doc
 
+**Runtime Capability**:
+运行时对某一类执行能力的支持声明，例如 durable workflow、HITL、streaming、state store；用 `native | adapter | degraded | none` 表达支持程度。由 Runtime Profile 声明，构建时与 Solution Spec 推导出的要求比对；不等于业务 Capability。
+_Avoid_: Capability, Feature
+
 **Context Service**:
 拥有检索、Decision/Provenance 写入和审批状态的薄服务；是 Mastra 与 Semantica 之间唯一的运行时边界。
 _Avoid_: Semantica service, Context API
 
 **Execution Context**:
-一次 Run 中跨组件传播的、经过签名的身份与关联断言，包含 tenant、subject、actor、roles、scopes、run 和 trace。
+一次 Run 中跨组件传播的、经过签名的身份与关联断言，包含 tenant、subject、actor、roles、scopes、run 和 trace；`roles` 是平台角色与业务角色的并集，平台角色授予 scope，业务角色只用于数据权限。
 _Avoid_: Auth header, User context
+
+**Service Issuer**:
+为特定调用方类别签发 `ExecutionContext` 的签名身份；v0 有 `mastra-app`（用户/Run）和 `fde-jobs`（维护作业）。
+_Avoid_: Service account, API key
 
 **Retrieval Snapshot**:
 一次上下文检索的不可变结果，带 `retrieval_id` 和摘要，供 Decision 引用。
@@ -191,8 +289,20 @@ _Avoid_: Search result, Context cache
 _Avoid_: Confirmation, Sign-off
 
 **Audit Store**:
-只追加、可验证完整性地保存 Decision 和 Provenance 的存储，与 Context Graph 分开。
+只追加、可验证完整性地保存 Decision、Provenance 和 Audit Event 的存储，与 Context Graph 分开。
 _Avoid_: Log, History
+
+**Audit Event**:
+审计库中除 Decision/Provenance 外的安全、身份、发布、部署或保留事件；append-only，带 actor、trace 和 retention class。
+_Avoid_: Log, Telemetry
+
+**Untrusted Content**:
+进入模型上下文但不具指令权威的数据，包括用户输入、检索 item、Tool 返回值、模型中间输出和 memory；只有签名 Bundle 内容是指令来源。
+_Avoid_: User content, External data
+
+**Instruction/Data Separation**:
+平台把不可信内容包进带标签的 data block，使模型将其视为数据而非指令的强制机制；不依赖内容消毒。
+_Avoid_: Prompt hygiene, Guardrail prompt
 
 ## 明确不建模
 
@@ -205,5 +315,5 @@ _Avoid_: Project
 _Avoid_: Draft
 
 **Tenant**:
-多租户控制面概念，v0 不建模；运行时租户隔离由 `ExecutionContext` 的 `tenant_id` 表达。
+多租户控制面概念，v0 不建模；运行时租户隔离由 `ExecutionContext` 的 `tenant_id` 表达，一个 bundle 对应一个 Customer，不引入 sub-tenant。
 _Avoid_: Customer

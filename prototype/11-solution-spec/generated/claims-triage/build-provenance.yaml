@@ -5,19 +5,42 @@ bundleDigest: sha256:17171717171717171717171717171717171717171717171717171717171
 builtAt: 2026-11-15T00:00:00Z
 builder: fde-build 0.1.0
 inputs:
-  spec: sha256:ad68782bf3d23c01f3a96d1e8485046d8cb7364e8995672b1f6fbdf5143c4f9a
-  lock: sha256:1818181818181818181818181818181818181818181818181818181818181818
-  customerContextPackage: acme-claims-context@1.0.0@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+  spec: sha256:2525252525252525252525252525252525252525252525252525252525252525
+  lock: sha256:2626262626262626262626262626262626262626262626262626262626262626
+  customerContextPackage: acme-claims-context@1.0.0@sha256:1616161616161616161616161616161616161616161616161616161616161616
   templates:
-    document-triage: 1.0.0
-    pii-redaction: 1.0.0
-    claims-approval-threshold: 1.0.0
-    claims-triage-quality: 1.0.0
-    claims-context: 1.0.0
+    solution: {fde-solution: 1.2.0}
+    capability: {document-triage: 1.0.0}
+    policy:
+      pii-redaction: 1.0.0
+      data-retention: 2.0.0
+      claims-approval-threshold: 1.0.0
+      tool-allowlist: 1.0.0
+    eval:
+      triage-quality: 1.0.0
+      claims-context: 1.0.0
+    ontology: {insurance-claims: 1.0.0}
+  assets:
+    policies: {claims-approval-threshold: 1.0.0, tool-allowlist: 1.0.0}
+    evalSuites: {claims-triage-quality: 1.0.0}
+    connectors:
+      claims-db: sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+      sharepoint-claims: sha256:1313131313131313131313131313131313131313131313131313131313131313
   extensions:
     acme-claims-connector: 1.0.0
+  modelProfiles:
+    standard:
+      version: 1.2.0
+      digest: sha256:2020202020202020202020202020202020202020202020202020202020202020
+    standard-fallback:
+      version: 1.0.0
+      digest: sha256:2121212121212121212121212121212121212121212121212121212121212121
+  evalDatasets:
+    acme-claims-triage:
+      version: 1.0.0
+      digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
 toolchain:
-  image: ghcr.io/acme-fde/toolchain@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  image: ghcr.io/acme-fde/toolchain@sha256:2424242424242424242424242424242424242424242424242424242424242424
   runtimeProfile: mastra-1.83-node26@1.0.0
   node: 26.2.0
   python: 3.12.2
@@ -29,16 +52,15 @@ licenseGate:
   notices: sbom/THIRD_PARTY_NOTICES.md
   sbom: sbom/sbom.spdx.json
 modelResolution:
-  profile: standard
+  profile: standard@1.2.0
+  digest: sha256:2020202020202020202020202020202020202020202020202020202020202020
   provider: azure-openai
   model: gpt-5.1
-  # GAP: this resolution comes from the Environment at build time. It is not
-  # versioned or pinned in solution.lock, so the same Spec + lock can produce a
-  # different model binding.
-  pinned: false
+  modelVersion: 2026-10-01
+  fallback: standard-fallback@1.0.0
+  pinned: true
 determinism:
   rebuildable: false
   reasons:
-    - model profile is not pinned
     - generated skeleton is hand-written for the prototype
     - secret refs are resolved from Environment values

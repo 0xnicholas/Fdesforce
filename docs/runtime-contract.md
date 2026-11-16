@@ -2,7 +2,7 @@
 
 > 状态：决策稿，对应 ticket「运行时与集成契约」。
 > 范围：v0 单客户 bundle；Mastra + 薄 context-service + Semantica；不做多租户、UI、首客场景。
-> 契约版本：`fde.runtime/v1`。机器可读接口与 schema 见 [`contracts/`](../contracts/)。
+> 契约版本：`fde.runtime/v1.2.0`。机器可读接口与 schema 见 [`contracts/`](../contracts/)。
 > 术语：见 [`GLOSSARY.md`](../GLOSSARY.md)。
 
 ## 1. 结论摘要
@@ -11,10 +11,10 @@
 |---|---|---|
 | D1 | 契约所有权 | context-service 独占 `/v1` REST 契约；Mastra 只通过生成的 TS client 调用；Semantica 原生 REST/MCP 不进入生产路径 |
 | D2 | 真相源 | 语义事实、Decision、Provenance 归 context-service + 图/审计存储；Mastra 只持运行编排状态 |
-| D3 | 身份透传 | Mastra 签发短时 `ExecutionContext` JWT；context-service 验签并在服务端强制 tenant/scope |
+| D3 | 身份透传 | 客户 IdP OIDC；`mastra-app` 作为 resource server 验签并签发短时 `ExecutionContext` JWT；`fde-jobs` 用独立 issuer 签发维护作业断言；context-service 验签并在服务端强制 tenant/scope |
 | D4 | trace/provenance | W3C `traceparent`；稳定 ID；Decision/Provenance 写独立 append-only 审计库；OTel 只做运维观测 |
 | D5 | 图存储 | v0 用 Semantica 进程内 embedded 图 + SQLite；保留 `GraphStore` 端口；生产图存储/索引推迟 |
-| D6 | 边界 | 本契约只定运行时接缝；身份/RBAC、评测、检索索引、可移植性归相邻 ticket |
+| D6 | 边界 | 本契约只定运行时接缝；身份/RBAC 已由「客户环境内的身份、权限与部署」定稿；评测、检索索引、可移植性归相邻 ticket |
 | D7 | 失败语义 | 统一错误 envelope；幂等写；只为可重试错误重试；record-before-act；检索失败显式降级 |
 | D8 | HITL | Mastra `suspend()/resume()` 持执行状态；审批是 context-service 的一等资源，审批本身写 Decision |
 | D9 | Bundle 拓扑 | `mastra-app` + `context-service` + `mastra-state`/`graph`/`audit` 卷 + `migrate`/`ingest` 作业；compose/helm/airgap 同构 |
@@ -22,8 +22,11 @@
 | D11 | 客户端 API | 生成的 `mastra-app` 暴露稳定 Run API；客户应用不直连 context-service |
 | D12 | 版本协商 | `fde.runtime/v1` 语义版本；`runtime-info` 握手；build 兼容矩阵；major 不匹配 fail closed |
 | D13 | 升级/回滚 | stop-the-world；迁移分类；audit 不参与常规回滚；回滚产生新 Deployment Revision |
-| D14 | 签名密钥 | 每 Deployment ES256 密钥对；私钥只在 mastra-app；`kid` 轮换 |
-| D15 | 审计数据 | 默认只存引用/摘要；PII 脱敏后才可入审计；独立卷；append-only；保留/legal hold 由 Policy 配置 |
+| D14 | 签名密钥 | 每 Deployment/issuer 的 ES256 密钥对（`mastra-app`、`fde-jobs`）；私钥在客户 secret store；`kid` 轮换 |
+| D15 | 审计数据 | Decision/Provenance + 安全/治理/部署事件；默认只存引用/摘要；PII 脱敏后才可入审计；独立卷；append-only；保留/legal hold 由 Policy 配置 |
+| D16 | 角色模型 | 平台角色固定词表授予 scope；业务角色透传只用于数据权限；映射在 Environment 配置 |
+| D17 | 部署边界 | 客户运维执行 install/upgrade/rollback/backup；v0 只认证单节点 Compose；Helm 生成不承诺；airgap 离线包 |
+| D18 | Agent 安全 | 确定性基线：不可信内容 data block、副作用 Tool 审批覆盖、rate/budget、output guard、egress allowlist、kill switch；概率检测/沙箱延后；见 [`agent-security.md`](agent-security.md) |
 
 ## 2. 组件与责任边界
 
@@ -43,17 +46,20 @@ flowchart LR
 
 | 组件 | 职责 | 不负责 |
 |---|---|---|
-| 客户应用 | 终端用户 UI、客户 IdP 会话、调用 Run API | 不直连 context-service；不接触图/审计存储 |
-| `mastra-app` | 入口认证、Run 生命周期、Agent/Workflow 编排、SSE、签发 `ExecutionContext`、代理审批、record-before-act wrapper | 不持久化语义事实；不直接查图；不写审计库 |
-| `context-service` | Context Recipe 执行、检索、Decision/Provenance 写入、审批状态、稳定 ID、ingest | 不做 Agent 编排；不暴露给终端用户；不直接调模型 |
+| 客户应用 | 终端用户 UI、OIDC 登录会话、调用 Run API | 不直连 context-service；不接触图/审计存储 |
+| 客户 IdP | OIDC 登录/MFA、group 声明 | 不进入 bundle；不持有运行时数据 |
+| `mastra-app` | 客户 IdP token 验签/introspection、平台角色映射、入口认证、Run 生命周期、Agent/Workflow 编排、SSE、签发 `ExecutionContext`、代理审批、support/break-glass 闸门、record-before-act wrapper | 不持久化语义事实；不直接查图；不写审计库 |
+| `context-service` | Context Recipe 执行、检索、数据权限（classification/PII/row/column）、Decision/Provenance/Audit Event 写入、审批状态、稳定 ID、ingest | 不做 Agent 编排；不暴露给终端用户；不直接调模型 |
 | Semantica | Python 语义/图引擎，作为库运行在 context-service 内 | 不作为独立网络服务；原生 REST/MCP 不进入生产路径 |
 | 图存储 | v0 为 embedded Context Graph（JSON 快照 + 进程内图）；未来通过 `GraphStore` 端口替换 | 不是审计库；不保存 Decision/Provenance 的权威副本 |
-| 审计库 | append-only、哈希链式保存 Decision/Provenance/审批 | 不与主图共用快照生命周期；不存完整 PII |
+| 审计库 | append-only、哈希链式保存 Decision/Provenance/审批/Audit Event | 不与主图共用快照生命周期；不存完整 PII |
 | `mastra-state` | workflow snapshot、thread/memory、流式状态 | 不是语义真相源；不参与跨 Solution 共享 |
-| 工作台 | 构建、校验/冻结 Customer Context Package、签名、打包、交付 bundle | 不托管运行时；不持有客户数据 |
-| 客户运维 | 主机、网络、TLS ingress、IdP、secret store、备份介质 | 不修改 bundle 内的生成物 |
+| 工作台 | 构建、校验/冻结 Customer Context Package、Release 批准/签名、打包、交付 bundle | 不托管运行时；不持有客户数据；无客户环境入站连接 |
+| 客户运维 | 主机、网络、TLS ingress、IdP、secret store、备份介质、维护窗口；执行 install/upgrade/rollback/backup | 不修改 bundle 内的生成物 |
 
 **v0 只有两个应用网络服务**：`mastra-app` 和 `context-service`。Semantica 不单独起服务；图与审计是 context-service 拥有的持久化卷。这样跨语言接缝只有一个，也避免 Semantica 原生 serving 的两套状态问题。
+
+客户 IdP 是唯一用户源；bundle 不建本地用户表（客户持有的本地 break-glass 除外）。客户应用持有 OIDC 登录会话，`mastra-app` 作为 resource server 验签，不提供登录 UI。
 
 ## 3. 运行时接口
 
@@ -61,10 +67,12 @@ flowchart LR
 
 | API | 所有者 | 调用方 | 认证 | 暴露范围 |
 |---|---|---|---|---|
-| Runtime API | `mastra-app` | 客户应用 | 客户 IdP/session token | 客户网络入口 |
-| Context API | `context-service` | 仅 `mastra-app`、ingest/migrate 作业 | `ExecutionContext` JWT | bundle 内部网络 |
+| Runtime API | `mastra-app` | 客户应用 | 客户 IdP access token（JWT/JWKS 或 introspection） | 客户网络入口 |
+| Context API | `context-service` | 仅 `mastra-app`、ingest/migrate/rebuild/eval 作业 | `ExecutionContext` JWT（`iss`=`mastra-app` 或 `fde-jobs`） | bundle 内部网络 |
 
 客户应用永远不直连 context-service。审批也走 `mastra-app` 代理，保证只有一个入口认证与审计边界。
+
+维护作业（`migrate`/`ingest`/`rebuild`/`eval`）使用 `fde-jobs` issuer 的受限 scope，调用内部作业端点；具体端点由实现切片确定，不进入客户应用 API 面。
 
 ### 3.2 Runtime API（客户端）
 
@@ -76,8 +84,13 @@ flowchart LR
 | `POST` | `/v1/runs/{run_id}/cancel` | 取消 Run |
 | `GET` | `/v1/approvals` | 待审/历史审批队列 |
 | `POST` | `/v1/approvals/{approval_id}/decisions` | 批准/拒绝；需要 `Idempotency-Key` |
+| `POST` | `/v1/admin/killswitch` | 启用 halt；需要 `killswitch:execute` |
+| `POST` | `/v1/admin/killswitch/disable` | 解除 halt；需要 `killswitch:execute` 与理由 |
+| `GET` | `/v1/admin/killswitch` | 查看 kill switch 状态；需要 `killswitch:execute` |
 | `GET` | `/v1/runtime-info` | 聚合的运行时版本与能力 |
 | `GET` | `/healthz` `/readyz` | 健康与就绪 |
+
+Admin 端点只对 `customer_admin` 开放，客户应用不调用；`halt` 语义、作用域和审计恢复见 [`agent-security.md`](agent-security.md) §3.6。OpenAPI/schema 由第一实施切片按该节落地；在此之前以该节与本表为准。
 
 `POST /v1/runs` 请求：
 
@@ -209,9 +222,11 @@ flowchart LR
 | Retrieval Snapshot | Audit Store 中的快照清单 | 请求内缓存 | `retrieval_id` + item 引用 + digest；内容仍在图 |
 | Run 生命周期 | `mastra-state` + `mastra-app` | 无 | Run 的权威状态在 Mastra；Decision 引用 `run_id` |
 | Workflow snapshot | `mastra-state` | 无 | 支撑 HITL/重启恢复；不是语义事实 |
+| Decision outbox | `mastra-state` | 无 | pending `invocation_id`/intent/outcome ID 与执行状态；崩溃恢复用，不是审计真相 |
 | Thread / memory | `mastra-state` | 无 | 运行编排状态；不写入 Context Graph |
 | Context Recipe | Solution Spec / Bundle（定义可来自 Customer Context Package） | 无 | 运行时只读 recipe 定义 |
 | Policy / Eval 定义 | Bundle | 无 | 执行结果写 Decision |
+| Evaluation / 在线评分 | 客户侧 eval store | 无 | 评测结果与分数；不进入 Bundle，不逐条写审计库 |
 | Release / Deployment | 工作台 + 客户侧记录 | 无 | 本契约只定义运行时读取的版本字段 |
 
 **规则**：Mastra 不持久化图事实投影；跨请求缓存 v0 不做。任何检索结果都通过 `retrieval_id` 被 Decision 引用，而不是复制进 Mastra 的库。
@@ -221,9 +236,10 @@ flowchart LR
 | ID | 格式 | 生成方 | 说明 |
 |---|---|---|---|
 | `run_id` | `run_<ULID>` | mastra-app | 一次 Run |
+| `invocation_id` | `inv_<ULID>` | mastra-app runtime module | 一次副作用 Tool 调用；intent/outcome/outbox 共用 |
 | `trace_id` | 32 位小写 hex | mastra-app（或继承上游） | W3C Trace Context |
 | `retrieval_id` | `ret_<ULID>` | context-service | 一次检索快照 |
-| `decision_id` | `dec_<ULID>` | 调用方（mastra-app/context-service） | 写幂等键 |
+| `decision_id` | `dec_<ULID>` | 调用方（`mastra-app` runtime module / context-service） | 写幂等键 |
 | `provenance_id` | `prov_<ULID>` | context-service | 审计条目 |
 | `approval_id` | `appr_<ULID>` | context-service | 审批请求 |
 | `deployment_id` | `dep_<ULID>` | 工作台/部署 | 一次 Deployment |
@@ -243,11 +259,11 @@ flowchart LR
 
 ### 5.1 `ExecutionContext`
 
-Mastra 在每次调用 context-service 前签发一个短时 JWT（ES256）：
+`mastra-app` 在每次用户/Run 调用前签发一个短时 JWT（ES256）；`fde-jobs` 在维护作业前签发同构 JWT：
 
 | Claim | 必填 | 说明 |
 |---|---|---|
-| `iss` | 是 | `fde://<deployment_id>` |
+| `iss` | 是 | `fde://<deployment_id>`（`mastra-app`）或 `fde://<deployment_id>/jobs`（`fde-jobs`） |
 | `aud` | 是 | `context-service` |
 | `sub` | 是 | 终端用户或服务主体的稳定 ID |
 | `actor` | 是 | `{type: user/service/system, id, display?}` |
@@ -256,14 +272,16 @@ Mastra 在每次调用 context-service 前签发一个短时 JWT（ES256）：
 | `solution_id` | 是 | Solution 标识 |
 | `run_id` | 条件必填 | 当前 Run；retrieve/decisions/approval create/decide/consume 必填，队列/ingest 可省略 |
 | `trace_id` | 是 | 与 `traceparent` 一致 |
-| `roles` | 是 | 角色字符串数组；具体词表由身份 ticket 定 |
-| `scopes` | 是 | 如 `context:retrieve`、`decision:write`、`provenance:read`、`approval:decide`、`approval:consume` |
+| `roles` | 是 | 平台角色 ∪ 业务角色；平台角色是固定词表子集并派生 `scopes`，业务角色来自客户 IdP group、不得与平台角色重名 |
+| `scopes` | 是 | 平台 scope，如 `context:retrieve`、`decision:write`、`provenance:read`、`approval:decide`、`approval:consume`；`fde-jobs` 只带维护 scope |
 | `iat` / `exp` | 是 | 短时；默认 5 分钟 |
 | `jti` | 是 | 防重放 |
 | `kid` | 是 | 签名密钥 ID |
-| `on_behalf_of` | 否 | 服务主体代表用户执行时使用 |
+| `on_behalf_of` | 否 | v0 保留给受控服务场景；客户应用转发用户 token，不用服务账号 impersonate；`fde-jobs` 不使用 |
 
 JWT 的 `trace_id` 必须与请求头 `traceparent` 的 trace-id 一致；不一致直接 `403`。`run_id` 只在 Run 作用域的调用中必填；`GET /v1/approvals`、`GET /v1/runtime-info`、ingest 等非 Run 调用可省略，但 `jti` 仍必须唯一。
+
+`roles` 是平台角色与业务角色的并集：平台角色决定 `scopes`，业务角色只用于数据权限。`fde identity validate` 拒绝未知平台角色、业务角色与平台角色重名、以及业务角色获得平台 scope。客户 IdP access token 不直接进入 `context-service`；`mastra-app` 验签后重新签发。
 
 ### 5.2 传播链
 
@@ -271,14 +289,18 @@ JWT 的 `trace_id` 必须与请求头 `traceparent` 的 trace-id 一致；不一
 sequenceDiagram
   participant U as 终端用户
   participant C as 客户应用
+  participant I as 客户 IdP
   participant M as mastra-app
   participant X as context-service
   participant G as Context Graph
   participant S as Connector/数据源
 
   U->>C: 登录/操作
-  C->>M: Authorization: 客户 IdP token
-  M->>M: 验证会话，确定 sub/tenant/roles
+  C->>I: OIDC 授权码 + PKCE
+  I-->>C: access token
+  C->>M: Authorization: 客户 IdP access token
+  M->>I: JWKS / introspection
+  M->>M: 验签、映射平台/业务角色，确定 sub/tenant
   M->>M: 签发 ExecutionContext JWT
   M->>X: Authorization: Bearer JWT + traceparent
   X->>X: 验签、校验 aud/exp/tenant/trace
@@ -294,19 +316,21 @@ sequenceDiagram
 
 | 层 | 强制内容 |
 |---|---|
-| `mastra-app` | 终端用户认证、Run 授权、审批 UI 授权、`ExecutionContext` 签发 |
-| `context-service` | JWT 验签、tenant 隔离、scope/角色检查、Policy 评估、图查询过滤 |
-| Connector | 数据源级 ACL、行/列级权限、PII 脱敏 |
-| 审计库 | 只接受带 `tenant_id`/`actor`/`trace_id` 的写入；跨 tenant 引用直接拒绝 |
+| 客户 IdP | 认证、MFA、group 声明 |
+| `mastra-app` | 客户 IdP token 验签/introspection、平台角色映射、Run/审批/导出授权、support/break-glass 闸门、`ExecutionContext` 签发、`tool.pre_invoke`/`agent.pre_invoke`/`run.post`/`output.emit` policy evaluations、record-before-act、output guard、kill switch 状态 |
+| `context-service` | JWT 验签、tenant 隔离、平台 scope 检查、数据权限（classification/PII/row/column）、fail closed、图查询过滤、服务端追加 `context.retrieve`/数据策略 `policy_evaluations` |
+| Connector | 数据源级 ACL、行/列级权限、PII 脱敏、源端 row filter 下推 |
+| 审计库 | 只接受带 `tenant_id`/`actor`/`trace_id` 的 Decision/Provenance/Audit Event 写入；跨 tenant 引用直接拒绝 |
+| 工作台 | Release 批准/签名；不进入客户运行时 |
 
 `tenant` 过滤必须在服务端完成，不能依赖客户端传参。明文 `X-Tenant-Id`/`X-Actor` 不作为信任来源；如果为了兼容保留，必须与 JWT 一致，否则拒绝。`DecisionRequest.actor`、`ApprovalDecisionRequest.actor` 和 `ApprovalCreateRequest.requested_by` 必须与 `ExecutionContext.actor` 一致；不一致返回 `403`。
 
 ### 5.4 密钥
 
-- 每 Deployment 一对 ES256 密钥；私钥只注入 `mastra-app` 的 secret store，公钥 + `kid` 注入 `context-service` 配置。
-- 轮换时新旧公钥重叠接受，直到旧 token 过期；`kid` 用于选择公钥。
-- `fde install` 在缺失时生成密钥；客户也可自带。密钥不出现在 Bundle、Spec、日志或审计库中。
-- 服务间 mTLS 可选；v0 至少签名断言。客户 IdP 的 OIDC 在边缘由身份 ticket 定，内部断言仍用每 Deployment 密钥。
+- 每 Deployment/issuer 一对 ES256 密钥：`mastra-app`（`iss=fde://<deployment_id>`）和 `fde-jobs`（`iss=fde://<deployment_id>/jobs`）。私钥在客户 secret store；`mastra-app` 私钥只注入 `mastra-app`，job 私钥只注入维护作业容器；公钥 + `kid` 注入 `context-service` 配置。
+- 轮换时新旧公钥重叠接受，直到旧 token 过期；`kid` 用于选择公钥。轮换用 `fde keys rotate` 手动执行，写 security Decision。
+- `fde install` 在缺失时为两个 issuer 生成密钥；客户也可自带。密钥不出现在 Bundle、Spec、日志或审计库中。
+- 服务间 mTLS 可选；v0 至少签名断言。客户 IdP 的 OIDC 在边缘由 `mastra-app` 处理；客户应用不直连 `context-service`。
 
 ## 6. Trace 与 Provenance
 
@@ -319,42 +343,80 @@ sequenceDiagram
 
 ### 6.2 Decision 契约
 
-`POST /v1/decisions` 的最小 payload：
+`POST /v1/decisions` 的最小 payload（v1.1；intent/outcome 新增 `invocation_id`、`action`、`status`）：
 
 ```json
 {
   "decision_id": "dec_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "invocation_id": "inv_01ARZ3NDEKTSV4RRFFQ69G5FAV",
   "run_id": "run_01ARZ3NDEKTSV4RRFFQ69G5FAV",
   "tenant_id": "acme",
   "capability_id": "document-triage",
   "decision_type": "runtime",
-  "phase": "outcome",
+  "phase": "intent",
+  "action": {
+    "tool_id": "claim-decision",
+    "connector_id": "claims-db",
+    "operation": "recordDecision",
+    "side_effects": "write"
+  },
+  "status": "proposed",
   "actor": { "type": "user", "id": "u-42" },
-  "rationale": "Refund approved under premium policy.",
+  "rationale": "Record the claim decision after triage.",
   "evidence": [
     {
+      "type": "graph_entity",
       "entity_id": "fde:acme:policy:refund",
       "version": "3",
       "retrieval_id": "ret_01ARZ3NDEKTSV4RRFFQ69G5FAV",
       "source_ref": "sharepoint://claims/policies/refund.md"
+    },
+    {
+      "type": "retrieval",
+      "retrieval_id": "ret_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "snapshot_digest": "sha256:9f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "type": "run_artifact",
+      "run_id": "run_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "step_id": "triage",
+      "path": "output.citedSources",
+      "digest": "sha256:7d1ebbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     }
   ],
   "policy_evaluations": [
-    { "policy_id": "pii-redaction", "version": "1.0.0", "outcome": "allow" }
+    {
+      "policy_id": "tool-allowlist",
+      "version": "1.0.0",
+      "enforcement_point": "tool.pre_invoke",
+      "evaluated_by": "mastra-app",
+      "outcome": "allow"
+    },
+    {
+      "policy_id": "pii-redaction",
+      "version": "1.0.0",
+      "enforcement_point": "context.retrieve",
+      "evaluated_by": "context-service",
+      "outcome": "allow"
+    }
   ],
   "model": { "provider": "azure-openai", "model": "gpt-5.1" },
   "prompt_version": "triage-agent@1.2.0",
   "input_digest": "sha256:6b1ebbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-  "output_digest": "sha256:8c2dcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
   "classification": "confidential",
   "redaction_applied": true,
   "retention_class": "standard",
+  "fallback_used": false,
   "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
   "timestamp": "2026-11-15T08:00:00Z"
 }
 ```
 
-`phase` 用于区分 `intent`（副作用前）与 `outcome`（副作用后）；两者是两条不可变 Decision，用 `parent_decision_id` 关联。
+`phase` 用于区分 `intent`（副作用前）、`outcome`（副作用后）与 `run`（Run 终止时的汇总）；intent/outcome 用 `parent_decision_id` 关联，run Decision 不带 `invocation_id`/`action`。
+
+`evidence[]` 是 discriminated union：`graph_entity`（缺省）、`retrieval`、`run_artifact`、`approval`。`status` 在 intent 只能是 `proposed|denied`，在 outcome 只能是 `succeeded|failed|unknown|cancelled`，在 run 只能是 `succeeded|failed|unknown|cancelled`。
+
+`policy_evaluations` 的记录方由 `evaluated_by` 标明：`mastra-app` 记录工具/Agent/Run/输出策略，`context-service` 记录检索与数据权限策略并在写入 Decision 时服务端追加；客户端不能伪造或省略 context-service 拥有的 evaluation。v1.2 的 `output.emit` evaluation 也由 `mastra-app` 记录，每个 Run 只写一条最严结果。
 
 ### 6.3 PROV-O 映射
 
@@ -378,14 +440,21 @@ sequenceDiagram
 - 读接口返回原始 Decision + entry + 最近一次验证状态，不阻塞。
 - 审计库与主图分开备份/保留；图可以重建，审计不能重建。
 - 常规回滚**不回滚审计库**；回滚本身写一条 Decision。只有灾难恢复才从备份恢复审计，并记录链缺口。
+- 审计库同时保存 Audit Event（`auth/authz/identity/release/deployment/retention/audit`），与 Decision/Provenance 共用 append-only 卷和哈希链；事件 envelope 见 [`security-and-deployment.md`](security-and-deployment.md) §5.2。
+- 访问：`auditor` 只读 + 导出；`customer_admin` 只读 + 配置 retention/legal hold；`support`/FDE 无默认访问；导出动作写 `audit.exported`。
+- 保留：`auth.*` 失败 30 天；`authz.denied` 180 天；`identity.*`/`release.*`/`deployment.*`/`retention.*`/`audit.*` 3 年；legal hold 覆盖。
 
 ### 6.5 审计数据与 PII
 
 - 默认只存 `input_digest`/`output_digest` + 引用，不存原始 prompt/output。
+- `input_digest` 对 Zod 校验/默认值/coercion 之后的工具输入取 canonical JSON（RFC 8785）SHA-256；`output_digest` 对 `{status:"ok",value}` 或 `{status:"error",error}` 取 digest；`run_artifact` 的 digest 同口径。digest 不是加密，低熵 PII 仍可能被枚举；该残余风险由 [Agent 专项安全](agent-security.md) §7 显式接受。
+- `classification` 取 Tool 声明、证据 item、Policy 的最严值；`retention_class` 取 Tool 与 Policy 的最长保留类；只能升/延长。未分类 retrieval item 默认 `restricted`。
 - Capability Policy 显式允许时，才存脱敏摘录；必须带 `classification`、`redaction_applied`、`retention_class`。
 - 删除只通过保留作业，不原地改写；支持 `legal_hold`。
-- 审计导出格式为 PROV-O JSON-LD；导出不包含 secret、完整 PII 或后端内部 ID。
-- 保留期、PII 分类词表、legal hold 流程由「客户环境内的身份、权限与部署」与「评测、验收与可观测性」定；本契约固定字段与存储分离。
+- 审计导出格式为 JSONL 或 PROV-O JSON-LD；导出不包含 secret、完整 PII 或后端内部 ID。
+- Audit Event 的身份字段只存 opaque `sub`/`actor.id`；默认不存 email、姓名、原始 IP、User-Agent；高频认证失败可聚合但保留计数。
+- 保留期、PII 分类词表、legal hold 流程已由[评测、验收与可观测性](evaluation-and-observability.md)与[客户环境内的身份、权限与部署](security-and-deployment.md)定稿；本契约固定字段与存储分离。默认保留类为 `ephemeral`/`standard`/`extended`/`legal_hold`，原始 PII 不进入审计。
+- OTel/SIEM 不替代审计：OTel 可采样/丢弃，审计不采样；SIEM 只接收客户批准的导出。
 
 ## 7. 失败、重试、超时、流式、取消
 
@@ -415,19 +484,25 @@ sequenceDiagram
 
 - 检索失败/超时：`retrieve` 返回 `degraded=true` + `reason`，不编造上下文。Capability Policy 决定继续（无上下文）还是失败。
 - 图规模超限：`degraded=true` + `reason=scale_limit`；不静默全表扫描。
-- 审计写失败：带副作用的 Run **fail closed**；只读 Run 可返回结果并标记 `audit_incomplete`，但不得声称已审计。
-- 模型/provider 失败：由 Mastra 处理；重试/降级策略写 Capability Policy；失败 Run 必须写 outcome Decision（如果已有 intent Decision）。
+- 审计写失败：带副作用的 Run **fail closed**；只读 Run 可返回结果并标记 `audit_incomplete`，但不得声称已审计；run-level Decision 缺失也必须显式标记。
+- 模型/provider 失败：由 Mastra 处理；重试/降级策略写 Capability Policy；失败 Run 必须写 outcome Decision（`status=failed`；副作用结果未知用 `status=unknown`，见 §7.4）。
 
 ### 7.4 record-before-act
 
 这是本契约最重要的运行时不变式：
 
-1. 任何 `side_effects != read` 的 Tool 执行前，生成的 wrapper 必须先调用 `POST /v1/decisions`，写 `phase=intent` 的 Decision，带证据、Policy 评估和拟执行动作摘要。
-2. `POST /v1/decisions` 成功后才允许执行副作用。
-3. 副作用完成后写 `phase=outcome` 的 Decision，`parent_decision_id` 指向 intent，带结果摘要/错误。
-4. 如果 intent 写入失败：不执行副作用，Run 失败（或请求人工介入）。
-5. 如果副作用执行失败：仍然写 outcome Decision，记录失败；Run 失败。
-6. 只读 Tool 不需要 intent Decision；最终回答在生成后写一条 outcome Decision（如果 Capability 要求）。
+1. 生成器把 `Tool.audit` 与 `Capability.audit.evidence` 合并为 `DecisionBinding`；build 对非 read Tool 缺审计、缺 evidence selector、缺 `tool.pre_invoke` Policy 覆盖一律 fail closed。
+2. runtime 模块解析证据；intent evidence 必须非空；`as: citations` 解析不到或歧义时 fail closed，不执行 Tool。
+3. 解析 `tool.pre_invoke` Policy；deny 写 `status=denied` 的 intent Decision，不执行、不写 outcome，不计入 `decision_coverage`。
+4. `decision_outbox` 写 `prepared`；生成 `invocation_id`、intent/outcome `decision_id`；outbox 写失败 → 不写 intent、不执行。
+5. 写 `phase=intent`、`status=proposed` 的 Decision，带 `action`、evidence、`policy_evaluations`、`input_digest`、`model`/`prompt_version`；intent 写失败 → 不执行，Run 失败。
+6. outbox 标记 `intent_written → executing`；此后才允许执行副作用。
+7. 执行完成后先把 result status/digest 持久化到 outbox（`executed`），再写 `phase=outcome`、`parent_decision_id=intent`、`status=succeeded|failed|unknown`、`output_digest` 的 Decision；outcome 写失败 → Run 失败，重试复用同一 outcome ID，不重复执行副作用。
+8. 崩溃在 `executing`：结果未知，不自动重试副作用；写同一 intent 链接的 `status=unknown` outcome，Run fail closed 并 P1 告警。
+9. 只读 Tool 不需要 intent；每个终止 Run 写一条 `phase=run` 汇总 Decision（`status=succeeded|failed|unknown|cancelled`，evidence 为所有 retrieval snapshot + 最终答案 artifact）。`runOutcomeDecision: omitted` 只对只读且输出不可行动的实现有效。
+10. `decision_coverage` 按 invocation 统计：分母是 `status=proposed` 且 policy evaluations 全为 `allow`/`waived` 的 intent；分子是有 outcome child 的 intent；policy deny、审批 rejected/expired、只读 Run 排除；`status=unknown` 的 outcome 算完整。
+
+完整字段、证据选择器、Policy 覆盖规则和失败矩阵见 [`decision-audit-binding.md`](decision-audit-binding.md) 与 [ADR-0008](adr/0008-decision-audit-binding.md)。
 
 ### 7.5 流式
 
@@ -496,12 +571,14 @@ stateDiagram-v2
 | `ingest` | 一次性/定时作业 | — | —（调用 context-service） | 退出码 0 |
 | `otel-collector` | 可选 sidecar/agent | — | — | 可选 |
 
-- 一个 Bundle 同时携带 `compose`、`helm`、`airgap` 三套清单；`fde build --target` 可裁剪。
+- 一个 Bundle 同时携带 `compose`、`helm`、`airgap` 清单；`fde build --target` 可裁剪。v0 只认证单节点 Compose；Helm 生成并 smoke 验证，但不承诺支持；airgap 是打包模式。
 - `mastra-app` 是唯一暴露到客户入口的组件；`context-service` 只在 bundle 内部网络可达。
+- 维护作业（`migrate`/`ingest`/`rebuild`/`eval`）使用 `fde-jobs` issuer 的受限 `ExecutionContext`，私钥只挂进作业容器。
 - `mastra-state` 用 libsql/SQLite 卷；客户提供 Postgres 时可替换，但 v0 默认单节点 SQLite。
 - `graph` 和 `audit` 必须是不同卷；审计卷单独备份/保留。
 - 所有镜像/依赖 pin 精确版本 + digest；Bundle 含 SBOM/notice、签名、build provenance。
 - 工作台构建/交付链：`fde build` 生成 Bundle（compose/helm/airgap 清单、配置、迁移、SBOM/notice），用 cosign/KMS 签 Bundle；`fde release approve` 签 Release；客户侧 `fde install verify` 双验后安装。Bundle 的 OCI artifact 与镜像可镜像到客户私有 registry；air-gapped 用离线包 + checksums。
+- 客户运维执行 install/upgrade/rollback/backup；工作台无入站连接、无常驻凭证；FDE 只通过客户 IdP 的限时 `support` 角色支持。
 
 ### 9.2 启动顺序与健康
 
@@ -535,21 +612,24 @@ sequenceDiagram
 ### 9.3 配置与 secret
 
 - 配置通过环境变量 + 挂载文件注入；Bundle 只含 `secretRef`，不含 secret 值。
-- `secretRef: {store, key, version?}` 由客户 secret store 解析；轮换不需要重建 Bundle。
+- `secretRef: {store, key, version?}` 由 `fde` CLI/init job 在部署/启动时从 K8s Secret/挂载文件或 Vault 解析成进程环境/文件；应用不直接调 Vault。v0 支持 K8s Secret/挂载文件 + Vault；云 KMS 通过客户 CSI/External Secrets 接入。
+- `mastra-app` 与 `fde-jobs` 各有一对 per-Deployment ES256 签名密钥；私钥只在客户 secret store，公钥 + `kid` 配到 `context-service`。轮换手动执行，新旧公钥重叠到旧 token 过期。
 - `ExecutionContext` 签名私钥、图/审计加密密钥、LLM provider key、Connector credentials 都是 secret ref。
+- 客户负责卷加密、TLS ingress 和内部网络隔离；mTLS 可选，v0 不强制。
 - 日志、错误 envelope、审计库不得出现 secret 值或完整 PII。
 
 ### 9.4 资源与单写者
 
 - 默认资源：`context-service` 0.5 CPU / 1 GiB；`mastra-app` 1 CPU / 1 GiB；卷按 10k/50k 图规模预留。
 - embedded 图是单写者：`context-service` 不得多副本；`mastra-app` 不得多副本共享 `mastra-state` 卷。
-- v0 不做 HA/灾备认证；客户负责主机、网络、备份介质和升级窗口。
-- 出站网络：LLM provider、Connector、可选 OTel collector；air-gapped 环境使用本地模型 endpoint 和离线镜像/模型包。
+- v0 只认证单节点 Compose；无 HA/灾备认证；客户负责主机、网络、卷加密、TLS、备份介质和升级窗口。
+- 出站网络：LLM provider、Connector、可选 OTel collector；air-gapped 环境使用本地模型 endpoint 和离线镜像/模型包，不 phone-home。
 
 ### 9.5 备份/恢复
 
 - `graph`、`audit`、`mastra-state` 分别备份；审计备份必须包含 `chain_head`。
-- 恢复演练由客户运维执行；恢复后 context-service 校验审计链，记录 `verification.status`。
+- 备份/恢复由客户运维用 `fde backup`/`fde restore` 执行；bundle 提供脚本和 runbook。
+- 恢复后 context-service 校验审计链，记录 `verification.status`。
 - 常规回滚不恢复 audit；只有灾难恢复才恢复 audit，并记录链缺口。
 
 ## 10. 版本、升级、回滚
@@ -557,6 +637,8 @@ sequenceDiagram
 ### 10.1 契约版本与握手
 
 - 契约版本：`fde.runtime/v1`，语义版本 `MAJOR.MINOR.PATCH`。
+- 引用约定：工件/manifest 里的 `fde.runtime/v1` 指 major line（additive minor 向后兼容，引用 major 即可）；文档头部写当前 minor 全版本；正文依赖某 minor 才引入的字段时在该处标注（如「≥v1.1」）。
+- 当前 minor 为 `1.2.0`：v1.1 的 Decision 字段不变；v1.2 增加 `RetrievalItem.trust`/`source_kind`、`PolicyEvaluation.enforcement_point=output.emit`、kill switch admin 端点。这些字段是 additive，旧客户端可读旧 payload；缺失 `trust`/`source_kind` 按 `untrusted`/`other` 处理。v1.1 的 intent/outcome 新必填字段仍是语义收紧，旧客户端不能继续写 intent。
 - `GET /v1/runtime-info` 返回：`contract_version`、`service`、`service_version`、`graph_schema_version`、`audit_schema_version`、`backend`、`capabilities[]`、`limits`、`components[]`、`started_at`。
 - `mastra-app` 启动时调用 context-service 的 `runtime-info`；major 不匹配、缺少必需 capability、schema 版本不匹配 → fail closed（`contract_mismatch` / `graph_schema_mismatch` / `audit_schema_mismatch`）。
 - 契约演进：additive 字段/端点走 minor；breaking 走 `/v2` 或 negotiated media type；保留至少一个 minor 周期的弃用窗口。
@@ -572,7 +654,8 @@ sequenceDiagram
 | `runtime.python` / `semantica` / `contextService` | 精确版本 |
 | `runtime.graphSchema` / `auditSchema` | schema 版本 |
 | `toolchain.image` | 构建工具链 digest |
-| `templates` / `extensions` / `customerObjects` | 精确版本 + digest |
+| `spec.digest` / `spec.files` | Spec manifest digest + 每个被引用文件的 digest |
+| `templates` / `assets` / `modelProfiles` / `evalDatasets` / `extensions` | 精确版本 + digest；`assets.*.files` 记录 concrete 资产文件清单 |
 
 Build 时校验 `runtimeProfile × contract × graph/audit schema × extension` 兼容矩阵；不通过则构建失败。启动时再握手一次，防止混装旧镜像。
 
@@ -589,7 +672,7 @@ Build 时校验 `runtimeProfile × contract × graph/audit schema × extension` 
 
 ### 10.4 升级
 
-v0 是单节点、embedded 图单写者，采用 **stop-the-world**：
+v0 是单节点、embedded 图单写者，采用 **stop-the-world**。客户运维执行升级，FDE 只通过客户 IdP 的限时 `support` 角色支持；工作台无入站连接。
 
 1. `fde deploy plan` 生成迁移计划；客户确认维护窗口。
 2. 备份 `graph`/`audit`/`mastra-state`；记录 `chain_head`。
@@ -639,7 +722,7 @@ sequenceDiagram
   X-->>M: retrieval_id + items + provenance
   M->>L: generate（带上下文）
   L-->>M: output
-  M->>X: POST /v1/decisions（outcome）
+  M->>X: POST /v1/decisions（phase=run，snapshots + output_digest）
   X->>A: append Decision + PROV-O
   X-->>M: decision_id/provenance_id
   M-->>C: SSE text.delta / run.finished
@@ -723,8 +806,14 @@ sequenceDiagram
 | 客户端 API | `contracts/runtime-api-v1.openapi.yaml` | 客户应用 ↔ mastra-app |
 | 内部 API | `contracts/context-service-v1.openapi.yaml` | mastra-app ↔ context-service |
 | JSON Schema | `contracts/schemas/*.json` | ExecutionContext、retrieval、decision、approval、run、runtime-info、error |
-| Conformance cases | `contracts/conformance/cases.md` | 契约验收用例 |
-| ADR | `docs/adr/0003-runtime-and-integration-contract.md` | 决策记录 |
+| Conformance cases | `contracts/conformance/cases.md` | 契约验收用例（C1–C40） |
+| 安全与部署决策 | `docs/security-and-deployment.md` | 身份、权限、审计、部署与 RACI |
+| Agent 安全决策 | `docs/agent-security.md` | prompt injection、tool abuse、数据外泄的确定性控制 |
+| Decision 审计绑定 | `docs/decision-audit-binding.md` | record-before-act evidence、Policy 覆盖、outbox、coverage |
+| ADR | `docs/adr/0003-runtime-and-integration-contract.md` | 运行时契约决策记录 |
+| ADR | `docs/adr/0006-identity-permissions-and-deployment.md` | 身份/权限/部署决策记录 |
+| ADR | `docs/adr/0008-decision-audit-binding.md` | Decision Binding 与审计决策记录 |
+| ADR | `docs/adr/0009-agent-security-controls.md` | Agent 安全控制决策记录 |
 
 一致性规则：
 
@@ -735,18 +824,25 @@ sequenceDiagram
 
 ## 13. 边界与未决
 
-本契约只定运行时接缝；以下由相邻 ticket 决定：
+本契约只定运行时接缝；以下是与相邻 ticket 的边界，已定稿的注明来源：
 
-- 「客户环境内的身份、权限与部署」：IdP/SSO、RBAC/ABAC 词表、客户/工作台责任划分、部署执行机制、air-gapped 运维、secret store 形态。
-- 「评测、验收与可观测性」：指标/SLO、评测集/scorer、看板、验收阈值、PII 保留值。
-- 「生产检索索引与 100k+ 规模上限」：生产图存储、索引组合、Neo4j serving adapter、迁移路径。
+- 「客户环境内的身份、权限与部署」：已由[客户环境内的身份、权限与部署](security-and-deployment.md)与 [ADR-0006](adr/0006-identity-permissions-and-deployment.md)定稿；本契约同步了 OIDC resource server、平台/业务角色、双 issuer、Audit Event 和客户运维边界。
+- record-before-act evidence 与审计绑定：已由 [`decision-audit-binding.md`](decision-audit-binding.md) 与 [ADR-0008](adr/0008-decision-audit-binding.md) 定稿；本契约 §4.2/§6.2/§7.4 同步（#20）。
+- Agent 专项安全控制（prompt injection、tool abuse、data exfiltration）：已由[Agent 专项安全](agent-security.md)与 [ADR-0009](adr/0009-agent-security-controls.md)定稿；本契约同步 `trust`/`source_kind`、`output.emit`、admin 端点和 C33–C40。
+- 「评测、验收与可观测性」：已由[评测、验收与可观测性](evaluation-and-observability.md)定稿（指标/SLO、评测集/scorer、看板、验收阈值、PII 保留值）；实现由「架构综合与实施切片」承接。
+- 「生产检索索引与 100k+ 规模上限」：已定稿，生产检索后端为 Postgres 17 + pgvector + GIN + recursive CTE（Semantica 不承担 serving 检索；Neo4j 仅客户许可 fallback）；100k/500k p95 实测留作实施阶段 gate。
 - 「LangGraph 运行时映射缺口」：可移植性与第二 runtime；本契约保持 context-service 运行时中立，但不承诺双运行时。
 - 语义建模、Customer Context Package、Context Recipe 编排、权限注解与 context eval：见 [`semantic-modeling.md`](semantic-modeling.md)。
 
 v0 已知限制：
 
 - embedded 图单写者、10k/50k 交互上限；无 HA/灾备认证。
+- v0 只认证单节点 Compose；Helm 清单生成并 smoke 验证，但不承诺支持；强制 K8s 的客户需要额外 spike。
 - 真实 LLM 的 tool 选择未验证；contract tests 用 mock/固定序列覆盖通路。
-- 审计库 v0 为 SQLite；大规模 audit 保留/查询需要后续存储方案。
+- 评测默认在客户环境/CI 运行，工作台不持数据集；在线 judge 默认 2% 抽样；v0 无评测 UI、自动回滚或跨客户 benchmark。
+- 审计库 v0 为 SQLite；大规模 audit 保留/查询需要后续存储方案；无 WORM/外部锚定。
+- Decision digest 只做 SHA-256，低熵 PII（claim id、证件号等）可被枚举；v0 接受该残余风险，补偿控制与重新评估触发见 [Agent 专项安全](agent-security.md) §7。
+- Output guard 只覆盖平台内置 pattern + Capability 追加 pattern；姓名、地址和自由文本中的敏感信息可能漏报；链接策略只处理文本输出（见 `agent-security.md` §7）。
 - 客户审批 UI 不在本阶段；只提供 API + 参考 CLI。
 - 多 Solution 共享 Context Graph 不支持；每个 Bundle 自包含。
+- 客户必须提供 OIDC IdP、加密卷、TLS、secret store、备份介质和维护窗口；无 SCIM/admin UI/SAML。

@@ -19,12 +19,26 @@ spec:
       policyRefs:
         - pii-redaction@^1.0.0
         - claims-approval-threshold@^1.0.0
+        - ref: tool-allowlist@^1.0.0
+          appliesTo: [claim-decision]
+          args:
+            allow: [claim-decision]
+      audit:
+        evidence:
+          claim-decision:
+            - from: retrieval
+              recipe: claims-context
+            - from: step
+              step: triage
+              path: output.citedSources
+              as: citations
+        runOutcomeDecision: required
       evalRefs:
         - claims-triage-quality@^1.0.0
 
   agents:
     triage-agent:
-      modelProfile: standard
+      modelProfile: standard@^1.0.0
       instructions: files/prompts/triage.md
       tools:
         - retrieve-context
@@ -85,13 +99,15 @@ spec:
       sideEffects: write
       inputSchema: files/schemas/claim-decision.input.json
       outputSchema: files/schemas/claim-decision.output.json
-      # PROPOSED: record-before-act needs to know what evidence and classification
-      # go into the intent Decision; the documented Tool entity has no such fields.
-      evidence:
-        from: [context, triage]
-      decision:
+      audit:
         classification: confidential
         retentionClass: standard
+        digests:
+          input: jcs-sha256
+          output: jcs-sha256
+      # Evidence selection lives on the capability (#20): the Tool declares
+      # intrinsic audit facts; the Capability says which context/step output
+      # triggered this action.
 
   semantic:
     contextPackageRef: acme-claims-context@^1.0.0

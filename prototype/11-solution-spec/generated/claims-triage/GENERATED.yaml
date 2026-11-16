@@ -7,7 +7,7 @@ prototype: true
 bundle:
   customer: acme
   solution: claims-triage
-  specDigest: sha256:ad68782bf3d23c01f3a96d1e8485046d8cb7364e8995672b1f6fbdf5143c4f9a
+  specDigest: sha256:2525252525252525252525252525252525252525252525252525252525252525
   generator: 0.1.0
   runtimeProfile: mastra-1.83-node26@1.0.0
   runtimeContract: fde.runtime/v1

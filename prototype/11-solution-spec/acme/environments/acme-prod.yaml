@@ -16,24 +16,34 @@ spec:
   profileValues:
     modelProfile:
       standard:
-        provider: azure-openai
-        model: gpt-5.1
         endpoint: https://acme-openai.openai.azure.com
-        # PROPOSED: Environment has no documented secretRef map, so refs are
-        # parked in profile values here. The generated Deployment needs stable
-        # secret names, not a free-form URL-shaped key.
-        apiKeyRef: secret://acme-prod/azure-openai/key
-        temperature: 0.1
-        maxOutputTokens: 2000
+        region: eu-west-1
+        # PROPOSED: immutable provider deployment id, used for audit when the
+        # provider does not report a model version on every response.
+        endpointId: acme-openai/gpt-5.1/2026-10-01
+        secretRef: secret://acme-prod/azure-openai/key
     deploymentProfile:
       standard:
         replicas: 1
         ingressHost: claims.acme.example
         ingressTlsSecretRef: secret://acme-prod/ingress-tls
+  # PROPOSED: exact dataset version binding; `fde eval` resolves this and
+  # verifies the digest before any model call.
+  evalDatasetBindings:
+    acme-claims-triage@1.0.0:
+      store:
+        kind: filesystem
+        location: acme/eval/claims-triage-quality
+      splits:
+        holdout:
+          # Sample keeps holdout in the same fixture; production uses a
+          # separate location/ACL.
+          location: acme/eval/claims-triage-quality
   # PROPOSED: deployment-scoped secret refs the generated manifests depend on.
   secretRefs:
     executionContextSigningKey: secret://acme-prod/fde/execution-context-signing
     executionContextPublicKey: secret://acme-prod/fde/execution-context-public
+    evalSigningKey: secret://acme-prod/fde/eval-signing
     claimsDbUrl: secret://acme-prod/claims-db/url
     claimsDbCredentials: secret://acme-prod/claims-db/credentials
     sharepointClientId: secret://acme-prod/sharepoint/client-id

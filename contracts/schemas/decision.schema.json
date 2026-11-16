@@ -2,12 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://fde.dev/contracts/schemas/decision.schema.json",
   "title": "Decision and Provenance",
-  "description": "Write and read shapes for POST /v1/decisions and GET /v1/provenance/{decision_id}.",
+  "description": "Write and read shapes for POST /v1/decisions and GET /v1/provenance/{decision_id}. v1.1 adds invocation/action/status and the evidence union; phase=intent|outcome require the new fields.",
   "$defs": {
-    "Evidence": {
+    "GraphEntityEvidence": {
       "type": "object",
       "required": ["entity_id"],
       "properties": {
+        "type": {
+          "const": "graph_entity"
+        },
         "entity_id": {
           "$ref": "./common.schema.json#/$defs/EntityId"
         },
@@ -29,27 +32,102 @@
       },
       "additionalProperties": false
     },
-    "PolicyEvaluation": {
+    "RetrievalEvidence": {
       "type": "object",
-      "required": ["policy_id", "version", "outcome"],
+      "required": ["type", "retrieval_id", "snapshot_digest"],
       "properties": {
-        "policy_id": {
+        "type": {
+          "const": "retrieval"
+        },
+        "retrieval_id": {
+          "$ref": "./common.schema.json#/$defs/RetrievalId"
+        },
+        "snapshot_digest": {
+          "$ref": "./common.schema.json#/$defs/Digest"
+        }
+      },
+      "additionalProperties": false
+    },
+    "RunArtifactEvidence": {
+      "type": "object",
+      "required": ["type", "digest"],
+      "properties": {
+        "type": {
+          "const": "run_artifact"
+        },
+        "run_id": {
+          "$ref": "./common.schema.json#/$defs/RunId"
+        },
+        "step_id": {
           "type": "string",
           "minLength": 1,
           "maxLength": 200
         },
-        "version": {
+        "path": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 100
+          "maxLength": 500
         },
-        "outcome": {
-          "type": "string",
-          "enum": ["allow", "deny", "waived"]
+        "digest": {
+          "$ref": "./common.schema.json#/$defs/Digest"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ApprovalEvidence": {
+      "type": "object",
+      "required": ["type", "approval_id", "decision_id"],
+      "properties": {
+        "type": {
+          "const": "approval"
         },
-        "reason": {
+        "approval_id": {
+          "$ref": "./common.schema.json#/$defs/ApprovalId"
+        },
+        "decision_id": {
+          "$ref": "./common.schema.json#/$defs/DecisionId"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Evidence": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/GraphEntityEvidence"
+        },
+        {
+          "$ref": "#/$defs/RetrievalEvidence"
+        },
+        {
+          "$ref": "#/$defs/RunArtifactEvidence"
+        },
+        {
+          "$ref": "#/$defs/ApprovalEvidence"
+        }
+      ]
+    },
+    "Action": {
+      "type": "object",
+      "required": ["tool_id", "side_effects"],
+      "properties": {
+        "tool_id": {
           "type": "string",
-          "maxLength": 2000
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "connector_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "operation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "side_effects": {
+          "type": "string",
+          "enum": ["read", "write", "external"]
         }
       },
       "additionalProperties": false
@@ -96,6 +174,9 @@
         "parent_decision_id": {
           "$ref": "./common.schema.json#/$defs/DecisionId"
         },
+        "invocation_id": {
+          "$ref": "./common.schema.json#/$defs/InvocationId"
+        },
         "run_id": {
           "$ref": "./common.schema.json#/$defs/RunId"
         },
@@ -112,6 +193,13 @@
         "phase": {
           "type": "string",
           "enum": ["intent", "outcome", "retrieval", "approval", "run"]
+        },
+        "action": {
+          "$ref": "#/$defs/Action"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["proposed", "succeeded", "failed", "denied", "unknown", "cancelled"]
         },
         "actor": {
           "$ref": "./common.schema.json#/$defs/Actor"
@@ -131,7 +219,7 @@
         "policy_evaluations": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/PolicyEvaluation"
+            "$ref": "./common.schema.json#/$defs/PolicyEvaluation"
           },
           "maxItems": 100
         },
@@ -155,14 +243,16 @@
           "type": "boolean"
         },
         "retention_class": {
-          "type": "string",
-          "maxLength": 64
+          "$ref": "./common.schema.json#/$defs/RetentionClass"
         },
         "bundle_digest": {
           "$ref": "./common.schema.json#/$defs/Digest"
         },
         "release_version": {
           "$ref": "./common.schema.json#/$defs/Semver"
+        },
+        "fallback_used": {
+          "type": "boolean"
         },
         "trace_id": {
           "$ref": "./common.schema.json#/$defs/TraceId"
@@ -171,6 +261,85 @@
           "$ref": "./common.schema.json#/$defs/Timestamp"
         }
       },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "phase": {
+                "enum": ["intent", "outcome"]
+              }
+            },
+            "required": ["phase"]
+          },
+          "then": {
+            "required": ["invocation_id", "action", "status"],
+            "properties": {
+              "policy_evaluations": {
+                "items": {
+                  "required": ["enforcement_point", "evaluated_by"]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "phase": {
+                "const": "intent"
+              }
+            },
+            "required": ["phase"]
+          },
+          "then": {
+            "required": ["evidence"],
+            "properties": {
+              "status": {
+                "enum": ["proposed", "denied"]
+              },
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "phase": {
+                "const": "outcome"
+              }
+            },
+            "required": ["phase"]
+          },
+          "then": {
+            "required": ["parent_decision_id"],
+            "properties": {
+              "status": {
+                "enum": ["succeeded", "failed", "unknown", "cancelled"]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "phase": {
+                "const": "run"
+              }
+            },
+            "required": ["phase"]
+          },
+          "then": {
+            "required": ["status"],
+            "properties": {
+              "status": {
+                "enum": ["succeeded", "failed", "unknown", "cancelled"]
+              }
+            }
+          }
+        }
+      ],
       "additionalProperties": false
     },
     "DecisionResponse": {

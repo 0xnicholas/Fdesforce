@@ -13,6 +13,7 @@ SPEC_PATH = SPEC_DIR.join("solution.yaml")
 LOCK_PATH = SPEC_DIR.join("solution.lock")
 ENV_PATH = ROOT.join("acme/environments/acme-prod.yaml")
 CCP_DIR = ROOT.join("acme/customer/context-packages/acme-claims-context")
+MODEL_PROFILE_DIR = ROOT.join("model-profiles")
 GEN = ROOT.join("generated/claims-triage")
 DEPLOY = GEN.join("deploy")
 
@@ -40,6 +41,16 @@ def rel(path)
   path.relative_path_from(ROOT).to_s
 end
 
+def policy_ref(entry)
+  ref = entry.is_a?(Hash) ? entry["ref"] : entry
+  ref.to_s
+end
+
+def policy_applies_to?(entry, tool_name)
+  applies = entry.is_a?(Hash) ? entry["appliesTo"] : nil
+  applies.nil? || Array(applies).include?(tool_name)
+end
+
 spec = yaml(SPEC_PATH)
 lock = yaml(LOCK_PATH)
 environment = yaml(ENV_PATH)
@@ -51,16 +62,29 @@ expect(spec.dig("metadata", "solution") == "claims-triage", "spec solution is cl
 expect(spec.dig("apiVersion") == "fde.dev/v0", "spec apiVersion is fde.dev/v0")
 expect(lock["lockVersion"] == 1, "lock version is 1")
 
-template_names = (lock["templates"] || {}).keys
+capability_template_names = (lock.dig("templates", "capability") || {}).keys
+policy_names = (lock.dig("templates", "policy") || {}).keys +
+               (lock.dig("assets", "policies") || {}).keys
+eval_names = (lock.dig("templates", "eval") || {}).keys +
+             (lock.dig("assets", "evalSuites") || {}).keys
+overlay_names = (lock["overlays"] || {}).keys
 extension_names = (lock["extensions"] || {}).keys
+model_profile_names = (lock["modelProfiles"] || {}).keys
+lock_files = lock.dig("spec", "files") || {}
+expect(lock_files.key?("solution.yaml"), "lock spec.files includes solution.yaml")
 capabilities = spec.dig("spec", "capabilities") || {}
 agents = spec.dig("spec", "agents") || {}
 workflows = spec.dig("spec", "workflows") || {}
 tools = spec.dig("spec", "tools") || {}
+policy_templates = {}
+Dir.glob(ROOT.join("acme/policies/*.yaml")).each do |path|
+  document = yaml(Pathname.new(path))
+  policy_templates[document.dig("metadata", "name")] = document if document
+end
 
 capabilities.each do |name, capability|
   template = capability["template"].to_s.split("@").first
-  expect(template_names.include?(template), "capability #{name} template #{template} is pinned")
+  expect(capability_template_names.include?(template), "capability #{name} template #{template} is pinned")
   impl = capability["implementation"] || {}
   if impl["type"] == "agent"
     expect(agents.key?(impl["ref"]), "capability #{name} agent #{impl["ref"]} exists")
@@ -69,11 +93,12 @@ capabilities.each do |name, capability|
   else
     expect(false, "capability #{name} has a known implementation type")
   end
-  (capability["policyRefs"] || []).each do |ref|
-    expect(template_names.include?(ref.split("@").first), "capability #{name} policy #{ref} is pinned")
+  (capability["policyRefs"] || []).each do |entry|
+    ref = policy_ref(entry)
+    expect(policy_names.include?(ref.split("@").first), "capability #{name} policy #{ref} is pinned")
   end
   (capability["evalRefs"] || []).each do |ref|
-    expect(template_names.include?(ref.split("@").first), "capability #{name} eval #{ref} is pinned")
+    expect(eval_names.include?(ref.split("@").first), "capability #{name} eval #{ref} is pinned")
   end
 end
 
@@ -81,14 +106,36 @@ agents.each do |name, agent|
   (agent["tools"] || []).each do |tool|
     expect(tools.key?(tool), "agent #{name} tool #{tool} exists")
   end
-  if agent["modelProfile"] && !(lock["modelProfiles"] || {}).key?(agent["modelProfile"])
-    warn("GAP: agent #{name} references modelProfile #{agent["modelProfile"]}, but solution.lock does not pin model profiles")
+  if agent["modelProfile"]
+    profile_ref = agent["modelProfile"].to_s
+    profile_name = profile_ref.split("@").first
+    expect(model_profile_names.include?(profile_name),
+           "agent #{name} modelProfile #{profile_ref} is pinned")
+    profile_version = (lock["modelProfiles"] || {})[profile_name].to_s.split("@").first
+    profile_doc = yaml(MODEL_PROFILE_DIR.join("#{profile_name}.yaml"))
+    expect(!profile_doc.nil?, "model profile #{profile_name} artifact is readable")
+    if profile_doc
+      expect(profile_doc.dig("metadata", "version") == profile_version,
+             "model profile #{profile_name} version matches lock")
+      expect(profile_doc.dig("spec", "modelVersion") != "latest",
+             "model profile #{profile_name} modelVersion is pinned")
+      (profile_doc.dig("spec", "fallback") || []).each do |fallback|
+        fallback_name = fallback["profile"].to_s.split("@").first
+        expect(model_profile_names.include?(fallback_name),
+               "model profile #{profile_name} fallback #{fallback_name} is pinned")
+      end
+    end
   end
   instructions = agent["instructions"]
-  expect(SPEC_DIR.join(instructions).file?, "agent #{name} instructions #{instructions} exist") if instructions
+  if instructions
+    expect(SPEC_DIR.join(instructions).file?, "agent #{name} instructions #{instructions} exist")
+    expect(lock_files.key?(instructions), "agent #{name} instructions #{instructions} is in lock spec.files")
+  end
 end
 
 PLATFORM_ROLES = %w[end_user approver customer_admin deployment_operator auditor service support].freeze
+CLASSIFICATION_RANK = %w[public internal confidential restricted].freeze
+RETENTION_RANK = %w[ephemeral standard extended legal_hold].freeze
 
 def schema_at(schema, path)
   cursor = schema
@@ -107,12 +154,90 @@ def step_index(steps, id)
 end
 
 workflow_recipes = spec.dig("spec", "semantic", "recipeBindings") || {}
+
+puts "== Decision audit binding (#20) =="
+capabilities.each do |cap_name, capability|
+  impl = capability["implementation"] || {}
+  side_effecting_tools =
+    case impl["type"]
+    when "workflow"
+      steps = (workflows[impl["ref"]] || {})["steps"] || []
+      steps.select { |step| step["type"] == "tool" }
+           .map { |step| step["tool"] }
+           .uniq
+           .select { |tool_name| tools.dig(tool_name, "sideEffects") && tools.dig(tool_name, "sideEffects") != "read" }
+    when "agent"
+      (agents.dig(impl["ref"], "tools") || []).select do |tool_name|
+        tools.dig(tool_name, "sideEffects") && tools.dig(tool_name, "sideEffects") != "read"
+      end
+    else
+      []
+    end
+
+  audit = capability["audit"] || {}
+  evidence_map = audit["evidence"] || {}
+  run_outcome = audit["runOutcomeDecision"] || "required"
+  expect(%w[required omitted].include?(run_outcome),
+         "capability #{cap_name} runOutcomeDecision is valid")
+  expect(!(run_outcome == "omitted" && side_effecting_tools.any?),
+         "capability #{cap_name} may omit run outcome only when read-only")
+
+  side_effecting_tools.each do |tool_name|
+    tool_audit = tools.dig(tool_name, "audit") || {}
+    expect(CLASSIFICATION_RANK.include?(tool_audit["classification"]),
+           "tool #{tool_name} declares a valid classification")
+    expect(RETENTION_RANK.include?(tool_audit["retentionClass"]),
+           "tool #{tool_name} declares a valid retention class")
+
+    selectors = evidence_map[tool_name]
+    expect(selectors.is_a?(Array) && selectors.any?,
+           "capability #{cap_name} declares evidence for side-effecting tool #{tool_name}")
+
+    covering = (capability["policyRefs"] || []).select do |entry|
+      template = policy_templates[policy_ref(entry).split("@").first]
+      template && template.dig("spec", "enforcementPoint") == "tool.pre_invoke" &&
+        policy_applies_to?(entry, tool_name)
+    end
+    expect(covering.any?,
+           "capability #{cap_name} has tool.pre_invoke coverage for #{tool_name}")
+
+    next unless selectors.is_a?(Array)
+
+    steps = impl["type"] == "workflow" ? (workflows[impl["ref"]] || {})["steps"] || [] : []
+    tool_step_index = steps.index { |step| step["type"] == "tool" && step["tool"] == tool_name }
+    selectors.each do |selector|
+      from = selector["from"]
+      expect(%w[retrieval input step].include?(from),
+             "capability #{cap_name} evidence #{tool_name} has a known selector")
+      if from == "retrieval" && selector["recipe"]
+        expect(workflow_recipes.key?(selector["recipe"]),
+               "capability #{cap_name} evidence #{tool_name} recipe #{selector['recipe']} is bound")
+      end
+      next unless from == "step"
+
+      source_index = step_index(steps, selector["step"])
+      expect(source_index && (tool_step_index.nil? || source_index < tool_step_index),
+             "capability #{cap_name} evidence #{tool_name} step #{selector['step']} is upstream")
+      expect(%w[artifact citations].include?(selector["as"] || "artifact"),
+             "capability #{cap_name} evidence #{tool_name} has a valid as mode")
+      source_step = source_index ? steps[source_index] : nil
+      expect(source_step && source_step["outputSchema"],
+             "capability #{cap_name} evidence #{tool_name} source declares outputSchema")
+      if source_step && source_step["outputSchema"]
+        schema = yaml(SPEC_DIR.join(source_step["outputSchema"]))
+        expect(!schema_at(schema, selector["path"]).nil?,
+               "capability #{cap_name} evidence #{tool_name} path exists in step output schema")
+      end
+    end
+  end
+end
+
 workflows.each do |name, workflow|
   steps = workflow["steps"] || []
   _capability_name, capability = capabilities.find do |_, candidate|
     candidate.dig("implementation", "ref") == name
   end
-  bound_policies = (capability&.dig("policyRefs") || []).map { |ref| ref.split("@").first }
+  bound_policies = (capability&.dig("policyRefs") || []).map { |entry| policy_ref(entry).split("@").first }
 
   steps.each_with_index do |step, index|
     case step["type"]
@@ -121,6 +246,8 @@ workflows.each do |name, workflow|
       if step["outputSchema"]
         expect(SPEC_DIR.join(step["outputSchema"]).file?,
                "workflow #{name} step #{step["id"]} outputSchema exists")
+        expect(lock_files.key?(step["outputSchema"]),
+               "workflow #{name} step #{step["id"]} outputSchema is in lock spec.files")
       end
     when "tool"
       expect(tools.key?(step["tool"]), "workflow #{name} step #{step["id"]} tool #{step["tool"]} exists")
@@ -148,7 +275,7 @@ workflows.each do |name, workflow|
              "workflow #{name} step #{step["id"]} expiresAfter is an ISO-8601 duration")
       predicate_ref = step.dig("requiredWhen", "predicate")
       if predicate_ref
-        expect(template_names.include?(predicate_ref.split("@").first),
+        expect(policy_names.include?(predicate_ref.split("@").first),
                "workflow #{name} step #{step["id"]} predicate #{predicate_ref} is pinned")
         expect(bound_policies.include?(predicate_ref.split("@").first),
                "workflow #{name} step #{step["id"]} predicate is bound to the capability")
@@ -215,6 +342,16 @@ if policy
          "claims-approval-threshold predicate reads the amount parameter")
 end
 
+tool_policy = policy_templates["tool-allowlist"]
+expect(!tool_policy.nil?, "tool-allowlist policy template is readable")
+if tool_policy
+  expect(tool_policy.dig("spec", "enforcementPoint") == "tool.pre_invoke",
+         "tool-allowlist enforcement point is tool.pre_invoke")
+  allow_parameter = tool_policy.dig("spec", "parameters", "allow") || {}
+  expect(allow_parameter["type"] == "array",
+         "tool-allowlist allow parameter is an array")
+end
+
 connector_dir = ROOT.join("acme/customer/connectors")
 connectors = Dir.glob(connector_dir.join("*.yaml")).to_h do |path|
   document = yaml(Pathname.new(path))
@@ -234,18 +371,26 @@ tools.each do |name, tool|
   else
     warn("GAP: tool #{name} has no documented implementation discriminator (connectorRef, builtin, or extensionRef)")
   end
+  if tool["sideEffects"] && tool["sideEffects"] != "read"
+    audit = tool["audit"] || {}
+    expect(CLASSIFICATION_RANK.include?(audit["classification"]),
+           "tool #{name} declares a valid classification")
+    expect(RETENTION_RANK.include?(audit["retentionClass"]),
+           "tool #{name} declares a valid retention class")
+  end
   %w[inputSchema outputSchema].each do |field|
     next unless tool[field]
 
     expect(SPEC_DIR.join(tool[field]).file?, "tool #{name} #{field} exists")
+    expect(lock_files.key?(tool[field]), "tool #{name} #{field} #{tool[field]} is in lock spec.files")
   end
 end
 
 (spec.dig("spec", "governance", "evalSuites") || []).each do |ref|
-  expect(template_names.include?(ref.split("@").first), "governance eval #{ref} is pinned")
+  expect(eval_names.include?(ref.split("@").first), "governance eval #{ref} is pinned")
 end
 (spec.dig("spec", "overlays") || []).each do |ref|
-  expect(template_names.include?(ref.split("@").first), "overlay #{ref} is pinned")
+  expect(overlay_names.include?(ref.split("@").first), "overlay #{ref} is pinned")
 end
 (spec.dig("spec", "extensions") || []).each do |ref|
   expect(extension_names.include?(ref.split("@").first), "extension #{ref} is pinned")
@@ -278,6 +423,16 @@ if eval_suite && metric_catalog && dataset
   expect(dataset_ref["id"] == dataset.dig("metadata", "name"), "L2 suite dataset id matches customer dataset")
   expect(dataset_ref["version"] == dataset.dig("metadata", "version"), "L2 suite dataset version matches")
   expect(dataset_ref["digest"] == dataset.dig("spec", "digest"), "L2 suite dataset digest matches")
+
+  lock_dataset = (lock["evalDatasets"] || {})[dataset_ref["id"]].to_s
+  lock_dataset_version, lock_dataset_digest = lock_dataset.split("@", 2)
+  expect(lock_dataset_version == dataset_ref["version"], "lock evalDatasets version matches Eval Suite")
+  expect(lock_dataset_digest == dataset_ref["digest"], "lock evalDatasets digest matches Eval Suite")
+
+  suite_source = ROOT.join("acme/eval/claims-triage-quality/eval-suite.yaml")
+  expect(suite_source.file?, "concrete eval suite source exists")
+  expect(!(lock.dig("assets", "evalSuites", "claims-triage-quality", "files") || {}).empty?,
+         "eval suite asset has a file manifest")
   metric_ids = (metric_catalog.dig("spec", "metrics") || []).map { |m| m["metricId"] }
   (eval_suite.dig("spec", "gates") || []).each do |gate|
     expect(metric_ids.include?(gate["metricRef"]), "gate #{gate["id"]} metric exists in catalog")

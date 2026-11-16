@@ -4,9 +4,9 @@ import { Agent } from '@mastra/core/agent';
 import { claimsLookup } from '../tools/claims-lookup';
 import { retrieveContext } from '../tools/retrieve-context';
 
-// The build resolves the named model profile from the target Environment.
-// GAP: the profile name is not versioned or pinned in solution.lock, so the
-// same Spec + lock can produce a different model binding per Environment.
+// The build resolves the pinned Model Profile (`standard@1.2.0`) from
+// solution.lock. The Environment supplies only endpoint/secret; it cannot
+// override provider, model, params, or fallback.
 export const triageAgent = new Agent({
   id: 'triage-agent',
   name: 'Acme claims triage agent',

@@ -130,6 +130,17 @@
           "minLength": 1,
           "maxLength": 100
         },
+        "classification": {
+          "$ref": "./common.schema.json#/$defs/Classification"
+        },
+        "trust": {
+          "type": "string",
+          "enum": ["untrusted"]
+        },
+        "source_kind": {
+          "type": "string",
+          "enum": ["structured", "document", "web", "derived", "other"]
+        },
         "provenance_id": {
           "$ref": "./common.schema.json#/$defs/ProvenanceId"
         },
@@ -166,6 +177,13 @@
         },
         "snapshot_digest": {
           "$ref": "./common.schema.json#/$defs/Digest"
+        },
+        "policy_evaluations": {
+          "type": "array",
+          "items": {
+            "$ref": "./common.schema.json#/$defs/PolicyEvaluation"
+          },
+          "maxItems": 100
         },
         "budget_used": {
           "$ref": "#/$defs/BudgetUsed"

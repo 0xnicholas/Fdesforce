@@ -23,6 +23,7 @@ export interface ExecutionContextClaims {
   tenantId: string;
   deploymentId: string;
   solutionId: string;
+  capabilityId: string;
   runId: string;
   traceId: string;
   sub: string;

@@ -1,6 +1,6 @@
 # Runtime Contract Conformance Cases
 
-These cases are the acceptance suite for `fde.runtime/v1`. They are fixed here so the first implementation slice can wire them into CI without re-deciding behavior.
+These cases are the acceptance suite for `fde.runtime/v1` (current minor `1.2`). They are fixed here so the first implementation slice can wire them into CI without re-deciding behavior.
 
 | ID | Case | Expected |
 |---|---|---|
@@ -39,4 +39,39 @@ emits and how the Spec fields map.
 | C24 | Policy tighten-only | Build accepts a stricter `amount` override (lower threshold) and rejects a relaxed one (higher threshold); the resolved value is pinned through the Policy Template + lock; `requiredWhen` evaluates the resolved value |
 | C25 | Capability entry and grammar validation | Unknown `capability_id` returns `404 not_found`; a known capability maps to its declared implementation entry (workflow `steps[0]` or agent); build fails closed for a non-durable workflow with approval, non-adjacent `gates`, unknown predicate, arg type/schema mismatch, platform role in `approverRoles`, or evidence from a non-context/tool step |
 
-The runner lands with the first `context-service` implementation. Until then, this table is the contract's test plan; examples and schemas in `docs/runtime-contract.md` and `contracts/schemas/` are the fixtures. The first generator slice must wire C16–C25 into the same runner.
+## Decision audit binding cases (#20)
+
+These cases cover the Solution Spec → Decision contract mapping decided in #20.
+C7 and C21 stay the invariant-level cases; C26–C32 cover payload, evidence,
+Policy coverage, run-level decisions, and crash recovery.
+
+| ID | Case | Expected |
+|---|---|---|
+| C26 | Intent completeness | Before a side-effecting Tool executes, exactly one intent Decision exists with `invocation_id`, `action.tool_id`, non-empty `evidence`, at least one `tool.pre_invoke` policy evaluation (with `enforcement_point`/`evaluated_by`), `input_digest`, and `model`/`prompt_version` when an Agent proposed the call; a failing intent write blocks the Tool (C7 payload-level) |
+| C27 | Outcome linkage and failure | After execution, exactly one outcome Decision has `parent_decision_id` pointing at the intent, `status=succeeded|failed`, and `output_digest`; an outcome write failure fails the Run, keeps the intent, and a retry reuses the same outcome `decision_id` without re-executing the Tool; `decision_coverage` marks the invocation incomplete |
+| C28 | Evidence selectors | A `from: retrieval` selector emits item-level `graph_entity` evidence plus the `retrieval` snapshot ref; a `from: step` artifact selector emits a `run_artifact` with digest; `as: citations` resolves every citation uniquely, and an unresolved or ambiguous citation fails intent write with no Tool execution; an approval-gated call automatically includes `approval` evidence |
+| C29 | Policy deny | A `tool.pre_invoke` deny writes an intent with `status=denied` and the deny evaluation; the Tool is not executed, no outcome is written, and the invocation is excluded from `decision_coverage` |
+| C30 | Read-only Run | By default a read-only Run writes one `phase=run` Decision with all retrieval snapshots, final `output_digest`, and model/prompt; a capability with `runOutcomeDecision: omitted` writes none and build rejects `omitted` when the capability contains a side-effecting Tool; a failed read-only Run writes `status=failed` |
+| C31 | Classification/retention and build fail-closed | A non-read Tool without `audit`, or a side-effecting Tool without an evidence selector, fails build; intent `classification` equals the max of Tool/evidence/Policy; `retention_class` is the strictest of Tool/Policy; an unclassified retrieval item defaults to `restricted` |
+| C32 | Crash recovery | On restart with outbox state `executing`, the runtime does not retry the side effect; it writes an outcome with `status=unknown` linked to the same intent and fails the Run; an outbox write failure produces no intent and no execution |
+
+## Agent security cases (#21)
+
+These cases cover the deterministic agent-security controls decided in #21.
+C7/C26–C32 stay the audit invariants; C33–C40 cover untrusted content,
+approval coverage, abuse budgets, output guard, egress, kill switch, and memory
+trust. Behavioral red-team cases live in the `adversarial` Eval split and are
+advisory in v0, not conformance.
+
+| ID | Case | Expected |
+|---|---|---|
+| C33 | Untrusted content envelope | Every RetrievalItem carries `trust=untrusted` and `source_kind`; the generated prompt renders each item inside a per-Run nonce data block with JSON-escaped content; content containing `</data-block>` or fake instructions cannot escape the block; Agent instructions cannot disable the wrapper; missing fields default to `untrusted`/`other` |
+| C34 | Tool result envelope | Tool results enter the model as `tool-result-block`; instructions inside a tool result do not change allowlist/approval decisions; tool results never enter the system prompt |
+| C35 | Approval coverage | A non-read Tool without an approval gate, an Agent-only implementation containing a non-read Tool, or an auto-approval gate without a pinned Policy makes build fail; a valid gate produces the approval request or `auto_approved` Decision |
+| C36 | Rate limit and run budget | Exceeding `perRunMax`, `perActorPerHourMax`, `maxToolCallsPerRun`, or `maxSteps` writes a denied intent, executes no Tool, and writes `authz.denied` with the matching reason code; an unavailable counter store fails closed |
+| C37 | Output guard | A secret match produces no output, fails the Run, and writes `security.output_blocked`; a PII match is masked with `redaction_applied=true`; `piiMode=block` blocks the Run; non-citation URLs are not rendered as links |
+| C38 | Egress declaration | A Tool Extension missing `egress` resolves to `none`; `connector:<id>` must exist and be allowed; the manifest contains only declared routes; undeclared egress is denied |
+| C39 | Kill switch | `POST /v1/admin/killswitch` requires `killswitch:execute`; `halt` blocks new Runs/tool calls, cancels active Runs, and writes audit events; state recovers from the latest Audit Event after restart; `disable` requires a reason and writes audit |
+| C40 | Memory trust | Memory renders as a `memory-block` with `trust=untrusted`; memory is not promoted to graph facts or Decision evidence; cross-user/tenant/Solution recall is denied; the full schema assertions wait for #22 |
+
+The runner lands with the first `context-service` implementation. Until then, this table is the contract's test plan; examples and schemas in `docs/runtime-contract.md` and `contracts/schemas/` are the fixtures. The first generator slice must wire C16–C40 into the same runner.

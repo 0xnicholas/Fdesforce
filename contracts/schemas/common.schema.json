@@ -20,6 +20,10 @@
       "type": "string",
       "pattern": "^dec_[0-9A-HJKMNP-TV-Z]{26}$"
     },
+    "InvocationId": {
+      "type": "string",
+      "pattern": "^inv_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
     "ProvenanceId": {
       "type": "string",
       "pattern": "^prov_[0-9A-HJKMNP-TV-Z]{26}$"
@@ -91,6 +95,50 @@
     "Classification": {
       "type": "string",
       "enum": ["public", "internal", "confidential", "restricted"]
+    },
+    "RetentionClass": {
+      "type": "string",
+      "enum": ["ephemeral", "standard", "extended", "legal_hold"]
+    },
+    "PolicyEvaluation": {
+      "type": "object",
+      "required": ["policy_id", "version", "outcome"],
+      "properties": {
+        "policy_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "outcome": {
+          "type": "string",
+          "enum": ["allow", "deny", "waived"]
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "enforcement_point": {
+          "type": "string",
+          "enum": [
+            "context.retrieve",
+            "tool.pre_invoke",
+            "agent.pre_invoke",
+            "approval.request",
+            "run.post",
+            "output.emit"
+          ]
+        },
+        "evaluated_by": {
+          "type": "string",
+          "enum": ["mastra-app", "context-service"]
+        }
+      },
+      "additionalProperties": false
     },
     "ErrorCode": {
       "type": "string",

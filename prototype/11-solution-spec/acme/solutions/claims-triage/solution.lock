@@ -1,23 +1,89 @@
-# PROTOTYPE — throwaway sample.
-# Documented lock shape. The `extensions` block is required by the domain model
-# but is missing from the lock example in docs/domain-model.md §3.3. There is no
-# block for model profiles; see GAPS in the ticket resolution.
+# PROTOTYPE — throwaway sample. Shape per ADR-0007 / ticket #19.
+# Digests are placeholders except evalDatasets, which matches the sample
+# dataset manifest; the point is the shape and the pin set, not real hashes.
 lockVersion: 1
-specDigest: sha256:ad68782bf3d23c01f3a96d1e8485046d8cb7364e8995672b1f6fbdf5143c4f9a
-materializedFrom:
-  solutionTemplate: fde-solution@1.2.0@sha256:1111111111111111111111111111111111111111111111111111111111111111
-templates:
-  document-triage: 1.0.0@sha256:2222222222222222222222222222222222222222222222222222222222222222
-  pii-redaction: 1.0.0@sha256:3333333333333333333333333333333333333333333333333333333333333333
-  claims-approval-threshold: 1.0.0@sha256:4444444444444444444444444444444444444444444444444444444444444444
-  claims-triage-quality: 1.0.0@sha256:5555555555555555555555555555555555555555555555555555555555555555
-  claims-context: 1.0.0@sha256:6666666666666666666666666666666666666666666666666666666666666666
-  data-retention: 2.0.0@sha256:7777777777777777777777777777777777777777777777777777777777777777
-  acme-baseline: 1.0.0@sha256:8888888888888888888888888888888888888888888888888888888888888888
-  claims-triage-tuning: 1.0.0@sha256:9999999999999999999999999999999999999999999999999999999999999999
+
+spec:
+  digest: sha256:2525252525252525252525252525252525252525252525252525252525252525
+  files:
+    solution.yaml: sha256:7a5ea737d5cd1867f3d5c9e1b151f54a40e0ba6cd4bd1113627ffa7b6708ecb2
+    files/prompts/triage.md: sha256:1010101010101010101010101010101010101010101010101010101010101010
+    files/schemas/claims-lookup.input.json: sha256:2020202020202020202020202020202020202020202020202020202020202020
+    files/schemas/claims-lookup.output.json: sha256:3030303030303030303030303030303030303030303030303030303030303030
+    files/schemas/claim-decision.input.json: sha256:4040404040404040404040404040404040404040404040404040404040404040
+    files/schemas/claim-decision.output.json: sha256:5050505050505050505050505050505050505050505050505050505050505050
+    files/schemas/triage.output.json: sha256:6060606060606060606060606060606060606060606060606060606060606060
+
+templates:                 # cross-customer, immutable Templates
+  solution:
+    fde-solution: 1.2.0@sha256:1111111111111111111111111111111111111111111111111111111111111111
+  capability:
+    document-triage: 1.0.0@sha256:2222222222222222222222222222222222222222222222222222222222222222
+  policy:
+    pii-redaction: 1.0.0@sha256:3333333333333333333333333333333333333333333333333333333333333333
+    data-retention: 2.0.0@sha256:4444444444444444444444444444444444444444444444444444444444444444
+    claims-approval-threshold: 1.0.0@sha256:5555555555555555555555555555555555555555555555555555555555555555
+    tool-allowlist: 1.0.0@sha256:2626262626262626262626262626262626262626262626262626262626262626
+  eval:
+    triage-quality: 1.0.0@sha256:6666666666666666666666666666666666666666666666666666666666666666
+    claims-context: 1.0.0@sha256:7777777777777777777777777777777777777777777777777777777777777777
+  ontology:
+    insurance-claims: 1.0.0@sha256:8888888888888888888888888888888888888888888888888888888888888888
+  deploymentProfile:
+    standard: 1.0.0@sha256:9999999999999999999999999999999999999999999999999999999999999999
+
+assets:                    # concrete Customer assets referenced by the frozen Spec
+  policies:
+    claims-approval-threshold:
+      version: 1.0.0
+      digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      materializedFrom: policy/claims-approval-threshold@1.0.0
+      files:
+        claims-approval-threshold.yaml: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    tool-allowlist:
+      version: 1.0.0
+      digest: sha256:2727272727272727272727272727272727272727272727272727272727272727
+      materializedFrom: policy/tool-allowlist@1.0.0
+      files:
+        tool-allowlist.yaml: sha256:d40587eeb64d97d8aafc127b42e4edfedcf5aec2c7c823039dc00244c2834576
+  evalSuites:
+    claims-triage-quality:
+      version: 1.0.0
+      digest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      materializedFrom: eval/triage-quality@1.0.0
+      files:
+        eval-suite.yaml: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+  connectors:
+    claims-db:
+      digest: sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+      files:
+        claims-db.yaml: sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+        contracts/claims-db.md: sha256:1212121212121212121212121212121212121212121212121212121212121212
+    sharepoint-claims:
+      digest: sha256:1313131313131313131313131313131313131313131313131313131313131313
+      files:
+        sharepoint-claims.yaml: sha256:1414141414141414141414141414141414141414141414141414141414141414
+        contracts/sharepoint-claims.md: sha256:1515151515151515151515151515151515151515151515151515151515151515
+  customerContextPackage:
+    acme-claims-context: 1.0.0@sha256:1616161616161616161616161616161616161616161616161616161616161616
+
+overlays:                  # derivation provenance; build does not re-apply
+  acme-baseline: 1.0.0@sha256:1717171717171717171717171717171717171717171717171717171717171717
+  claims-triage-tuning: 1.0.0@sha256:1818181818181818181818181818181818181818181818181818181818181818
+
+extensions:
+  acme-claims-connector: 1.0.0@sha256:1919191919191919191919191919191919191919191919191919191919191919
+
+modelProfiles:
+  standard: 1.2.0@sha256:2020202020202020202020202020202020202020202020202020202020202020
+  standard-fallback: 1.0.0@sha256:2121212121212121212121212121212121212121212121212121212121212121
+
+evalDatasets:
+  acme-claims-triage: 1.0.0@sha256:2222222222222222222222222222222222222222222222222222222222222222
+
 runtime:
-  profile: mastra-1.83-node26@1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-  contractVersion: 1.0.0
+  profile: mastra-1.83-node26@1@sha256:2323232323232323232323232323232323232323232323232323232323232323
+  contractVersion: 1.2.0
   graphSchema: 1
   auditSchema: 1
   mastra: 1.83.0
@@ -25,18 +91,7 @@ runtime:
   python: 3.12.2
   semantica: 0.7.0
   contextService: 0.1.0
+
 toolchain:
   generator: 0.1.0
-  image: ghcr.io/acme-fde/toolchain@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-extensions:
-  acme-claims-connector: 1.0.0@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-customerObjects:
-  customerContextPackage: acme-claims-context@1.0.0@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-  connectors:
-    claims-db: sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-    sharepoint-claims: sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-  contextSources:
-    claims-db: sha256:1212121212121212121212121212121212121212121212121212121212121212
-    sharepoint-claims: sha256:1313131313131313131313131313131313131313131313131313131313131313
-  semanticModels:
-    acme-claims: 1.0.0@sha256:1414141414141414141414141414141414141414141414141414141414141414
+  image: ghcr.io/acme-fde/toolchain@sha256:2424242424242424242424242424242424242424242424242424242424242424

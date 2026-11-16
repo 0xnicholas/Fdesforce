@@ -13,6 +13,8 @@ The dataset is a customer-side asset under
 environment by version + digest. It is deliberately **not** copied into the
 generated tree.
 
-GAP: the Eval Suite pins a dataset digest, but the Spec has no environment-level
-binding that tells `fde eval` where to resolve the dataset or which service
-account to use. That is currently an implicit customer-side convention.
+The Eval Suite pins a dataset version + digest; the Environment's
+`evalDatasetBindings` maps `dataset_id@version` to a store/path/secretRef and
+optional service account. `fde eval` resolves that binding and verifies the
+dataset digest before any model call; the dataset is never copied into the
+Bundle.
