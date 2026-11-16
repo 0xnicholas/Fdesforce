@@ -101,7 +101,7 @@ function specInit(args: string[], io: Sink): number {
   if (templateRef === undefined) return usageError(io, 'missing required flag --template');
   if (outArg === undefined) return usageError(io, 'missing required flag --out');
 
-  const workspace = resolveWorkspace(flags, io, io.cwd);
+  const workspace = resolveWorkspace(flags, io, io.cwd, 'spec init', json);
   if (workspace === undefined) return 1;
 
   const templates = buildCatalogues({ platformRoot: workspace.platformRoot, assets: workspace.assets });
@@ -180,10 +180,10 @@ function specValidate(args: string[], io: Sink): number {
   const json = flags.values['json'] === true;
 
   if (stringFlag(flags, 'spec') === undefined) return usageError(io, 'missing required flag --spec');
-  const specDir = resolveSpecDir(flags, io);
+  const specDir = resolveSpecDir(flags, io, 'spec validate', json);
   if (specDir === undefined) return 1;
 
-  const workspace = resolveWorkspace(flags, io, specDir);
+  const workspace = resolveWorkspace(flags, io, specDir, 'spec validate', json);
   if (workspace === undefined) return 1;
 
   const project = loadProject({ specDir, workspace });
@@ -205,10 +205,10 @@ function specLock(args: string[], io: Sink): number {
   const check = flags.values['check'] === true;
 
   if (stringFlag(flags, 'spec') === undefined) return usageError(io, 'missing required flag --spec');
-  const specDir = resolveSpecDir(flags, io);
+  const specDir = resolveSpecDir(flags, io, 'spec lock', json);
   if (specDir === undefined) return 1;
 
-  const workspace = resolveWorkspace(flags, io, specDir);
+  const workspace = resolveWorkspace(flags, io, specDir, 'spec lock', json);
   if (workspace === undefined) return 1;
 
   const project = loadProject({ specDir, workspace });
@@ -216,6 +216,30 @@ function specLock(args: string[], io: Sink): number {
   const solutionTemplate =
     templateArg === undefined ? undefined : exactTemplateRef(templateArg, io);
   if (solutionTemplate === undefined && templateArg !== undefined) return 2;
+
+  const recorded = Object.entries(project.lock?.templates.solution ?? {});
+  if (solutionTemplate === undefined && recorded.length > 0) {
+    const [name, pin] = recorded[0] as [string, string];
+    const version = pin.split('@')[0] ?? '';
+    return emitDiagnostics(
+      'spec lock',
+      {
+        errors: [
+          diagnostic(
+            'solution_template_unresolved',
+            `solution.lock records materialization provenance ${name}@${version}; pass --template to re-pin it`,
+            {
+              path: 'templates.solution',
+              remediation: `add --template ${name}@${version}`,
+            },
+          ),
+        ],
+        warnings: [],
+      },
+      io,
+      json,
+    );
+  }
 
   const expected = buildLock(project, solutionTemplate === undefined ? {} : { solutionTemplate });
   if (expected.lock === undefined) {
@@ -328,13 +352,18 @@ function exactTemplateRef(ref: string, io: Sink): { name: string; version: strin
   return { name, version: range };
 }
 
-function resolveSpecDir(flags: { values: Flags }, io: Sink): string | undefined {
+function resolveSpecDir(
+  flags: { values: Flags },
+  io: Sink,
+  command: string,
+  json: boolean,
+): string | undefined {
   const value = stringFlag(flags, 'spec') as string;
   const path = resolve(io.cwd, value);
   if (isFile(path)) return dirname(path);
   if (!isDirectory(path)) {
     emitDiagnostics(
-      'spec',
+      command,
       {
         errors: [
           diagnostic('spec_missing', `Spec directory ${path} does not exist`, {
@@ -345,14 +374,20 @@ function resolveSpecDir(flags: { values: Flags }, io: Sink): string | undefined 
         warnings: [],
       },
       io,
-      false,
+      json,
     );
     return undefined;
   }
   return path;
 }
 
-function resolveWorkspace(flags: { values: Flags }, io: Sink, startDir: string): Workspace | undefined {
+function resolveWorkspace(
+  flags: { values: Flags },
+  io: Sink,
+  startDir: string,
+  command: string,
+  json: boolean,
+): Workspace | undefined {
   const workspaceArg = stringFlag(flags, 'workspace');
   const platformArg = stringFlag(flags, 'platform');
   const load = loadWorkspace({
@@ -361,7 +396,7 @@ function resolveWorkspace(flags: { values: Flags }, io: Sink, startDir: string):
     ...(platformArg === undefined ? {} : { platformDir: resolve(io.cwd, platformArg) }),
   });
   if (load.workspace === undefined) {
-    emitDiagnostics('spec', { errors: load.errors, warnings: [] }, io, false);
+    emitDiagnostics(command, { errors: load.errors, warnings: [] }, io, json);
     return undefined;
   }
   return load.workspace;
@@ -373,7 +408,7 @@ function usageError(io: Sink, message: string): number {
   return 2;
 }
 
-export function emitDiagnostics(command: string, report: Report, io: Sink, json: boolean): number {
+function emitDiagnostics(command: string, report: Report, io: Sink, json: boolean): number {
   const ok = report.errors.length === 0;
   if (json) {
     io.out(JSON.stringify({ command, ok, errors: report.errors, warnings: report.warnings }));

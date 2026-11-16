@@ -15,7 +15,7 @@ The package is private and not published; `main.ts` is the bin entry once built.
 | Command | Exit 0 when | Exit 1 when | Exit 2 when |
 | --- | --- | --- | --- |
 | `fde spec init --template <ref> --out <dir>` | the Template was materialized, the lock was written | the Template is not vendored, the output is not empty, the tree cannot be locked | flags are malformed |
-| `fde spec validate --spec <dir>` | the Spec, lock and every artifact agree (warnings do not fail) | any schema/reference/grammar/artifact error | flags are malformed |
+| `fde spec validate --spec <dir>` | the Spec, lock and every artifact agree (warnings do not fail) | any schema/reference/grammar/artifact error, including a stale lock | flags are malformed |
 | `fde spec lock --spec <dir>` | `solution.lock` was regenerated | the inputs cannot be resolved, so there is nothing honest to write | flags are malformed |
 | `fde spec lock --check --spec <dir>` | the checked-in lock is exactly what the inputs produce | any drift, or a missing/invalid lock | flags are malformed |
 
@@ -31,11 +31,17 @@ summary goes to stdout.
 
 ## Why `validate` and `lock --check` are separate
 
-`validate` answers "is this Spec well-formed and do its references resolve?".
-It reports a stale lock digest as a **warning**, because a Spec under authoring
-changes on every save. `lock --check` answers "is this lock the exact lock these
-inputs produce?" and treats any difference — including a stale `spec.digest` —
-as a failure. CI runs both.
+`validate` is the documented `validated` gate (`docs/domain-model.md` §3.3):
+schema, reference integrity, grammar, artifact resolution **and lock freshness**
+all pass. `lock --check` is the stricter generated-artifact check: it also
+rejects pins the inputs do not produce (an extra pin, a deleted provenance
+entry, a hand-edited digest). Both fail on a stale lock; CI runs both because
+only `lock --check` sees the whole manifest.
+
+The authoring loop is therefore: edit → `fde spec lock` → `fde spec validate`.
+That is the strict-lock friction ADR-0007 accepted in exchange for a lock that
+is never stale in a build. `lock` itself pins what the Spec references; it does
+not substitute for `validate` as the grammar gate.
 
 ## Workspace: `fde.workspace.yaml`
 
@@ -92,6 +98,14 @@ generated and deterministic: object keys and file paths are sorted and the file
 set does not depend on the Spec's location. Two runs over the same inputs write
 byte-identical files.
 
+Materialization provenance (`templates.solution`) is an **input**, not something
+inferred from the lock: pass `--template <name@version>`, as `fde spec init` did.
+If a lock records provenance and the flag is omitted, `lock` fails with
+`solution_template_unresolved` instead of silently dropping the pin — a
+self-referential expected value could never detect a deleted provenance entry.
+Concrete Customer assets keep their own link in `materializedFrom`; the named
+Template is verified as vendored and pinned next to the asset.
+
 Digest conventions:
 
 | Input | Digest |
@@ -110,11 +124,20 @@ Digest conventions:
 
 `init` materializes the Template directory into `--out` and writes the lock in a
 staging directory first. A failure leaves no partial Solution behind; an
-existing non-empty `--out` is never overwritten.
+existing non-empty `--out` is never overwritten. The generated lock records
+`templates.solution` provenance; keep it fresh with
+`fde spec lock --template fde-solution@1.2.0`.
 
 In Slice 1 the only Solution Template is `fde-solution@1.2.0`, which
 materializes the Acme claims-triage read-only Spec byte for byte. Tests assert
 that equality, so the checked-in example and the Template cannot drift.
+
+## Spec file set rules
+
+`spec.digest` covers `solution.yaml`, every referenced prompt/schema and every
+file under `files/`. Paths are POSIX-relative, sorted, LF-normalized; absolute
+paths, `..`, symlinked files and symlinked directories are rejected
+(`spec_file_invalid`). A file outside the digest is outside the build.
 
 ## Not in this slice
 

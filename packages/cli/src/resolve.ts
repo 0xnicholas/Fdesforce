@@ -25,6 +25,7 @@ export interface ConcreteAsset {
   version: string;
   digest: Digest;
   files: Record<string, Digest>;
+  materializedFrom?: string;
 }
 
 export interface ModelProfileAsset {
@@ -59,7 +60,7 @@ export interface ResolvedArtifacts {
   errors: Diagnostic[];
 }
 
-function versionDigest(version: string, digest: Digest): string {
+function versionPin(version: string, digest: Digest): string {
   return `${version}@${digest}`;
 }
 
@@ -67,6 +68,43 @@ function concreteAsset(artifact: DocArtifact): ConcreteAsset {
   const file = basename(artifact.path);
   const digest = artifact.digest;
   return { version: artifact.version ?? '0.0.0', digest, files: { [file]: digest } };
+}
+
+const MATERIALIZED_FROM = /^([a-z][A-Za-z0-9-]*)\/([a-z0-9][a-z0-9.-]*)@([0-9]+\.[0-9]+\.[0-9]+)$/;
+
+/**
+ * `materializedFrom: eval/triage-quality@1.0.0` records which Template a concrete
+ * Customer asset came from (ADR-0007). It is a claim to verify, not decoration:
+ * the named Template must be vendored and is pinned alongside the asset.
+ */
+function materializedFrom(
+  document: Record<string, unknown>,
+  expectedType: 'policy' | 'eval',
+  path: string,
+  errors: Diagnostic[],
+): { ref: string; provenance: string; name: string; version: string } | undefined {
+  const value = asString(document['materializedFrom']);
+  if (value === undefined) return undefined;
+  const match = MATERIALIZED_FROM.exec(value);
+  if (match === null) {
+    errors.push({
+      code: 'asset_provenance_invalid',
+      message: `${path} declares materializedFrom ${value}, expected <type>/<name>@<version>`,
+      path: `${path}.materializedFrom`,
+      remediation: `write materializedFrom: ${expectedType}/<template-name>@<x.y.z>`,
+    });
+    return undefined;
+  }
+  const [, type = '', name = '', version = ''] = match;
+  if (type !== expectedType) {
+    errors.push({
+      code: 'asset_provenance_invalid',
+      message: `${path} declares materializedFrom of type ${type}, expected ${expectedType}`,
+      path: `${path}.materializedFrom`,
+    });
+    return undefined;
+  }
+  return { ref: `${name}@${version}`, provenance: `${type}/${name}@${version}`, name, version };
 }
 
 function recordArtifact<T extends { name: string; version: string; digest: Digest }>(
@@ -151,7 +189,15 @@ export function resolveArtifacts(catalogues: Catalogues, raw: Record<string, unk
         });
         return;
       }
-      resolved.policyAssets[name] = { ...asset, document: result.value.document };
+      const origin = materializedFrom(result.value.document, 'policy', `policy asset ${name}`, errors);
+      if (origin !== undefined && addTemplate('policy', origin.ref, `assets.policies.${name}.materializedFrom`) === undefined) {
+        return;
+      }
+      resolved.policyAssets[name] = {
+        ...asset,
+        ...(origin === undefined ? {} : { materializedFrom: origin.provenance }),
+        document: result.value.document,
+      };
       resolved.policyViews[name] = result.value.document as unknown as PolicyTemplateView;
       return;
     }
@@ -177,7 +223,15 @@ export function resolveArtifacts(catalogues: Catalogues, raw: Record<string, unk
         });
         return;
       }
-      resolved.evalSuites[name] = { ...asset, document: result.value.document };
+      const origin = materializedFrom(result.value.document, 'eval', `Eval Suite ${name}`, errors);
+      if (origin !== undefined && addTemplate('eval', origin.ref, `assets.evalSuites.${name}.materializedFrom`) === undefined) {
+        return;
+      }
+      resolved.evalSuites[name] = {
+        ...asset,
+        ...(origin === undefined ? {} : { materializedFrom: origin.provenance }),
+        document: result.value.document,
+      };
       return;
     }
     const artifact = addTemplate('eval', ref, path);
@@ -196,7 +250,7 @@ export function resolveArtifacts(catalogues: Catalogues, raw: Record<string, unk
     }
     const document = result.value.document as ModelProfile;
     const version = asString(asRecord(result.value.document['metadata'])['version']) ?? result.value.version ?? '0.0.0';
-    const pin = versionDigest(version, result.value.digest);
+    const pin = versionPin(version, result.value.digest);
     if (resolved.models[name] === undefined) {
       resolved.models[name] = { pin, document };
     } else if (resolved.models[name]?.pin !== pin) {
@@ -380,7 +434,7 @@ export function resolveArtifacts(catalogues: Catalogues, raw: Record<string, unk
     const version = asString(datasetRef['version']);
     const digest = asString(datasetRef['digest']);
     if (id === undefined || version === undefined || digest === undefined) continue;
-    resolved.evalDatasets[id] = versionDigest(version, digest as Digest);
+    resolved.evalDatasets[id] = versionPin(version, digest as Digest);
     if (!catalogues.datasets.has(id)) continue;
     const dataset = catalogues.datasets.resolve(`${id}@${version}`, `evalSuites.${suiteName}.spec.datasetRef`);
     if (!dataset.ok) continue;

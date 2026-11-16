@@ -1,3 +1,7 @@
+# Concrete Customer asset, materialized from the platform Eval Suite template.
+# The lock pins both the asset and `eval/triage-quality@1.0.0`.
+materializedFrom: eval/triage-quality@1.0.0
+
 apiVersion: fde.dev/v0
 kind: EvalSuite
 metadata:

@@ -1,16 +1,11 @@
-/** A user-facing diagnostic. Codes are stable; messages are not a contract. */
-export interface Diagnostic {
-  code: string;
-  message: string;
-  /** Document path, e.g. `spec.workflows.flow.steps[2].approverRoles`. */
-  path?: string;
-  remediation?: string;
-}
+import type { Diagnostic, ValidationReport } from '@fde/spec';
 
-export interface Report {
-  errors: Diagnostic[];
-  warnings: Diagnostic[];
-}
+/**
+ * The CLI emits the same diagnostic shape as `@fde/spec`, so a validation error
+ * and a resolution error are interchangeable in text and JSON output.
+ */
+export type { Diagnostic };
+export type Report = ValidationReport;
 
 export function diagnostic(
   code: string,

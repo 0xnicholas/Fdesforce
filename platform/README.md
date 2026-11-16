@@ -59,3 +59,8 @@ exception: its `solution.yaml` must parse as a `SolutionSpec`, because
 slice and it materializes the Acme claims-triage read-only Spec, byte for byte.
 `packages/cli/test` asserts that equality, so the checked-in example and the
 template cannot drift.
+
+Concrete Customer assets keep their derivation explicitly
+(`examples/eval/acme/eval-suite.yaml` declares
+`materializedFrom: eval/triage-quality@1.0.0`). `fde spec lock` verifies that
+the named Template is vendored and pins both the asset and its source.

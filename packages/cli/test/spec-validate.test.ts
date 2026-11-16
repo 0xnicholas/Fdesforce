@@ -123,7 +123,7 @@ describe('fde spec validate', () => {
     expect(result.err).toMatch(/fde spec lock/);
   });
 
-  it('treats lock freshness as a warning: drift belongs to `lock --check`', async () => {
+  it('fails when a referenced Spec file drifts after locking', async () => {
     const sb = fresh();
     sb.write(
       'examples/spec/acme/claims-triage/files/prompts/triage.md',
@@ -132,9 +132,23 @@ describe('fde spec validate', () => {
 
     const result = await sb.run(['spec', 'validate', '--workspace', sb.workspace, '--spec', sb.specDir]);
 
-    expect(result.code, result.err).toBe(0);
+    expect(result.code).toBe(1);
     expect(result.err).toMatch(/lock_digest_mismatch/);
     expect(result.err).toMatch(/fde spec lock/);
+  });
+
+  it('fails when a Spec file is a symlink outside the Solution', async () => {
+    const sb = fresh();
+    const { symlinkSync, writeFileSync } = await import('node:fs');
+    writeFileSync(join(sb.root, 'outside-secret.md'), 'not part of the Solution');
+    symlinkSync(join(sb.root, 'outside-secret.md'), join(sb.specDir, 'files/prompts/leaked.md'));
+
+    const result = await sb.run(['spec', 'validate', '--workspace', sb.workspace, '--spec', sb.specDir]);
+
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(/spec_file_invalid/);
+    expect(result.err).toMatch(/symlink/);
+    expect(result.err).toMatch(/files\/prompts\/leaked\.md/);
   });
 
   it('still fails when a referenced Spec file is missing', async () => {
@@ -146,6 +160,24 @@ describe('fde spec validate', () => {
     expect(result.code).toBe(1);
     expect(result.err).toMatch(/spec_file_missing/);
     expect(result.err).toMatch(/files\/prompts\/triage\.md/);
+  });
+
+  it('emits machine-readable diagnostics for a missing Spec directory', async () => {
+    const sb = fresh();
+    const result = await sb.run([
+      'spec',
+      'validate',
+      '--workspace',
+      sb.workspace,
+      '--spec',
+      join(sb.root, 'no-such-solution'),
+      '--json',
+    ]);
+
+    expect(result.code).toBe(1);
+    const report = JSON.parse(result.out) as { ok: boolean; errors: Array<{ code: string }> };
+    expect(report.ok).toBe(false);
+    expect(report.errors.map((error) => error.code)).toContain('spec_missing');
   });
 
   it('keeps working against the checked-in example from the repo root', async () => {

@@ -11,13 +11,6 @@ import {
 import type { Project } from './project.js';
 import { dedupe, type Diagnostic, type Report } from './types.js';
 
-/**
- * Lock freshness is `fde spec lock --check`'s job. During authoring the Spec
- * changes constantly; `validate` reports the stale lock as a warning instead of
- * making every edit look like a broken reference.
- */
-const FRESHNESS_CODES = new Set(['lock_digest_mismatch', 'spec_file_unpinned']);
-
 export function validateProject(project: Project): Report {
   // When the Spec parses and the lock exists, `checkSolution` owns the approval
   // predicate checks; the raw resolver only reports them when cross-document
@@ -46,13 +39,7 @@ export function validateProject(project: Project): Report {
     });
   } else if (project.lock !== undefined && project.spec !== undefined) {
     const report = checkSolution(views(project));
-    for (const error of report.errors) {
-      if (FRESHNESS_CODES.has(error.code)) {
-        warnings.push({ ...error, remediation: error.remediation ?? 'run `fde spec lock` to refresh the lock' });
-      } else {
-        errors.push(error);
-      }
-    }
+    errors.push(...report.errors);
     warnings.push(...report.warnings.map(withWarningRemediation));
   }
 

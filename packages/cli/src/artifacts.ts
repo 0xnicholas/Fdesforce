@@ -45,6 +45,15 @@ export interface DirArtifact {
 
 export type ResolveResult<T> = { ok: true; value: T } | { ok: false; error: Diagnostic };
 
+/** Highest vendored version satisfying a range; `undefined` when none does. */
+function selectVersion<T extends { version?: string }>(candidates: T[], range: string): T | undefined {
+  const version = highestSatisfying(
+    candidates.map((candidate) => candidate.version ?? ''),
+    range,
+  );
+  return candidates.find((candidate) => candidate.version === version);
+}
+
 /**
  * Versioned-directory artifacts: `root/<name>/<version>/**` (overlays,
  * extensions) or `root/<type>/<name>/<version>/**` (templates). The whole
@@ -145,8 +154,8 @@ export class DirCatalog {
         },
       };
     }
-    const version = highestSatisfying(versions, range);
-    const entry = version === undefined ? undefined : this.entries.get(`${name}@${version}`);
+    const candidates = [...this.entries.values()].filter((entry) => entry.name === name);
+    const entry = selectVersion(candidates, range);
     if (entry === undefined) {
       return {
         ok: false,
@@ -274,11 +283,7 @@ export class DocCatalog {
         },
       };
     }
-    const version = highestSatisfying(
-      candidates.map((candidate) => candidate.version ?? ''),
-      range,
-    );
-    const entry = candidates.find((candidate) => candidate.version === version);
+    const entry = selectVersion(candidates, range);
     if (entry === undefined) {
       return {
         ok: false,
@@ -394,11 +399,7 @@ export class ContextPackageCatalog {
         },
       };
     }
-    const version = highestSatisfying(
-      candidates.map((candidate) => candidate.version),
-      range,
-    );
-    const entry = candidates.find((candidate) => candidate.version === version);
+    const entry = selectVersion(candidates, range);
     if (entry === undefined) {
       return {
         ok: false,

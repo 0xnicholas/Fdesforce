@@ -1,3 +1,4 @@
+import { lstatSync, realpathSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 
 import {
@@ -19,7 +20,7 @@ import {
   isRecord,
   readDocument,
   readText,
-  walkFiles,
+  walkTree,
 } from './fsutil.js';
 import { resolveArtifacts, type ResolvedArtifacts } from './resolve.js';
 import type { Diagnostic } from './types.js';
@@ -237,12 +238,25 @@ export function collectSpecFiles(specDir: string, raw: Record<string, unknown>):
     addPath(asRecord(tool)['inputSchema']);
     addPath(asRecord(tool)['outputSchema']);
   }
-  for (const relative of walkFiles(join(specDir, 'files'))) referenced.add(`files/${relative}`);
 
+  const filesRoot = join(specDir, 'files');
+  const tree = walkTree(filesRoot);
+  for (const link of tree.links) {
+    errors.push({
+      code: 'spec_file_invalid',
+      message: `files/${link} is a symlink; a Spec file set may not depend on a path outside the Solution`,
+      path: `files/${link}`,
+      remediation: 'copy the file into the Solution directory instead of linking it',
+    });
+  }
+  for (const relative of tree.files) referenced.add(`files/${relative}`);
+
+  const specRoot = resolve(specDir);
+  const realSpecRoot = realpathSync(specRoot);
   const specFiles: Record<string, string> = {};
   for (const relative of [...referenced].sort()) {
-    const full = resolve(specDir, relative);
-    if (full !== resolve(specDir) && !full.startsWith(resolve(specDir) + sep)) {
+    const full = resolve(specRoot, relative);
+    if (full !== specRoot && !full.startsWith(specRoot + sep)) {
       errors.push({
         code: 'spec_file_invalid',
         message: `Spec file ${relative} escapes the Solution directory`,
@@ -260,6 +274,25 @@ export function collectSpecFiles(specDir: string, raw: Record<string, unknown>):
           remediation: `create ${relative} or fix the reference`,
         });
       }
+      continue;
+    }
+    if (lstatSync(full).isSymbolicLink()) {
+      errors.push({
+        code: 'spec_file_invalid',
+        message: `Spec file ${relative} is a symlink; a Spec file set may not depend on a path outside the Solution`,
+        path: relative,
+        remediation: 'copy the file into the Solution directory instead of linking it',
+      });
+      continue;
+    }
+    const real = realpathSync(full);
+    if (real !== realSpecRoot && !real.startsWith(realSpecRoot + sep)) {
+      errors.push({
+        code: 'spec_file_invalid',
+        message: `Spec file ${relative} resolves outside the Solution directory`,
+        path: relative,
+        remediation: 'Spec files must live inside the Solution directory',
+      });
       continue;
     }
     specFiles[relative] = readText(full);

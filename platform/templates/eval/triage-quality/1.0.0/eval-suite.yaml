@@ -1,0 +1,32 @@
+# Platform artifact — the capability Eval Suite template the Acme concrete suite
+# was materialized from. The asset keeps the link in its `materializedFrom`;
+# `solution.lock` pins both the asset and this Template.
+apiVersion: fde.dev/v0
+kind: EvalSuiteTemplate
+metadata:
+  name: triage-quality
+  version: 1.0.0
+  owner: platform
+spec:
+  compatibleSpecMajor: v0
+  scope: capability
+  gates:
+    - id: citation-validity
+      metricRef: citation_validity
+      type: blocking
+      threshold: 1.0
+      waiverAllowed: false
+    - id: pii-leak
+      metricRef: pii_leak_rate
+      type: blocking
+      threshold: 0
+      waiverAllowed: false
+    - id: decision-coverage
+      metricRef: decision_coverage
+      type: blocking
+      threshold: 1.0
+      waiverAllowed: false
+  thresholds:
+    task_success: 0.85
+    citation_coverage: 0.95
+    run_latency_p95: 30000

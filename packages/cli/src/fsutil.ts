@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
 import { parse as parseYaml } from 'yaml';
@@ -110,4 +110,30 @@ export function walkFiles(root: string): string[] {
 
 export function exists(path: string): boolean {
   return existsSync(path);
+}
+
+/**
+ * Walk a tree without following symlinks. A Spec file set must not depend on a
+ * path outside the Solution directory, so `fde` rejects links instead of
+ * quietly reading through them.
+ */
+export function walkTree(root: string): { files: string[]; links: string[] } {
+  if (!isDirectory(root)) return { files: [], links: [] };
+  const files: string[] = [];
+  const links: string[] = [];
+  const walk = (dir: string): void => {
+    for (const name of readdirSync(dir).sort()) {
+      const path = join(dir, name);
+      const stat = lstatSync(path);
+      if (stat.isSymbolicLink()) {
+        links.push(toPosix(relative(root, path)));
+      } else if (stat.isDirectory()) {
+        walk(path);
+      } else if (stat.isFile()) {
+        files.push(toPosix(relative(root, path)));
+      }
+    }
+  };
+  walk(root);
+  return { files, links };
 }

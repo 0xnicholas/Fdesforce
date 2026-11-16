@@ -34,7 +34,7 @@ pnpm generate:check    # fail if the committed generated code is stale
 # the authoring chain (build first: the bin is dist/)
 pnpm build
 node packages/cli/dist/main.js spec validate --spec examples/spec/acme/claims-triage
-node packages/cli/dist/main.js spec lock --check --spec examples/spec/acme/claims-triage
+node packages/cli/dist/main.js spec lock --check --spec examples/spec/acme/claims-triage --template fde-solution@1.2.0
 ```
 
 `pnpm verify` is what CI runs. Command and diagnostic details are in

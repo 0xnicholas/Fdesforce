@@ -35,6 +35,8 @@ const specs = (sb: Sandbox): string[] => [
   sb.workspace,
   '--spec',
   sb.specDir,
+  '--template',
+  'fde-solution@1.2.0',
 ];
 
 const pinned = (value: unknown): value is string =>
@@ -107,6 +109,38 @@ describe('fde spec lock', () => {
     expect(readFileSync(join(moved, 'solution.lock'), 'utf8')).toBe(first);
   });
 
+  it('refuses a toolchain image that already carries a digest', async () => {
+    const sb = fresh();
+    sb.write(
+      'platform/toolchain.yaml',
+      sb
+        .read('platform/toolchain.yaml')
+        .replace('image: ghcr.io/fde-workbench/toolchain', `image: ghcr.io/fde-workbench/toolchain@sha256:${'d'.repeat(64)}`),
+    );
+
+    const result = await sb.run(specs(sb));
+
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(/toolchain_invalid/);
+    expect(result.err).toMatch(/platform\/toolchain\.yaml/);
+  });
+
+  it('fails when a concrete asset points at an unvendored template', async () => {
+    const sb = fresh();
+    sb.write(
+      'examples/eval/acme/eval-suite.yaml',
+      sb
+        .read('examples/eval/acme/eval-suite.yaml')
+        .replace('materializedFrom: eval/triage-quality@1.0.0', 'materializedFrom: eval/missing-template@1.0.0'),
+    );
+
+    const result = await sb.run(specs(sb));
+
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(/template_missing/);
+    expect(result.err).toMatch(/missing-template/);
+  });
+
   it('records solution-template provenance when asked', async () => {
     const sb = fresh();
     rmSync(lockPath(sb));
@@ -117,11 +151,13 @@ describe('fde spec lock', () => {
     expect(readLock(sb).templates.solution['fde-solution']).toMatch(/^1\.2\.0@sha256:/);
   });
 
-  it('preserves existing provenance when not asked again', async () => {
+  it('refuses to regenerate a lock whose provenance is not restated', async () => {
     const sb = fresh();
-    await sb.run(specs(sb));
+    const result = await sb.run(['spec', 'lock', '--workspace', sb.workspace, '--spec', sb.specDir]);
 
-    expect(readLock(sb).templates.solution['fde-solution']).toMatch(/^1\.2\.0@sha256:/);
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(/solution_template_unresolved/);
+    expect(result.err).toMatch(/--template fde-solution@1\.2\.0/);
   });
 });
 
@@ -230,6 +266,18 @@ describe('fde spec lock --check', () => {
     expect(result.err).toMatch(/fde spec lock/);
   });
 
+  it('fails when the lock lost its materialization provenance', async () => {
+    const sb = fresh();
+    const lock = readLock(sb);
+    delete lock.templates.solution;
+    writeFileSync(lockPath(sb), stringify(lock));
+
+    const result = await check(sb);
+
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(/templates\.solution\.fde-solution/);
+  });
+
   it('does not fold a floating runtime profile version into the lock', async () => {
     const sb = fresh();
     const lock = readLock(sb);
@@ -245,7 +293,10 @@ describe('fde spec lock --check', () => {
 
   it('discovers the workspace by walking up from the Spec directory', async () => {
     const sb = fresh();
-    const result = await sb.run(['spec', 'lock', '--check', '--spec', 'claims-triage'], sb.workspace);
+    const result = await sb.run(
+      ['spec', 'lock', '--check', '--spec', 'claims-triage', '--template', 'fde-solution@1.2.0'],
+      sb.workspace,
+    );
 
     expect(result.code, result.err).toBe(0);
   });

@@ -70,7 +70,17 @@ describe('fde spec init', () => {
     const validate = await sb.run(['spec', 'validate', '--workspace', sb.workspace, '--spec', out]);
     expect(validate.code, validate.out).toBe(0);
 
-    const check = await sb.run(['spec', 'lock', '--check', '--workspace', sb.workspace, '--spec', out]);
+    const check = await sb.run([
+      'spec',
+      'lock',
+      '--check',
+      '--workspace',
+      sb.workspace,
+      '--spec',
+      out,
+      '--template',
+      'fde-solution@1.2.0',
+    ]);
     expect(check.code, check.out).toBe(0);
   });
 
