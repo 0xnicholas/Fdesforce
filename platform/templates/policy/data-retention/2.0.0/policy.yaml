@@ -1,0 +1,19 @@
+# Platform artifact — Policy Template `data-retention`.
+# Solution-level governance policy: retention is checked when a Run terminates,
+# not per Tool call.
+apiVersion: fde.dev/v0
+kind: PolicyTemplate
+metadata:
+  name: data-retention
+  version: 2.0.0
+  owner: platform
+spec:
+  compatibleSpecMajor: v0
+  enforcementPoint: run.post
+  parameters:
+    days:
+      type: number
+      overridable: true
+      minimum: 30
+  defaults:
+    days: 90

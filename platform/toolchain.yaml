@@ -1,0 +1,25 @@
+# Platform artifact — the pinned build toolchain.
+#
+# `fde spec lock` copies this into `solution.lock.toolchain` and folds the
+# Dockerfile content digest into the image reference. Until #33 publishes the
+# toolchain image, that digest is the content address of `toolchain/Dockerfile`,
+# not a registry manifest digest: it is recomputable offline and changes exactly
+# when the toolchain changes.
+apiVersion: fde.dev/v0
+kind: Toolchain
+metadata:
+  name: fde-slice1-toolchain
+  version: 0.1.0
+spec:
+  generator: 0.1.0
+  image: ghcr.io/fde-workbench/toolchain
+  dockerfile: toolchain/Dockerfile
+  # Cross-runtime versions that no single Runtime Profile owns.
+  versions:
+    node: 22.13.0
+    python: 3.12.2
+    semantica: 0.7.0
+    contextService: 0.1.0
+  schemas:
+    graph: 1
+    audit: 1

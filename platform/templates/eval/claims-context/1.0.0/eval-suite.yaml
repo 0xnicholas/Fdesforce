@@ -1,0 +1,26 @@
+# Platform artifact — the context-quality Eval Suite template bound at Solution
+# level by the Acme Spec (`spec.governance.evalSuites: [claims-context@^1.0.0]`).
+# A template carries the suite definition; the dataset is resolved per Customer
+# environment and pinned separately in `solution.lock.evalDatasets`.
+apiVersion: fde.dev/v0
+kind: EvalSuiteTemplate
+metadata:
+  name: claims-context
+  version: 1.0.0
+  owner: platform
+spec:
+  compatibleSpecMajor: v0
+  scope: context
+  gates:
+    - id: citation-validity
+      metricRef: citation_validity
+      type: blocking
+      threshold: 1.0
+      waiverAllowed: false
+    - id: context-recall
+      metricRef: context_recall
+      type: threshold
+      threshold: 0.9
+  thresholds:
+    context_recall: 0.90
+    citation_coverage: 0.95

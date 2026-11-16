@@ -12,7 +12,7 @@ spec:
   datasetRef:
     id: acme-claims-triage
     version: 1.0.0
-    digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+    digest: sha256:9acbb9dcab9f45e955eacf398c6de10f89162c3b1adbdaf81ad558167aa68794
 
   gates:
     - id: citation-validity

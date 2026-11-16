@@ -273,6 +273,26 @@ describe('approval grammar (prototype sample)', () => {
     expect(codes(report)).toContain('approval_gate_invalid');
   });
 
+  it('fails when the predicate is bound to a Policy with no predicate', () => {
+    const report = checkSolution(
+      mutate(prototypeTree(), (tree) => {
+        tree.policies = {
+          ...tree.policies,
+          'claims-approval-threshold': {
+            metadata: { name: 'claims-approval-threshold', version: '1.0.0' },
+            spec: { enforcementPoint: 'approval.request' },
+          },
+        };
+      }),
+    );
+
+    expect(codes(report)).toContain('predicate_unknown');
+    expect(report.errors.find((error) => error.code === 'predicate_unknown')?.path).toBe(
+      'spec.workflows.document-triage-flow.steps[2].requiredWhen.predicate',
+    );
+    expect(report.errors.find((error) => error.code === 'predicate_unknown')?.remediation).toMatch(/predicate/i);
+  });
+
   it('fails when approval evidence comes from an agent step', () => {
     const report = checkSolution(
       mutate(prototypeTree(), (tree) => {

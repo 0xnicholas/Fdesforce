@@ -1,0 +1,28 @@
+{
+  "name": "@fde/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The `fde` workbench CLI: materialize, validate and lock a Solution Spec.",
+  "type": "module",
+  "bin": {
+    "fde": "./dist/main.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@fde/spec": "workspace:*",
+    "yaml": "^2.9.1"
+  }
+}

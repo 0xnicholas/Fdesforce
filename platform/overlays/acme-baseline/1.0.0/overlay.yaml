@@ -1,0 +1,19 @@
+# Platform artifact — Customer-scope Overlay `acme-baseline`.
+# The lock records it as derivation provenance; build never re-applies an Overlay
+# to a materialized Spec.
+apiVersion: fde.dev/v0
+kind: Overlay
+metadata:
+  name: acme-baseline
+  version: 1.0.0
+  scope: customer
+spec:
+  targetTemplateRef: fde-solution@1.2.0
+  operations:
+    - op: set
+      path: spec.deployment.migrationPolicy
+      value: manual
+    - op: set
+      path: spec.environments.acme-prod.secretStoreKind
+      value: vault
+  rationale: Acme compliance baseline; a Solution Overlay may tighten but not relax it.

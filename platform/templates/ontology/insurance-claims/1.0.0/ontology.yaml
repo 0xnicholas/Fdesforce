@@ -1,0 +1,20 @@
+# Platform artifact — Ontology Template `insurance-claims`.
+# The reusable claims vocabulary. The Acme Customer Context Package declares this
+# module in `semantic-model.yaml` and `solution.lock` pins the exact version and
+# directory digest; the package's own extensions stay inside the package.
+apiVersion: fde.dev/v0
+kind: OntologyTemplate
+metadata:
+  name: insurance-claims
+  version: 1.0.0
+  owner: platform
+spec:
+  compatibleSpecMajor: v0
+  namespace: "https://fde.dev/ontology/insurance-claims#"
+  entrypoint: insurance-claims.ttl
+  classes:
+    - ic:Claim
+    - ic:Policy
+    - ic:Coverage
+    - ic:Customer
+    - ic:ClaimDocument

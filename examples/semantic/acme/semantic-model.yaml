@@ -9,12 +9,12 @@ spec:
     modules:
       - ref: insurance-claims@1.0.0
         source: template
-        digest: sha256:1111111111111111111111111111111111111111111111111111111111111111
+        digest: sha256:64041739ee5f53f30525ef1d10e561bdd5d39c9b0b2d853df1482a097935c2ed
     extensions:
       - path: ontology/acme-claims-extension.ttl
-        digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+        digest: sha256:c7d8df65f03df7fe2485405afb603f79a229e9817aeb7d4554fad504d67b76c1
       - path: ontology/acme-claims.shacl.ttl
-        digest: sha256:3333333333333333333333333333333333333333333333333333333333333333
+        digest: sha256:bc08c2e0495a95b11a12fa058a51842bb784a34ef3c1a6911c50fd7dcff68c46
   sources:
     - ref: claims-db
       contextSource: context-sources/claims-db.yaml

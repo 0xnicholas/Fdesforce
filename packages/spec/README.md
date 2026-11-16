@@ -28,8 +28,10 @@ src/
 | `diffContractShape` | do `@fde/spec` and `contracts/` still describe the same document? |
 
 `parse*` never throws for expected validation failure; it returns
-`{ ok: false, errors }` with a `code`, a document `path` and a `message`.
-`checkSolution` is a pure function — filesystem loading belongs to the CLI (#25).
+`{ ok: false, errors }` with a `code`, a document `path`, a `message` and — for
+the failures authors actually hit (platform role reuse, unknown fields, the
+pre-#17 build shape) — a `remediation`. `checkSolution` is a pure function;
+filesystem loading and artifact resolution belong to the CLI (`packages/cli`).
 
 ## Test seams
 
@@ -56,7 +58,7 @@ one lives now:
 | side-effecting tools get audit metadata and evidence selectors, `runOutcomeDecision` only omitted when read-only | `checkSolution` (`tool_audit_missing`, `audit_evidence_missing`, `audit_binding_invalid`) |
 | `tool.pre_invoke` coverage per side-effecting tool | `checkSolution` (`policy_coverage_missing`) |
 | evidence selectors: bound recipe, upstream step, resolvable path, `as: citations` needs an array | `checkSolution` (`audit_binding_invalid`, `unresolved_reference`) |
-| workflow steps: refs resolve, approval gate blocks the next side-effecting tool, durable, business roles, duration, predicate pinned + bound, args upstream, `evidenceFrom` upstream context/tool, `summaryFrom` resolves to a string | Zod (`solution-spec.ts`) + `checkSolution` (`approval_gate_invalid`, `workflow_step_duplicate`) |
+| workflow steps: refs resolve, approval gate blocks the next side-effecting tool, durable, business roles, duration, predicate pinned + bound + declared by its Policy, args upstream, `evidenceFrom` upstream context/tool, `summaryFrom` resolves to a string | Zod (`solution-spec.ts`) + `checkSolution` (`approval_gate_invalid`, `predicate_unknown`, `workflow_step_duplicate`) |
 | connector exists, operation allowed, `builtin` warning, schema files exist and are pinned | `checkSolution` (`connector_operation_not_allowed`, `builtin_tool_field`, `spec_file_missing`) |
 | governance / overlay / extension refs pinned | `checkSolution` (`lock_pin_missing`, `lock_pin_unpinned`) |
 | Context Package + recipe bindings resolve and versions match | `checkSolution` (`context_package_invalid`, `unresolved_reference`) |

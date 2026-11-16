@@ -1,0 +1,12 @@
+# Tooling document, not a domain document: it tells the `fde` CLI where the
+# vendored platform store and the Customer's assets live. Paths are relative to
+# this file. A real Customer repo keeps `customer/` and `eval/` inside the
+# workspace; the Acme example reuses the artifact trees documented in
+# `examples/semantic/` and `examples/eval/` rather than forking them.
+platform: ../../../platform
+
+assets:
+  connectors: customer/connectors
+  contextPackages: ../../semantic
+  evalSuites: ../../eval
+  datasets: ../../eval

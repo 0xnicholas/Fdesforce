@@ -1,0 +1,15 @@
+# Platform artifact — Solution-scope Overlay `claims-triage-tuning`.
+# Tunes the claims-triage Solution without forking the Solution Template.
+apiVersion: fde.dev/v0
+kind: Overlay
+metadata:
+  name: claims-triage-tuning
+  version: 1.0.0
+  scope: solution
+spec:
+  targetTemplateRef: fde-solution@1.2.0
+  operations:
+    - op: set
+      path: spec.semantic.recipeBindings.claims-context.budget.maxNodes
+      value: 50
+  rationale: Claims triage reads a small subgraph; a large budget only adds latency.

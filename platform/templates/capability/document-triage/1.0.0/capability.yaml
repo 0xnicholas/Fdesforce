@@ -1,0 +1,27 @@
+# Platform artifact — the only Capability Template of the Slice 1 reference path.
+# A Solution binds it as `document-triage@^1.0.0`; `solution.lock` pins the exact
+# version and the digest of this directory.
+apiVersion: fde.dev/v0
+kind: CapabilityTemplate
+metadata:
+  name: document-triage
+  version: 1.0.0
+  owner: platform
+spec:
+  compatibleSpecMajor: v0
+  description: Read-only document triage over a Customer Context Package.
+  # The runtime capability groups a generated app for this template relies on.
+  requires:
+    - durableWorkflow
+    - streaming
+    - tools
+    - stateStore
+    - topology
+  contract:
+    input:
+      claimId: string
+    output:
+      claimId: string
+      outcome: approve | deny | refer
+      rationale: string
+      citedSources: string[]

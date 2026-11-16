@@ -66,6 +66,7 @@ describe('Solution Spec grammar', () => {
     if (!result.ok) {
       expect(result.errors.map((error) => error.code)).toContain('solution_spec_invalid');
       expect(pathOf(result.errors)).toContain('spec');
+      expect(result.errors.find((error) => error.path === 'spec')?.remediation).toMatch(/unknown field/i);
     }
   });
 
@@ -91,6 +92,7 @@ describe('Solution Spec grammar', () => {
     if (!result.ok) {
       expect(pathOf(result.errors)).toContain('spec.workflows.flow.steps[0].approverRoles[0]');
       expect(result.errors.some((error) => /platform role/.test(error.message))).toBe(true);
+      expect(result.errors.find((error) => /platform role/.test(error.message))?.remediation).toMatch(/business role/i);
     }
   });
 

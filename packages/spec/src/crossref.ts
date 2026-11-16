@@ -671,6 +671,17 @@ function checkApprovalStep(
   if (step.requiredWhen !== undefined) {
     const { predicate } = step.requiredWhen;
     requirePin({ input, report }, pins, 'policy', predicate, `${stepPath}.requiredWhen.predicate`);
+    const predicateName = splitRef(predicate).name;
+    const predicatePolicy = input.policies?.[predicateName];
+    if (predicatePolicy !== undefined && predicatePolicy.spec?.predicate === undefined) {
+      error(
+        report,
+        'predicate_unknown',
+        `${stepPath}.requiredWhen.predicate`,
+        `Policy ${predicateName} declares no predicate; an approval gate can only bind a named Policy predicate`,
+        'bind a Policy Template whose spec.predicate names the predicate kind, or drop requiredWhen',
+      );
+    }
     const binding = Object.entries(input.spec.spec.capabilities).find(
       ([, candidate]) => candidate.implementation.type === 'workflow' && candidate.implementation.ref === subject.workflowId,
     )?.[1];

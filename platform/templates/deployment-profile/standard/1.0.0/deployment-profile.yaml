@@ -1,0 +1,20 @@
+# Platform artifact — Deployment Profile Template `standard`.
+# The Spec names the logical profile (`spec.deployment.profile: standard`);
+# `solution.lock.templates.deploymentProfile` pins the exact version and digest.
+apiVersion: fde.dev/v0
+kind: DeploymentProfileTemplate
+metadata:
+  name: standard
+  version: 1.0.0
+  owner: platform
+spec:
+  compatibleSpecMajor: v0
+  replicas: 1
+  migrationPolicy: manual
+  resources:
+    contextService:
+      cpu: "1"
+      memory: 2Gi
+    mastraApp:
+      cpu: "1"
+      memory: 2Gi

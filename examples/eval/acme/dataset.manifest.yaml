@@ -7,7 +7,7 @@ metadata:
 spec:
   capabilityRef: document-triage@1.0.0
   status: frozen
-  digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+  digest: sha256:9acbb9dcab9f45e955eacf398c6de10f89162c3b1adbdaf81ad558167aa68794
   caseCount: 5
   targetCaseCount: 50
   sampleFile: dataset.sample.jsonl

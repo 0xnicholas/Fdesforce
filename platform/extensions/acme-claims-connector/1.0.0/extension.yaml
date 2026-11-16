@@ -1,0 +1,18 @@
+# Platform artifact — Extension `acme-claims-connector`.
+# The only customer-code entry point; the Spec references the extension, never
+# its source. v0 packages connector extensions as a TypeScript package.
+apiVersion: fde.dev/v0
+kind: Extension
+metadata:
+  name: acme-claims-connector
+  version: 1.0.0
+  owner: acme
+spec:
+  interface: connector
+  compatibleSpecMajor: v0
+  compatibleTemplateMajors:
+    capability: [1]
+    policy: [1, 2]
+  artifactRef: oci://ghcr.io/acme-fde/extensions/acme-claims-connector:1.0.0
+  artifactKind: ts-package
+  egress: connector:claims-db

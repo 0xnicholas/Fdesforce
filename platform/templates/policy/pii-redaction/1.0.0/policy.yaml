@@ -1,0 +1,21 @@
+# Platform artifact — Policy Template `pii-redaction`.
+# The Acme read-only Spec binds it on the capability and on the triage agent.
+# Enforcement happens where output leaves the model (`output.emit`, #21); the
+# enforcement point is a property of the Template, never of the binding.
+apiVersion: fde.dev/v0
+kind: PolicyTemplate
+metadata:
+  name: pii-redaction
+  version: 1.0.0
+  owner: platform
+spec:
+  compatibleSpecMajor: v0
+  enforcementPoint: output.emit
+  parameters:
+    categories:
+      type: array
+      items:
+        type: string
+      overridable: false
+  defaults:
+    categories: [name, email, claim_id]

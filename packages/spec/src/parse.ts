@@ -45,8 +45,31 @@ function toDiagnostics(issues: ReadonlyArray<z.core.$ZodIssue>, code: string): D
     const path = formatPath(issue.path);
     const diagnostic: Diagnostic = { code, message: issue.message };
     if (path !== '') diagnostic.path = path;
+    const remediation = remediationFor(issue, path);
+    if (remediation !== undefined) diagnostic.remediation = remediation;
     return diagnostic;
   });
+}
+
+/**
+ * Author guidance for the schema failures an author actually hits. The message
+ * says what is wrong; this says what to write instead, in domain language.
+ */
+function remediationFor(issue: z.core.$ZodIssue, path: string): string | undefined {
+  if (/\.approverRoles(\[\d+\])?$/.test(path)) {
+    return 'business roles are Customer-defined; end_user, approver, customer_admin, deployment_operator, auditor, service and support are platform roles and cannot be granted from a Spec';
+  }
+  if (path.endsWith('.build.targets')) {
+    return 'set build.platform (compose | helm) and build.delivery (registry | offline-bundle) instead; targets is the pre-#17 shape';
+  }
+  if (path.endsWith('.memory.longTerm.embeddingProfile')) {
+    return 'embeddingProfile is only valid with memory.longTerm.recall: semantic, and the profile must be pinned in solution.lock';
+  }
+  if (issue.code === 'unrecognized_keys') {
+    const keys = 'keys' in issue ? issue.keys.join(', ') : 'unknown fields';
+    return `remove or rename ${keys}; documents use strict schemas, so an unknown field cannot silently become configuration`;
+  }
+  return undefined;
 }
 
 function parseWith<T>(schema: z.ZodType<T>, input: unknown, code: string): ParseResult<T> {
