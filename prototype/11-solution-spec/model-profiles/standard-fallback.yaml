@@ -6,6 +6,7 @@ metadata:
   version: 1.0.0
   owner: platform
 spec:
+  kind: chat
   provider: azure-openai
   model: gpt-5.1-mini
   modelVersion: 2026-10-01

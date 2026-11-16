@@ -138,7 +138,7 @@ flowchart LR
 2. record-before-act（C26–C32）：`@fde/runtime` 包、`decision_outbox`、intent/outcome、`DecisionBinding` build 期合并与 fail-closed。
 3. 评测与 Release 证据链：L1/L2 `fde eval`、`decision_coverage` gate、签名 Evaluation + `eval_binding_digest`、`fde release approve` 验签。
 4. 真实身份：OIDC resource server、JWKS/introspection、JIT、平台/业务角色映射、`permissions.yaml` 编译与 mask。
-5. Agent 安全基线（C33–C40）：prompt envelope、rate/budget、output guard、egress manifest、kill switch。C40 的完整 memory 断言依赖 [Agent memory 语义与 Spec schema](https://github.com/0xnicholas/Fdesforce/issues/22) 的 schema 定稿。
+5. Agent 安全基线（C33–C40）：prompt envelope、rate/budget、output guard、egress manifest、kill switch。C40 的完整 memory 断言已由 [Agent memory 语义与 Spec schema](https://github.com/0xnicholas/Fdesforce/issues/22) 定稿（C41–C48、A12、ADR-0012）。
 6. 部署与运维：Helm 渲染 + dry-run、airgap 离线包一次完整离线安装演练、升级/回滚演练（stop-the-world、audit 不回滚）、备份/恢复演练。
 
 **验收标准**：
@@ -167,6 +167,7 @@ flowchart LR
 | [0009](adr/0009-agent-security-controls.md) | Agent 安全确定性基线 | mastra-app、@fde/runtime | S2.5 |
 | 0010（#17） | RuntimeGenerator 端口、能力矩阵、BundleTopology | generator、topology | S1 |
 | [0011](adr/0011-architecture-synthesis-and-slices.md) | 本综合：合并顺序、版本约定、切片划分 | — | — |
+| [0012](adr/0012-agent-memory.md) | Agent.memory schema、namespace、`fde_memory`、显式写入 | fde-runtime、state store | S2.5 |
 
 研究票的结论（Mastra/Semantica 选型 #3/#4、许可审计 #14、检索后端 #15、LangGraph 缺口 #16）不产生 ADR，其结论已并入上表各 ADR 的前提。
 
@@ -185,4 +186,4 @@ flowchart LR
 - **Workflow branch/parallel 与通用条件语言**：等第二个参考场景再评估。
 - **多 Solution 共处 Environment 的拓扑**：v0 由 #17 D11 限制一对一；放开时需要端口/卷分配契约与新拓扑。
 
-开放 ticket 依赖：[Agent memory 语义与 Spec schema](https://github.com/0xnicholas/Fdesforce/issues/22) 不定稿，C40 的完整断言与 Slice 2.5 的 memory 包装不能收口；它不阻塞 Slice 1/Slice 2.1–2.4。
+开放 ticket 依赖：无。[Agent memory 语义与 Spec schema](https://github.com/0xnicholas/Fdesforce/issues/22) 已定稿（ADR-0012），C40 的完整断言（C41–C48）已落入 `contracts/conformance/cases.md`，Slice 2.5 的 memory 包装可开工。

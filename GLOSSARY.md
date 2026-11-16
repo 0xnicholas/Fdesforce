@@ -308,6 +308,14 @@ _Avoid_: User content, External data
 平台把不可信内容包进带标签的 data block，使模型将其视为数据而非指令的强制机制；不依赖内容消毒。
 _Avoid_: Prompt hygiene, Guardrail prompt
 
+**Long-term Memory**:
+跨 thread 的 Agent 记忆记录，仅显式 `memory.remember` 写入，由平台自有 `fde_memory` 表承载，按 Memory Namespace 隔离；是运行编排状态，不晋升为 Context Graph 事实或 Decision evidence；跨 runtime 不迁移、只导出。
+_Avoid_: User profile, Knowledge
+
+**Memory Namespace**:
+长期记忆的隔离键 `{tenant_id}/{environment_id}/{solution_id}/{agent_id}/{owner}`；不含 deployment revision、bundle digest 或 runtime family，同 runtime 的 Release 升级沿用同一 namespace。
+_Avoid_: Partition, Scope
+
 ## 明确不建模
 
 **Engagement**:

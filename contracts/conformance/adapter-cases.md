@@ -1,6 +1,6 @@
 # Runtime Adapter Conformance Cases
 
-These cases are the acceptance suite for a `RuntimeGenerator` (`fde.runtime/v1`, adapter v1.3). They are deliberately separate from [`cases.md`](./cases.md): **C1–C15 are owned by context-service**, **A1–A11 are owned by the generator**. Do not merge the two suites; A-cases cross-reference C-cases where the behavior is the same.
+These cases are the acceptance suite for a `RuntimeGenerator` (`fde.runtime/v1`, adapter v1.3). They are deliberately separate from [`cases.md`](./cases.md): **C1–C15 are owned by context-service, C16–C48 cover generated and platform behavior**, and **A1–A12 are owned by the generator**. Do not merge the two suites; A-cases cross-reference C-cases where the behavior is the same.
 
 The generator's `generateContractTests()` returns a [`TestPlan`](../../docs/runtime-adapter.md#43-输入输出) mapping each A-case to a command and fixtures. The shared runner executes the plan; the generator does not implement its own runner.
 
@@ -17,6 +17,7 @@ The generator's `generateContractTests()` returns a [`TestPlan`](../../docs/runt
 | A9 | Extension load | Every declared artifact kind loads in the generated app; incompatible artifact kind or runtimeCompatibility fails at build with `runtime_extension_unsupported`, not at runtime with a 500. | static + smoke | — |
 | A10 | Offline install | An air-gapped bundle starts with no public network, no license beacon, and no egress; a profile that requires a license key or egress fails explicitly with `runtime_license_blocked`. | release | — |
 | A11 | Deterministic generation | The same Spec + lock + Profile + Extensions + toolchain image produce the same `sourceDigest` and Bundle digest; no timestamps, random IDs, or environment values leak into generated files. | static | — |
+| A12 | Memory capability mapping | The adapter maps the three memory sub-capabilities: Mastra reports `memory.thread` as `native` and `memory.longTerm`/`ttl` as platform-backed (`fde_memory`); LangGraph reports them as `adapter`; neither migrates memory across runtimes. | static | C41–C48 |
 
 ## A1 — Runtime capability handshake
 
@@ -95,6 +96,15 @@ Runtime side:
 - No timestamps, random IDs, environment values, or ordering instability may appear in generated source/manifests.
 - `fde verify` re-runs generation and fails on drift; CI runs the same check.
 
+## A12 — Memory capability mapping
+
+- The generated app maps `RuntimeCapabilities.memory.{thread,longTerm,ttl}`: Mastra reports thread memory as `native` (message history only; `workingMemory`/`semanticRecall` disabled) and long-term memory/TTL as platform-backed via the `fde_memory` table; a LangGraph adapter reports them as `adapter`.
+- `memory.thread` implies a durable workflow; a non-durable combination fails at build (C41).
+- Long-term records are written only through the platform `memory.remember` primitive, never through a runtime-native auto-extraction path.
+- Memory is never migrated across runtimes: a new runtime starts with an empty store and the old volume stays read-only; export produces an `fde.memory/v1` JSONL attachment and there is no import.
+
+Mastra adapter must pass A1–A12. The LangGraph pseudo-adapter only maps each A-case to the implementation it would need; it does not run a suite in v0.
+
 ## Runner and CI
 
 | Stage | Cases | Where |
@@ -104,5 +114,3 @@ Runtime side:
 | Release gate | A6, A7, A10 | Compose bundle with restart/air-gap fixtures |
 | `fde verify` | A1, A9 (static), A11, C1 examples | Workbench CLI |
 | context-service CI | C1–C15 | context-service implementation |
-
-Mastra adapter must pass A1–A11. The LangGraph pseudo-adapter only maps each A-case to the implementation it would need; it does not run a suite in v0.

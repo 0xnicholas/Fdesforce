@@ -3,7 +3,7 @@
 > 状态：决策稿，对应 ticket「评测、验收与可观测性」。
 > 范围：v0 单客户 bundle；不做多租户托管、客户交付 SOP、可视化评测平台。
 > 术语：见 [`GLOSSARY.md`](../GLOSSARY.md)。运行时接缝见 [`runtime-contract.md`](runtime-contract.md)，语义与上下文见 [`semantic-modeling.md`](semantic-modeling.md)。
-> 契约版本：`fde.runtime/v1.3.0`。示例工件见 [`examples/eval/`](../examples/eval/)。
+> 契约版本：`fde.runtime/v1.4.0`。示例工件见 [`examples/eval/`](../examples/eval/)。
 
 本文定义 FDE 工作台 v0 如何把“企业级”变成可复现、可审计、可观察的技术验收：指标怎么定义、评测集怎么来、门禁怎么判、上线后看什么、出问题怎么回滚和人工接管。
 

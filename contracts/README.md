@@ -26,8 +26,8 @@ Metric Catalog, Eval Suite, Eval Dataset, Evaluation, and Acceptance Report are 
 
 ## Versioning
 
-- Contract version: `fde.runtime/v1` (semantic version). Current minor: `1.3.0` (Runtime adapter; see [`docs/runtime-adapter.md`](../docs/runtime-adapter.md)).
-- Additive fields or endpoints: minor. Version history: `1.0.0` (runtime contract, #8) → `1.1.0` (decision audit binding, #20) → `1.2.0` (agent security, #21) → `1.3.0` (runtime adapter, #17: `runtime-info` unified to `runtime-app` + `runtime`/`capability_details` + `backend.graph: postgres` + A1–A11).
+- Contract version: `fde.runtime/v1` (semantic version). Current minor: `1.4.0` (Agent memory; see [`docs/adr/0012-agent-memory.md`](../docs/adr/0012-agent-memory.md)).
+- Additive fields or endpoints: minor. Version history: `1.0.0` (runtime contract, #8) → `1.1.0` (decision audit binding, #20) → `1.2.0` (agent security, #21) → `1.3.0` (runtime adapter, #17: `runtime-info` unified to `runtime-app` + `runtime`/`capability_details` + `backend.graph: postgres` + A1–A11) → `1.4.0` (agent memory, #22: `thread_not_found`, `thread_id` required with `memory.thread`, C41–C48, A12).
 - Breaking changes: `/v2` or a negotiated media type, with at least one minor cycle of deprecation.
 - Generated TS clients and Python models come from these files; do not hand-edit them.
 

@@ -119,6 +119,15 @@ agents.each do |name, agent|
              "model profile #{profile_name} version matches lock")
       expect(profile_doc.dig("spec", "modelVersion") != "latest",
              "model profile #{profile_name} modelVersion is pinned")
+      kind = profile_doc.dig("spec", "kind")
+      expect(%w[chat embedding].include?(kind),
+             "model profile #{profile_name} kind is chat or embedding")
+      if kind == "embedding"
+        expect(!profile_doc.dig("spec", "dimensions").nil?,
+               "model profile #{profile_name} embedding dimensions are set")
+        expect((profile_doc.dig("spec", "fallback") || []).empty?,
+               "model profile #{profile_name} embedding has no fallback")
+      end
       (profile_doc.dig("spec", "fallback") || []).each do |fallback|
         fallback_name = fallback["profile"].to_s.split("@").first
         expect(model_profile_names.include?(fallback_name),

@@ -1,7 +1,7 @@
 // PROTOTYPE — generated skeleton.
 // Source: solution.lock#/runtime + contracts/schemas/runtime-info.schema.json
 export const runtimeInfo = {
-  contract_version: '1.3.0',
+  contract_version: '1.4.0',
   service: 'mastra-app',
   service_version: '0.1.0',
   graph_schema_version: '1',
@@ -15,8 +15,8 @@ export const runtimeInfo = {
     max_run_deadline_ms: 300000,
   },
   components: [
-    { name: 'mastra-app', version: '0.1.0', contract_version: '1.3.0', status: 'ready' },
-    { name: 'context-service', version: '0.1.0', contract_version: '1.3.0', status: 'ready', schema_version: '1' },
+    { name: 'mastra-app', version: '0.1.0', contract_version: '1.4.0', status: 'ready' },
+    { name: 'context-service', version: '0.1.0', contract_version: '1.4.0', status: 'ready', schema_version: '1' },
   ],
   started_at: new Date().toISOString(),
 } as const;

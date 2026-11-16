@@ -2,7 +2,7 @@
 
 > 状态：决策稿，对应 ticket「运行时与集成契约」。
 > 范围：v0 单客户 bundle；Mastra + 薄 context-service + Semantica；不做多租户、UI、首客场景。
-> 契约版本：`fde.runtime/v1.3.0`。机器可读接口与 schema 见 [`contracts/`](../contracts/)。
+> 契约版本：`fde.runtime/v1.4.0`。机器可读接口与 schema 见 [`contracts/`](../contracts/)。
 > 术语：见 [`GLOSSARY.md`](../GLOSSARY.md)。
 
 ## 1. 结论摘要
@@ -78,7 +78,7 @@ flowchart LR
 
 | Method | Path | 用途 |
 |---|---|---|
-| `POST` | `/v1/runs` | 启动一个 Run；需要 `Idempotency-Key` |
+| `POST` | `/v1/runs` | 启动一个 Run；需要 `Idempotency-Key`；Capability 声明 `memory.thread` 时 `thread_id` 必填（v1.4） |
 | `GET` | `/v1/runs/{run_id}` | Run 状态、输出、错误、Decision/Approval 引用 |
 | `GET` | `/v1/runs/{run_id}/stream` | SSE 事件流 |
 | `POST` | `/v1/runs/{run_id}/cancel` | 取消 Run |
@@ -186,6 +186,7 @@ Admin 端点只对 `customer_admin` 开放，客户应用不调用；`halt` 语�
 | `unauthenticated` | 401 | false | 缺少/无效 `ExecutionContext` |
 | `forbidden` | 403 | false | tenant/scope/角色不匹配 |
 | `not_found` | 404 | false | 实体/Decision/审批不存在 |
+| `thread_not_found` | 404 | false | thread 不存在或归属不符（v1.4；不给存在性探测） |
 | `conflict` | 409 | false | 状态冲突 |
 | `idempotency_conflict` | 409 | false | 同一 key 携带了不同 payload |
 | `approval_already_decided` | 409 | false | 审批已结束 |
@@ -224,7 +225,7 @@ Admin 端点只对 `customer_admin` 开放，客户应用不调用；`halt` 语�
 | Run 生命周期 | `mastra-state` + `mastra-app` | 无 | Run 的权威状态在 Mastra；Decision 引用 `run_id` |
 | Workflow snapshot | `mastra-state` | 无 | 支撑 HITL/重启恢复；不是语义事实 |
 | Decision outbox | `mastra-state` | 无 | pending `invocation_id`/intent/outcome ID 与执行状态；崩溃恢复用，不是审计真相 |
-| Thread / memory | `mastra-state` | 无 | 运行编排状态；不写入 Context Graph |
+| Thread / memory | `mastra-state`（thread）+ 状态存储同库的 `fde_memory` schema（长期记忆，v1.4） | 无 | 运行编排状态；长期记忆仅显式 `memory.remember` 写入；不写入 Context Graph，不晋升 Decision evidence |
 | Context Recipe | Solution Spec / Bundle（定义可来自 Customer Context Package） | 无 | 运行时只读 recipe 定义 |
 | Policy / Eval 定义 | Bundle | 无 | 执行结果写 Decision |
 | Evaluation / 在线评分 | 客户侧 eval store | 无 | 评测结果与分数；不进入 Bundle，不逐条写审计库 |
@@ -639,7 +640,7 @@ sequenceDiagram
 
 - 契约版本：`fde.runtime/v1`，语义版本 `MAJOR.MINOR.PATCH`。
 - 引用约定：工件/manifest 里的 `fde.runtime/v1` 指 major line（additive minor 向后兼容，引用 major 即可）；文档头部写当前 minor 全版本；正文依赖某 minor 才引入的字段时在该处标注（如「≥v1.1」）。
-- 当前 minor 为 `1.3.0`：v1.1 的 Decision 字段不变；v1.2 增加 `RetrievalItem.trust`/`source_kind`、`PolicyEvaluation.enforcement_point=output.emit`、kill switch admin 端点；v1.3 统一 `runtime-info` 的 `service` 为 `runtime-app`（`mastra-app` 保留为 deprecated alias）、增加 `runtime` 对象与 `capability_details`、`backend.graph: postgres`。这些字段是 additive，旧客户端可读旧 payload；缺失 `trust`/`source_kind` 按 `untrusted`/`other` 处理。v1.1 的 intent/outcome 新必填字段仍是语义收紧，旧客户端不能继续写 intent。
+- 当前 minor 为 `1.4.0`：v1.1 的 Decision 字段不变；v1.2 增加 `RetrievalItem.trust`/`source_kind`、`PolicyEvaluation.enforcement_point=output.emit`、kill switch admin 端点；v1.3 统一 `runtime-info` 的 `service` 为 `runtime-app`（`mastra-app` 保留为 deprecated alias）、增加 `runtime` 对象与 `capability_details`、`backend.graph: postgres`；v1.4 增加 `thread_not_found` 错误码与 `memory.thread` 时 `thread_id` 必填规则。这些字段是 additive，旧客户端可读旧 payload；缺失 `trust`/`source_kind` 按 `untrusted`/`other` 处理。v1.1 的 intent/outcome 新必填字段仍是语义收紧，旧客户端不能继续写 intent。
 - `GET /v1/runtime-info` 返回：`contract_version`、`service`、`service_version`、`graph_schema_version`、`audit_schema_version`、`backend`、`capabilities[]`、`limits`、`components[]`、`started_at`。
 - `runtime-info` v1.3 additive 字段：`service` 统一为 `runtime-app`（`mastra-app` 保留为 v1.0 deprecated alias，不强制携带 v1.3 字段）；`service: runtime-app` 时增加 `runtime` 对象与 `capability_details`；context-service 仍只返回自己的组件信息。结构见 [`contracts/schemas/runtime-info.schema.json`](../contracts/schemas/runtime-info.schema.json) 与 [`docs/runtime-adapter.md`](runtime-adapter.md)。
 - `mastra-app` 启动时调用 context-service 的 `runtime-info`；major 不匹配、缺少必需 capability、schema 版本不匹配 → fail closed（`contract_mismatch` / `runtime_capability_mismatch` / `graph_schema_mismatch` / `audit_schema_mismatch`）。

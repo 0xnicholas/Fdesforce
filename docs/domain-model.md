@@ -297,6 +297,18 @@ toolchain:
 - `policy_refs`、`capability_binding_ref`。
 - 运行时中立定义；generator 映射到 Mastra agent。`model_profile` 只引用 `ModelProfile`，不内联 provider/model/params。
 
+**Agent.memory**（v0 运行编排状态，不是语义真相源；详决见 [ADR-0012](adr/0012-agent-memory.md)）：
+
+- `memory` 缺省 = 无记忆；`thread` / `longTerm` 子对象缺省 = 该类型关闭。
+- `memory.thread`：`lastMessages`（1–100，默认 20）；要求使用该 Agent 的 Workflow `durable: true`，否则 `validate` 报错；使用它的 Capability 要求 Run 请求带 `thread_id`，首次使用绑定 `(tenant_id, actor.type, actor.id)`，归属不符返回 `404 thread_not_found`。
+- `memory.longTerm`：`write: explicit`（v0 唯一取值，只经平台内建 `memory.remember` primitive 写入；不触发审批、不写 Decision、不走 record-before-act，计入 rate/budget）；`recall: semantic | none`（默认 none）；`scope: end_user | agent`（默认 end_user，`agent` 是显式放弃按人隔离，`validate` 产生 warning）；`recall: semantic` 时 `embeddingProfile` 必填，按 ADR-0007 由 `solution.lock` pin。
+- `memory.retentionClass`：`ephemeral | standard | extended | legal_hold`（默认 standard）。
+- 长期记忆记录形状（平台自有，非任意 JSON）：`{ memory_id, namespace, text ≤2000 字符, attributes(≤10 个扁平 string，值 ≤256 字符), source_run_id, created_at, expires_at, embedding_profile?, digest }`。
+- namespace：`{tenant_id}/{environment_id}/{solution_id}/{agent_id}/{owner}`，`owner = end_user:<opaque sub> | agent | service:<client_id>`；不含 deployment revision、bundle digest、runtime family——同 runtime 的 Release 升级记忆不清零。
+- 存储：状态存储同库的 `fde_memory` schema（`memory_record` 表，带 `schemaVersion`；SQLite 与 Postgres 同构），由各语言 `fde-runtime` 包实现同一表契约；跨 runtime 不迁移，只导出 `fde.memory/v1` JSONL 附件，不提供 import。
+- 召回为自动注入：每次 Agent 调用前按 namespace 取 top-5，包成 `memory-block`（`trust=untrusted`、带 namespace）；embedding 不可用时 fail-soft，Run 继续并标 degraded。
+- 记忆不自动晋升为 Context Graph 事实、Decision evidence 或 Policy；v0 不提供任何晋升路径。
+
 **Workflow**：
 
 - `workflow_id`、`name`。
@@ -615,6 +627,7 @@ _Avoid_: Backdoor, Emergency admin。
 **Model Profile** 是平台维护的、版本化且不可变的模型身份与参数组合：
 
 - `profile_id`、`version`（semver）、`status`：`active | deprecated`。
+- `kind`：`chat | embedding`；`embedding` 必填 `dimensions` 且**禁止 fallback**（静默换向量空间比 chat fallback 更危险）；embedding 维度变更 = 不兼容，必须先 purge 对应 namespace 再重建，v0 不提供在线 reindex。
 - `provider`、`model`、`model_version`：provider 的不可变 snapshot/version；拒绝 `latest`、alias 和浮动 tag。
 - `params`：temperature、topP、maxOutputTokens、seed、stop、responseFormat 等受控参数；provider 特有参数进 `extra`，未知参数拒绝。
 - `fallback`：有序 fallback 列表，最多 1 跳；只允许 `timeout | rate_limit | provider_5xx` 触发，不允许内容/安全/策略失败触发；拒绝自引用和环。
@@ -632,6 +645,7 @@ metadata:
   version: 1.2.0
   owner: platform
 spec:
+  kind: chat
   provider: azure-openai
   model: gpt-5.1
   modelVersion: 2026-10-01
@@ -852,7 +866,7 @@ flowchart LR
 - lock 完整性、Model Profile、Eval Dataset 绑定与 Evaluation 证据链：已由 [solution.lock 完整性、model profile 与 eval dataset 解析](https://github.com/0xnicholas/Fdesforce/issues/19) 定稿，见 [ADR-0007](adr/0007-lock-completeness-and-eval-evidence.md)。
 - 运行时可替换性（LangGraph 映射缺口）：[LangGraph 运行时映射缺口](https://github.com/0xnicholas/Fdesforce/issues/16)。
 - 升级、迁移与回滚的操作流程：契约见[运行时与集成契约](https://github.com/0xnicholas/Fdesforce/issues/8)；端到端切片见[架构综合与实施切片](https://github.com/0xnicholas/Fdesforce/issues/13)。
-- 成本模型、长会话记忆：地图的「Not yet specified」；Agent memory schema 由 [#22](https://github.com/0xnicholas/Fdesforce/issues/22) 承接，信任处理已由 [Agent 专项安全](agent-security.md) 定稿。
+- 成本模型：地图的「Not yet specified」；Agent memory schema 已由 [#22](https://github.com/0xnicholas/Fdesforce/issues/22) 定稿（见 [ADR-0012](adr/0012-agent-memory.md)），信任处理已由 [Agent 专项安全](agent-security.md) 定稿。
 - 多 Solution 共享 Context Graph：v0 不做，留到未来多 Solution 拓扑。
 - 可视化工作台/前端、首客场景、行业加速器、多租户托管：地图的「Out of scope」。
 

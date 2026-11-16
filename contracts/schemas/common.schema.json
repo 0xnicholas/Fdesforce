@@ -147,6 +147,7 @@
         "unauthenticated",
         "forbidden",
         "not_found",
+        "thread_not_found",
         "conflict",
         "idempotency_conflict",
         "approval_already_decided",

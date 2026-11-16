@@ -60,7 +60,7 @@ inspect.rb                    throwaway cross-reference checker
 ruby prototype/11-solution-spec/inspect.rb
 ```
 
-Expected result: **147 ok, 2 warnings, 0 failures**. The remaining warnings are
+Expected result: **148 ok, 2 warnings, 0 failures**. The remaining warnings are
 the `builtin` tool implementation marker and missing Helm, not broken
 references. The checker parses all YAML/JSON, walks the Spec
 references into the generated tree, validates the #18 workflow/approval grammar,

@@ -3,7 +3,7 @@
 > 状态：决策稿，对应 ticket「语义建模与上下文组装方法」。
 > 范围：v0 单客户 bundle；不做多租户托管、首客场景、可视化 Builder。
 > 术语：见 [`GLOSSARY.md`](../GLOSSARY.md)。领域模型见 [`domain-model.md`](domain-model.md)，运行时接缝见 [`runtime-contract.md`](runtime-contract.md)。
-> 契约版本：`fde.runtime/v1.3.0`。示例工件见 [`examples/semantic/`](../examples/semantic/)。
+> 契约版本：`fde.runtime/v1.4.0`。示例工件见 [`examples/semantic/`](../examples/semantic/)。
 
 本文定义 FDE 如何从客户的数据与业务知识中构建可用的语义模型，如何把它打包成可复用的 **Customer Context Package**，以及 Agent 在运行时如何组装正确的上下文。
 

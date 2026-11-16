@@ -2,7 +2,7 @@
 
 > 状态：决策稿，对应 ticket「Agent 专项安全：prompt injection、tool abuse 与 data exfiltration」(#21)。
 > 范围：v0 单客户 bundle 的 agent 行为层；不覆盖多租户、UI、首客场景、生产化合规。
-> 契约版本：`fde.runtime/v1.3.0`（在 v1.1 上 additive；`output.emit` 与 admin 端点是新增面）。
+> 契约版本：`fde.runtime/v1.4.0`（`output.emit` 与 admin 端点在 v1.2 引入）。
 > 关联：[运行时与集成契约](runtime-contract.md) · [客户环境内的身份、权限与部署](security-and-deployment.md) · [record-before-act 与审计绑定](decision-audit-binding.md) · [评测、验收与可观测性](evaluation-and-observability.md) · [ADR-0009](adr/0009-agent-security-controls.md)
 > 术语：[`GLOSSARY.md`](../GLOSSARY.md) · 威胁边界：[`security-and-deployment.md`](security-and-deployment.md) §2 · 审计字段：[`decision-audit-binding.md`](decision-audit-binding.md) §4
 
@@ -18,7 +18,7 @@
 | D6 | 输出过滤 | `mastra-app` 在返回前执行 output guard：已知 secret 命中 → Run fail closed、不发送输出、写 `security.output_blocked`；配置的 PII 模式命中 → redact + `redaction_applied=true` + 写事件；非引用外部链接不渲染成链接。Capability 只能把 PII 升级为阻断。 |
 | D7 | 出站边界 | 默认拒绝 + 声明式 allowlist：`mastra-app` 只到客户 IdP、pinned 模型 endpoint、`context-service`、OTel；`context-service` 只到已声明 Context Source/Connector、OTel。Extension Tool 必填 `egress: none | connector:<id>`。无通用互联网。 |
 | D8 | 模型 provider | 只用 Model Profile/Environment pin 的 endpoint；关闭 vendor telemetry；不允许未批准 fallback。provider 侧数据保留是客户合同责任，不是 bundle 控制。 |
-| D9 | memory | memory 是不可信数据：进入 prompt 时同样标记；永远不自动晋升为 Context Graph 事实或 Decision evidence；默认禁止跨用户/跨 tenant/跨 Solution 召回。schema/TTL/删除归 #22。 |
+| D9 | memory | memory 是不可信数据：进入 prompt 时同样标记；永远不自动晋升为 Context Graph 事实或 Decision evidence；默认禁止跨用户/跨 tenant/跨 Solution 召回。schema/TTL/删除已由 [ADR-0012](adr/0012-agent-memory.md) 定稿。 |
 | D10 | Extension 信任 | 签名 Extension 是受信代码，v0 不沙箱；受接口白名单、Connector scope、egress allowlist 约束；不支持任意容器镜像。 |
 | D11 | 对抗性评测 | 确定性红线进 conformance（blocking）；行为级 red-team 进 `adversarial` Eval split（20–50 条，FDE 编写，不含客户 PII），v0 只做 advisory。 |
 | D12 | PII digest | 接受 #20 park 的低熵 PII digest 枚举风险，写清补偿控制与重新评估触发；v0 不引入 HMAC/CMK。 |
@@ -149,7 +149,7 @@
 
 - memory 是 `untrusted` 数据：与检索 item 同级包装，不能作为 system/developer 指令。
 - memory 内容**不自动晋升**为 Context Graph 事实、Decision evidence 或 Policy；需要晋升时必须走显式、受审计的写入路径（v0 不提供自动路径）。
-- 默认禁止跨用户、跨 tenant、跨 Solution 召回；namespace 组合、TTL、删除、导出由 #22 定稿。
+- 默认禁止跨用户、跨 tenant、跨 Solution 召回；namespace 组合、TTL、删除、导出已由 #22 定稿（ADR-0012）。
 - 记忆投毒的风险用「不可信 + 不晋升 + 隔离」降低，不承诺检测。
 
 ### 3.6 Kill switch
@@ -283,7 +283,7 @@ rate limit、tool deny、kill switch 拒绝新 Run 复用 `authz.denied`，reaso
 | C37 | Output guard | secret 命中 → 无输出、Run failed、`security.output_blocked`；PII 命中 → mask + `redaction_applied=true`；`piiMode=block` 时阻断；非引用 URL 不渲染为链接 |
 | C38 | Egress declaration | Extension 缺 `egress` 按 `none`；`connector:<id>` 必须存在；manifest 只含声明路由；未声明出站被拒绝 |
 | C39 | Kill switch | `POST /v1/admin/killswitch` 需 `killswitch:execute`；halt 阻断新 Run/tool、取消活跃 Run、写审计；重启后从最新事件恢复；disable 需 reason 与审计 |
-| C40 | Memory trust | memory 内容为 `memory-block`、`trust=untrusted`；不晋升图/evidence；跨用户/tenant/Solution 召回被拒绝；#22 schema 未定时不阻塞本 case 的信任断言 |
+| C40 | Memory trust | memory 内容为 `memory-block`、`trust=untrusted`；不晋升图/evidence；跨用户/tenant/Solution 召回被拒绝；schema 断言已由 #22 定稿（C41–C48） |
 
 Red-team 数据集不占 conformance 编号：`adversarial` split 在 #10 的 Eval Suite 中运行，v0 advisory（进 review packet 与 Release 讨论，不设 gate）；确定性安全红线仍由 C33–C40 blocking。
 
@@ -316,7 +316,7 @@ Red-team 数据集不占 conformance 编号：`adversarial` split 在 #10 的 Ev
 | 浏览器/Web Tool 隔离 | v0 无通用 Web Tool；HTML/重定向风险未覆盖 | 引入浏览/网页抓取 Capability |
 | Red-team 自动化/持续对抗 | 20–50 条人工集，advisory | 安全团队要求持续 red-team |
 | 多 Agent 信任/委托 | v0 单 Agent/Workflow；无 agent-to-agent 授权 | 引入多 Agent 编排 |
-| 跨 Run memory schema | 由 #22 定稿 | #22 完成后接 C40 的完整断言 |
+| 跨 Run memory schema | 已由 #22 定稿（[ADR-0012](adr/0012-agent-memory.md)） | 已接 C40 的完整断言（C41–C48） |
 
 ## 7. 残余风险
 
@@ -366,7 +366,7 @@ Red-team 数据集不占 conformance 编号：`adversarial` split 在 #10 的 Ev
 6. **Schema/codegen**：`RetrievalItem.trust/source_kind`、`PolicyEvaluation.output.emit`、admin schema、`fde.runtime/v1.2.0` 握手。
 7. **Conformance**：C33–C40 接入 runner；C1 覆盖新示例。
 8. **Eval**：`adversarial` split、advisory 接线、review packet。
-9. **Memory**：与 #22 对齐后接 C40 完整断言。
+9. **Memory**：已由 #22 定稿（ADR-0012），C40 完整断言已落（C41–C48、A12）。
 
 ## 11. 产物与一致性
 

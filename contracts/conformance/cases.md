@@ -1,6 +1,6 @@
 # Runtime Contract Conformance Cases
 
-These cases are the acceptance suite for `fde.runtime/v1` (current minor `1.3`). They are fixed here so the first implementation slice can wire them into CI without re-deciding behavior.
+These cases are the acceptance suite for `fde.runtime/v1` (current minor `1.4`). They are fixed here so the first implementation slice can wire them into CI without re-deciding behavior.
 
 | ID | Case | Expected |
 |---|---|---|
@@ -72,7 +72,24 @@ advisory in v0, not conformance.
 | C37 | Output guard | A secret match produces no output, fails the Run, and writes `security.output_blocked`; a PII match is masked with `redaction_applied=true`; `piiMode=block` blocks the Run; non-citation URLs are not rendered as links |
 | C38 | Egress declaration | A Tool Extension missing `egress` resolves to `none`; `connector:<id>` must exist and be allowed; the manifest contains only declared routes; undeclared egress is denied |
 | C39 | Kill switch | `POST /v1/admin/killswitch` requires `killswitch:execute`; `halt` blocks new Runs/tool calls, cancels active Runs, and writes audit events; state recovers from the latest Audit Event after restart; `disable` requires a reason and writes audit |
-| C40 | Memory trust | Memory renders as a `memory-block` with `trust=untrusted`; memory is not promoted to graph facts or Decision evidence; cross-user/tenant/Solution recall is denied; the full schema assertions wait for #22 |
+| C40 | Memory trust | Memory renders as a `memory-block` with `trust=untrusted`; memory is not promoted to graph facts or Decision evidence; cross-user/tenant/Solution recall is denied |
+
+## Agent memory cases (#22)
+
+These cases cover the `Agent.memory` schema and semantics decided in #22. C40
+stays the trust invariant; C41–C48 cover thread continuity, namespace isolation,
+retention/purge/export, explicit-write, and upgrade gating.
+
+| ID | Case | Expected |
+|---|---|---|
+| C41 | Thread continuity | The same `thread_id` carries conversation history across Runs; a different thread never recalls it; `memory.thread` on a non-durable Workflow fails `validate` |
+| C42 | Cross-thread long-term recall | A `memory.remember` write in Run 1 is recalled in Run 2 (new thread) under the same namespace, rendered as a `memory-block` |
+| C43 | Namespace isolation | Cross-end_user/tenant/Solution recall is denied; a thread whose bound actor mismatches returns `404 thread_not_found`; namespace prefixes never collide |
+| C44 | Retention | Expired records are not recalled; thread retention refreshes on last activity; `legal_hold` blocks the retention job |
+| C45 | Purge and export | `fde memory purge` also removes vector entries and writes only count + digest/tombstone to audit; export is `fde.memory/v1` JSONL and requires `customer_admin` + reason |
+| C46 | No promotion | A memory-block never changes Policy evaluation, is never promoted to graph facts or Decision evidence, and poisoned content does not alter behavior |
+| C47 | Explicit write only | A conversation without any `remember` call produces no long-term records |
+| C48 | Upgrade continuity | A new Release on the same runtime reuses the namespace and keeps memory; `fde_memory.schemaVersion` mismatch fails startup closed |
 
 The runner lands with the first `context-service` implementation. Until then, this table is the contract's test plan; examples and schemas in `docs/runtime-contract.md` and `contracts/schemas/` are the fixtures. The first generator slice must wire C16–C40 into the same runner.
 

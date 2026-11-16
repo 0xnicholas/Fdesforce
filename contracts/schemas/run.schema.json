@@ -18,7 +18,8 @@
         "thread_id": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 200
+          "maxLength": 200,
+          "description": "Client-owned conversation thread handle. Required when the referenced capability declares `memory.thread` (v1.4); first use binds the thread to (tenant_id, actor.type, actor.id), later mismatches return 404 thread_not_found."
         },
         "metadata": {
           "type": "object",
