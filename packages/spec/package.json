@@ -1,0 +1,28 @@
+{
+  "name": "@fde/spec",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Solution Spec, Runtime Profile, Runtime Capabilities, Bundle Topology and solution.lock schemas: the single definition source for the FDE workbench.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0",
+    "yaml": "^2.9.1"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@fde/contracts-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TypeScript wire types and a thin client generated from contracts/ (OpenAPI + JSON Schema). No hand-written wire types.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src/generated"],
+  "scripts": {
+    "build": "tsc -b",
+    "generate": "node scripts/generate.mjs",
+    "generate:check": "node scripts/generate.mjs --check"
+  },
+  "dependencies": {
+    "yaml": "^2.9.1"
+  }
+}

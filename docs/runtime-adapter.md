@@ -64,11 +64,13 @@
 ```text
 packages/
   spec/                    # Solution Spec / Runtime Profile / Bundle Topology 的 Zod schema 与类型
+  contracts-client/        # contracts/ 生成的 wire 类型与薄客户端；不手写 wire 类型
   runtime-generator/       # 端口、输入/输出类型、validation 结果、共享工具
   runtime-generator-mastra/# v0 实现；生成 Mastra app / topology / migrations / tests
   cli/                     # fde build / verify / deploy plan
 ```
 
+- `@fde/contracts-client` 是生成物：OpenAPI + JSON Schema → TS 类型与客户端，CI 校验生成结果与 `contracts/` 一致；generator 与 CLI 消费它，不各自手写 wire 类型。
 - `@fde/runtime-generator` 只依赖 `@fde/spec` 的类型与纯工具；不依赖 Mastra、LangGraph、Node 运行时或 Python。
 - 具体 generator 可以在构建时依赖自己的模板/代码生成器，但不得执行 runtime 代码、联网或写盘。
 - 未来 Python generator 通过一个 JSON/CLI shim 实现同一端口；v0 不要求，但输入/输出必须保持 JSON 可序列化。
@@ -450,9 +452,10 @@ spec:
   components:
     - name: mastra-app
       role: runtime-app
-      build:
-        context: generated/claims-triage/mastra-app
-        dockerfile: Dockerfile
+      image:                      # `Component.image` is exactly one of `image` or `build`
+        build:
+          context: generated/claims-triage/mastra-app
+          dockerfile: Dockerfile
       ports:
         - { name: http, containerPort: 4111, expose: true }
       volumes:

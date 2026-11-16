@@ -1,0 +1,77 @@
+# Platform artifact — RuntimeProfile for the v0 Mastra generator.
+#
+# Describes the *generated* runtime app (runtime primitive + generator adapter),
+# not the raw Mastra library: `native` means the primitive is there,
+# `adapter` means generated glue is required, `degraded` means glue with a
+# declared loss, `none` means the generator cannot emit it.
+# Schema: contracts/schemas/runtime-profile.schema.json
+
+apiVersion: fde.dev/v0
+kind: RuntimeProfile
+metadata:
+  name: mastra-1.83-node22
+  version: 1.0.0
+  description: Mastra 1.83 on Node 22.13 — v0 single-runtime profile for split topology.
+spec:
+  generator:
+    name: mastra
+    version: 1.0.0
+  family: mastra
+  language: typescript
+  runtimeVersion: 1.83.0
+  contractVersion: 1.4.0
+  packages:
+    "@mastra/core": 1.83.0
+    node: 22.13.0
+  capabilities:
+    durableWorkflow:
+      support: native
+      durabilityModes: [sync, async]
+      autoResume: adapter
+    hitl:
+      support: adapter
+      interrupt: native
+      resume: native
+      approvalResource: adapter
+      expiry: adapter
+      multipleInterrupts: native
+      consume: adapter
+    streaming:
+      support: native
+      tokenStream: native
+      toolEvents: native
+      interruptEvents: adapter
+      transport: native
+    observability:
+      support: native
+      otel: native
+      evalHooks: native
+    memory:
+      support: native
+      thread: native
+      longTerm: native
+      ttl: adapter
+    tools:
+      support: native
+      native: native
+      mcp: adapter
+      connectorOperations: adapter
+    extensions:
+      support: adapter
+      artifactKinds: [ts-package]
+    stateStore:
+      support: native
+      kinds: [sqlite, postgres]
+      schemaVersion: "1"
+      encryption: adapter
+      retention: adapter
+    topology:
+      support: native
+      modes: [split]
+      singleWriter: true
+    offline:
+      support: native
+  licensing:
+    runtime: Apache-2.0
+    requiresLicenseKey: false
+    egress: false

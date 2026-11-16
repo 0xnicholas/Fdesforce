@@ -1,0 +1,25 @@
+# Platform artifact — fallback ModelProfile for `standard`.
+# One hop maximum, availability failures only (timeout / rate_limit / provider_5xx).
+# Content and safety failures must never trigger a fallback.
+
+apiVersion: fde.dev/v0
+kind: ModelProfile
+metadata:
+  name: standard-fallback
+  version: 1.0.0
+  owner: platform
+spec:
+  kind: chat
+  provider: azure-openai
+  model: gpt-5.1-mini
+  modelVersion: 2026-10-01
+  params:
+    temperature: 0.0
+    maxOutputTokens: 1500
+  compatibility:
+    runtimeContract: fde.runtime/v1
+    specMajor: v0
+  capabilities:
+    contextWindow: 128000
+    toolCalling: true
+    jsonMode: true

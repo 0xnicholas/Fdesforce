@@ -1,0 +1,23 @@
+# Reference Connector manifest for the Acme example (Customer-level asset).
+#
+# Connectors are Customer assets: a Solution Spec only writes `connectorRef`,
+# never an endpoint or a secret. Tools backed by a Connector reach it only
+# through context-service typed operations (#17 D6), so this manifest must
+# eventually declare operation input/output types, scopes and idempotency;
+# today it declares the allowlist only (GAPS.md GAP-1).
+
+apiVersion: fde.dev/v0
+kind: Connector
+metadata:
+  customer: acme
+  name: claims-db
+spec:
+  type: postgres
+  endpointRef: secret://acme-prod/claims-db/url
+  secretRef: secret://acme-prod/claims-db/credentials
+  dataContract: contracts/claims-db.md
+  allowedOperations:
+    - lookupClaim
+    - recordDecision
+  rateLimit:
+    requestsPerMinute: 120

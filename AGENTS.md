@@ -1,5 +1,21 @@
 # Fdesforce
 
+## Build and test
+
+```bash
+pnpm install
+pnpm verify     # typecheck + generated-code freshness + tests; this is what CI runs
+pnpm test       # vitest
+pnpm generate   # regenerate packages/contracts-client/src/generated from contracts/
+```
+
+- `packages/contracts-client/src/generated/**` is generated from `contracts/`. Never
+  hand-edit it: change the contract, then run `pnpm generate`.
+- `contracts/` is the wire source of truth; `packages/spec` is the definition source
+  for Solution Spec, lock, Runtime Profile, Capabilities, Bundle Topology and Model
+  Profile. `contract-drift.test.ts` fails when the two disagree.
+- Package layout and seams: `packages/spec/README.md`, `README.md`.
+
 ## Agent skills
 
 ### Issue tracker

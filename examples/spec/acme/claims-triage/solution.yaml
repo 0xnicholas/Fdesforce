@@ -1,0 +1,104 @@
+# Acme claims triage — read-only slice
+#
+# Reference `fde.dev/v0` Solution Spec for the Slice 1 read-only loop
+# (`docs/architecture-synthesis.md` §5). The full sample with the approval gate
+# and the write Tool lives in `prototype/11-solution-spec/`; this Spec is what
+# `fde build --target compose` is expected to consume for the first slice.
+# `solution.lock` is generated, never hand-edited: `fde spec lock --check`
+# recomputes it.
+
+apiVersion: fde.dev/v0
+kind: SolutionSpec
+metadata:
+  customer: acme
+  solution: claims-triage
+spec:
+  overlays:
+    - acme-baseline@^1.0.0
+    - claims-triage-tuning@^1.0.0
+
+  capabilities:
+    document-triage:
+      template: document-triage@^1.0.0
+      implementation:
+        type: workflow
+        ref: document-triage-flow
+      policyRefs:
+        - pii-redaction@^1.0.0
+      evalRefs:
+        - claims-triage-quality@^1.0.0
+      audit:
+        runOutcomeDecision: required
+
+  agents:
+    triage-agent:
+      modelProfile: standard@^1.0.0
+      instructions: files/prompts/triage.md
+      tools:
+        - retrieve-context
+        - claims-lookup
+      policyRefs:
+        - pii-redaction@^1.0.0
+
+  workflows:
+    document-triage-flow:
+      durable: true
+      timeout: PT5M
+      steps:
+        - id: context
+          type: context
+          recipe: claims-context
+        - id: triage
+          type: agent
+          agent: triage-agent
+          outputSchema: files/schemas/triage.output.json
+
+  tools:
+    retrieve-context:
+      # Prototype-only field (GAPS.md GAP-1): the typed connector-operation seam
+      # (#17 D6) has no documented discriminator for platform built-ins yet, so
+      # this is accepted with a warning rather than silently dropped.
+      builtin: retrieve_context
+      sideEffects: read
+    claims-lookup:
+      connectorRef: claims-db
+      operation: lookupClaim
+      sideEffects: read
+      inputSchema: files/schemas/claims-lookup.input.json
+      outputSchema: files/schemas/claims-lookup.output.json
+
+  semantic:
+    contextPackageRef: acme-claims-context@^1.0.0
+    recipeBindings:
+      claims-context:
+        recipeRef: claims-context@^1.0.0
+        budget:
+          maxNodes: 50
+          maxTokens: 4000
+          maxHops: 2
+
+  governance:
+    policies:
+      - data-retention@^2.0.0
+    evalSuites:
+      - claims-context@^1.0.0
+
+  environments:
+    acme-prod:
+      kind: prod
+      region: eu-west-1
+      capacityClass: medium
+      networkClass: restricted
+      secretStoreKind: vault
+
+  extensions:
+    - acme-claims-connector@^1.0.0
+
+  build:
+    runtimeProfile: mastra-1.83-node22@^1.0.0
+    platform: compose
+    delivery: registry
+
+  deployment:
+    profile: standard
+    migrationPolicy: manual

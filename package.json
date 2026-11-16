@@ -1,0 +1,24 @@
+{
+  "name": "fdesforce",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "generate": "pnpm --filter @fde/contracts-client run generate",
+    "generate:check": "pnpm --filter @fde/contracts-client run generate:check",
+    "verify": "pnpm run typecheck && pnpm run generate:check && pnpm run test"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "5.9.3",
+    "vitest": "^5.1.0"
+  }
+}

@@ -1,0 +1,31 @@
+# Platform artifact — ModelProfile. A Solution Spec only writes `standard@^1.0.0`;
+# `solution.lock` pins the exact version + digest. Provider/model/params never
+# appear in a Solution Spec or an Environment.
+# Rules: docs/domain-model.md §3, ADR-0007, ADR-0012.
+
+apiVersion: fde.dev/v0
+kind: ModelProfile
+metadata:
+  name: standard
+  version: 1.2.0
+  owner: platform
+spec:
+  kind: chat
+  provider: azure-openai
+  model: gpt-5.1
+  modelVersion: 2026-10-01
+  params:
+    temperature: 0.1
+    topP: 1.0
+    maxOutputTokens: 2000
+    seed: 42
+  fallback:
+    - profile: standard-fallback@^1.0.0
+      on: [timeout, rate_limit, provider_5xx]
+  compatibility:
+    runtimeContract: fde.runtime/v1
+    specMajor: v0
+  capabilities:
+    contextWindow: 128000
+    toolCalling: true
+    jsonMode: true
