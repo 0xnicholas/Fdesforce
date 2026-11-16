@@ -1,6 +1,7 @@
 import type {
   Component,
   Digest,
+  ModelProfile,
   RuntimeCapabilities,
   RuntimeProfile,
   RuntimeTopology,
@@ -41,10 +42,19 @@ export interface RuntimeEnvironmentView {
   values?: Record<string, string>;
 }
 
-/** A resolved Extension artifact the Spec references. */
+/**
+ * A resolved Extension artifact the Spec references.
+ *
+ * The `interface` is part of an Extension's identity (`docs/domain-model.md`
+ * §3.7) and it decides who loads the artifact: `connector`, `recipe` and
+ * `scorer` artifacts are executed by context-service or the eval worker, while a
+ * `tool` artifact has to be loaded *inside* the generated app (A9). A generator
+ * cannot judge an Extension without it, so it is not optional.
+ */
 export interface RuntimeExtensionView {
   name: string;
   version: string;
+  interface: 'tool' | 'connector' | 'recipe' | 'scorer';
   /** `ts-package` | `python-wheel` | `http` — the profile must list it. */
   artifactKind: 'ts-package' | 'python-wheel' | 'http';
   /** Runtime combinations the artifact supports; absent means no declared constraint. */
@@ -101,6 +111,25 @@ export interface RuntimeBuildContext {
 export type RuntimeGenerateInput = Omit<RuntimeValidationInput, 'profile'> & {
   profile: RuntimeProfile;
   build: RuntimeBuildContext;
+  /**
+   * The Spec's local file set — `files/prompts/triage.md`, `files/schemas/*.json`
+   * and anything else `solution.lock.spec.files` pins — as path → content.
+   *
+   * Generation may not read the disk (A11), so the CLI resolves these once, from
+   * the same bytes the lock digested, and hands them over. A generator that needs
+   * a referenced file it was not given fails: a silently unreadable prompt is a
+   * different build, not a smaller one.
+   */
+  files?: Record<string, string>;
+  /**
+   * Model Profiles the Spec's agents reference, keyed by profile name.
+   *
+   * Provider, model, immutable model version and params are baked into the
+   * generated app: an Environment supplies the endpoint and the secret, never
+   * the model. Resolution is the CLI's; the generator receives the parsed,
+   * digest-verified document.
+   */
+  modelProfiles?: Record<string, ModelProfile>;
 };
 
 /** One derived `must`/`should`, recorded verbatim in build provenance (§7.1). */
@@ -136,7 +165,10 @@ export interface RuntimeValidationResult {
 }
 
 export interface GeneratedFile {
-  /** Build-root-relative, POSIX, deterministic. */
+  /**
+   * Bundle-root-relative and POSIX, one directory per component (`mastra-app/…`),
+   * so a bundle with several generated trees has one unambiguous namespace.
+   */
   path: string;
   content: string;
   /** Explicit mode; generation never depends on the umask. */

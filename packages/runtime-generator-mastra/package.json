@@ -1,0 +1,31 @@
+{
+  "name": "@fde/runtime-generator-mastra",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The v0 Mastra RuntimeGenerator: the generated mastra-app source tree, its schema-baked tools and the fail-closed grammar gate.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@fde/runtime-generator": "workspace:*",
+    "@fde/spec": "workspace:*"
+  },
+  "devDependencies": {
+    "@mastra/core": "1.83.0",
+    "@types/node": "^26.6.6",
+    "typescript": "5.9.3",
+    "yaml": "^2.9.1"
+  }
+}

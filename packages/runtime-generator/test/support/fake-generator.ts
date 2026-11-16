@@ -7,8 +7,9 @@ export const SOURCE_DIGEST = `sha256:${'c'.repeat(64)}` as Digest;
 /**
  * A minimal generator that satisfies the port, used to prove the port's shape and
  * the JSON-serializability of everything crossing it. It is deliberately not a
- * Mastra implementation: the concrete generator is #27, and this file is a
- * conformance harness, not an adapter.
+ * Mastra implementation: that is
+ * [`@fde/runtime-generator-mastra`](../../../runtime-generator-mastra/README.md),
+ * and this file is a conformance harness, not an adapter.
  */
 export const fakeGenerator = (
   identity: RuntimeGeneratorIdentity = { family: 'mastra', version: '1.0.0' },
@@ -18,15 +19,18 @@ export const fakeGenerator = (
   capabilities: (profile) => resolveRuntimeProfile(profile).capabilities,
   validate: (input) => validateRuntime({ ...input, generator: identity }),
   generateApp: (input) => ({
-    files: [{ path: 'src/index.ts', content: 'export const app = {};\n', mode: 0o644 }],
-    dockerfile: { path: 'Dockerfile', content: 'FROM node:22.13.0\n' },
+    files: [
+      { path: 'runtime-app/Dockerfile', content: 'FROM node:22.13.0\n', mode: 0o644 },
+      { path: 'runtime-app/src/index.ts', content: 'export const app = {};\n', mode: 0o644 },
+    ],
+    dockerfile: { path: 'runtime-app/Dockerfile', content: 'FROM node:22.13.0\n' },
     entrypoint: ['node', 'dist/index.js'],
     buildArgs: { RUNTIME_PROFILE: `${input.profile.metadata.name}@${input.profile.metadata.version}` },
     components: [
       {
         name: 'runtime-app',
         role: 'runtime-app',
-        image: { build: { context: `generated/${input.build.buildId}/runtime-app`, dockerfile: 'Dockerfile' } },
+        image: { build: { context: 'runtime-app', dockerfile: 'Dockerfile' } },
         ports: [{ name: 'http', containerPort: 4111, expose: true }],
         healthCheck: { path: '/readyz', port: 4111 },
       },

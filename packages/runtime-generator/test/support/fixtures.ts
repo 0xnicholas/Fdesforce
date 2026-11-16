@@ -49,7 +49,9 @@ export const validationInput = (): RuntimeValidationInput => ({
   profile: exampleProfile(),
   environment: { name: 'acme-prod', networkClass: 'restricted', stateStore: { kind: 'sqlite', schemaVersion: '1' } },
   generator: { family: 'mastra', version: '1.0.0' },
-  extensions: [{ name: 'acme-claims-connector', version: '1.0.0', artifactKind: 'ts-package' }],
+  extensions: [
+    { name: 'acme-claims-connector', version: '1.0.0', interface: 'connector', artifactKind: 'ts-package' },
+  ],
   connectors: {
     'claims-db': {
       name: 'claims-db',

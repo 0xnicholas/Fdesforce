@@ -110,6 +110,8 @@ interface RuntimeGenerator {
 | `generateMigrations` | 同上 | `RuntimeMigrationPlan` | 只包含 runtime 拥有的 state store/checkpointer 迁移；context-service 迁移由平台提供。 |
 | `generateContractTests` | 同上 | `TestPlan` | A-case 到测试命令/fixture 的映射；不实现 runner。 |
 
+`files` 与 `modelProfiles` 是 [#27](https://github.com/0xnicholas/Fdesforce/issues/27) 的实现补充：generator 不读盘（§4.4 确定性），Spec 引用的 prompt、JSON Schema 与 Model Profile 必须由 CLI 解析后随输入传入；generator 需要而没拿到即抛错，不降级生成。`RuntimeExtensionView` 同样带 `interface`（`tool | connector | recipe | scorer`），因为「谁加载这个 artifact」决定生成物是否要为它写 loader：`connector` 由 context-service 执行，`tool` 需要 app 内的 artifact loader。
+
 **不提供**：`build`、`deploy`、`run`、`resume`、`checkpoint`、`snapshot`。出现这些方法说明端口已退化为运行时抽象。
 
 `GeneratedApp.components` 与 `RuntimeTopology` 的组件/卷/作业字段以 [`contracts/schemas/bundle-topology.schema.json`](../contracts/schemas/bundle-topology.schema.json) 为准；TypeScript 类型由 schema 生成，本文不重复字段定义。
@@ -127,6 +129,8 @@ interface RuntimeValidationInput {
 
 interface RuntimeGenerateInput extends RuntimeValidationInput {
   build: BuildContext;            // toolchain digest、source digests、build id
+  files?: Record<string, string>;              // Spec 本地文件（prompt、JSON Schema），CLI 已按 lock digest 校验
+  modelProfiles?: Record<string, ModelProfile>; // Agent 引用的 Model Profile，CLI 已解析并校验 digest
 }
 
 interface RuntimeValidationResult {
@@ -412,6 +416,7 @@ build:
 | `runtime_contract_mismatch` | contract major 不兼容 | build fail |
 | `runtime_schema_mismatch` | graph/audit/state store schema 不匹配 | build fail |
 | `runtime_connector_contract_missing` | `connectorRef` 没有 typed operation | build fail |
+| `runtime_grammar_unsupported` | Spec grammar 允许、但当前 generator 版本无法如实生成的结构（`approval` step、副作用 Tool、`memory` 声明、解析不了的引用） | build fail |
 | `runtime_generation_nondeterministic` | 同一输入两次生成 digest 不同 | build fail |
 | `runtime_manifest_invalid` | 生成的 app/topology 不符合 schema | build fail |
 
@@ -421,6 +426,7 @@ build:
 - `should` 的 `degraded / none` 产生 warning，写入 build provenance；不静默。
 - 组级一致性只比较 build 可见的三档（满足 / `degraded` / `none`）：§5.2 中 `native` 与 `adapter` 都"满足"，因此互不比强弱（参考 Profile 的 `durableWorkflow: native` 搭配 `autoResume: adapter` 是合法声明）；组级不得掩盖子项的 `degraded / none`。
 - 两个 warning 码（不阻塞 build）：`runtime_topology_unused_mode`（Profile 声明了 v0 不渲染的 mode，§8.3）、`runtime_connector_operation_untyped`（`connectorRef` 的 typed operation 已声明，但既无 input/output schema、Tool 也未自行 pin schema，GAP-1）。
+- `runtime_grammar_unsupported` 是 generator 侧的错误码：共享的 `validate` 只判断「Profile 能不能提供这项能力」，具体 generator 还要判断「这份 Spec 的语法我能不能如实生成」。当前版本不生成 `approval` step、副作用 Tool、`memory` 声明，也没有 Extension artifact loader；遇到它们必须 build fail 并指明位置，静默丢弃或降级生成会让完整样例看起来可构建（[#27](https://github.com/0xnicholas/Fdesforce/issues/27) 首个实现）。
 - `RuntimeValidationResult.requirements` 记录每条要求的 `capability / level / source`，build provenance 同时记录 Profile digest、generator 版本、解析后的要求和 warnings。
 - 运行时启动再握手一次；build 通过不等于运行时可服务。
 
@@ -688,7 +694,7 @@ spec:
 |---|---|
 | `capabilities` | 解析 Profile，返回规范化能力；校验 10 组必填。 |
 | `validate` | 推导 durable/HITL/streaming/memory/tools/extensions/offline 要求；检查 `ts-package`、SQLite/Postgres、split、OTel；`should` 产生 warning。 |
-| `generateApp` | 生成 `src/agents`、`src/workflows`、`src/tools`、`src/runtime/run-service.ts`、`sse.ts`、`context-client.ts`、`record-before-act.ts`、`approvals.ts`、`index.ts`、`Dockerfile`；Node 22 entrypoint。 |
+| `generateApp` | 生成 `src/agents`、`src/workflows`、`src/tools`、`src/runtime/{context-client,execution-context,retrieval}.ts`、`index.ts`、`Dockerfile`；Node 22 entrypoint。`run-service.ts`、`sse.ts`、`record-before-act.ts`、`approvals.ts` 归 #28/#29。v0 骨架只提供 `/healthz`（存活）；`/readyz` 与握手在 #30 落地，拓扑的 healthCheck 随之切换。 |
 | `generateTopology` | `mastra-app` + `mastra-state` 卷 + `runtime-migrate` 作业；端口 4111 暴露；依赖 context-service；health `/readyz`。 |
 | `generateMigrations` | libsql/SQLite state store 初始化；不生成 context-service graph/audit 迁移。 |
 | `generateContractTests` | A1–A11 到 Mastra 测试命令/fixture 的映射；A11 比较 `sourceDigest`。 |

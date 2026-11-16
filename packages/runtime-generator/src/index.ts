@@ -10,6 +10,8 @@ export type { CapabilityInconsistency, CapabilitySupport } from './capabilities.
 export { RUNTIME_DIAGNOSTIC_CODES } from './codes.js';
 export type { RuntimeDiagnosticCode } from './codes.js';
 
+export { GENERATED_FILE_MODE, canonicalJsonFile, sortedFiles, sourceDigest } from './files.js';
+
 export { deriveRequirements } from './requirements.js';
 export type { DeriveRequirementsInput } from './requirements.js';
 

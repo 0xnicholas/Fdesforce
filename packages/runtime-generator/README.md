@@ -12,6 +12,7 @@ and the CLI that orchestrates a build around it is
 ```text
 src/
   port.ts          the six-method port and every input/output that crosses it
+  files.ts         the A11 helpers: canonical JSON files, sorted paths, sourceDigest
   codes.ts         the validation-class diagnostic codes, as a closed union
   capabilities.ts  normalization, one-path lookup, group/member consistency, handshake map
   profile.ts       profileRef / profileDigest / resolveRuntimeProfile and lock-pin reading
@@ -25,7 +26,7 @@ src/
 | --- | --- | --- | --- |
 | `capabilities` | `RuntimeProfile` | `RuntimeCapabilities` | what can the generated app do? |
 | `validate` | Spec + Profile + Environment + lock + Extensions (+ Connectors) | `RuntimeValidationResult` | may this be built? |
-| `generateApp` | validation input + build context | `GeneratedApp` | the source tree, Dockerfile and entrypoint |
+| `generateApp` | validation input + build context + resolved `files` / `modelProfiles` | `GeneratedApp` | the source tree, Dockerfile and entrypoint |
 | `generateTopology` | same | `RuntimeTopology` | the runtime-owned fragment of the deployment topology |
 | `generateMigrations` | same | `RuntimeMigrationPlan` | the runtime-owned state store migrations |
 | `generateContractTests` | same | `TestPlan` | A-case → command/fixture mapping |
@@ -35,6 +36,18 @@ Not provided, on purpose: `build`, `deploy`, `run`, `resume`, `checkpoint`,
 abstraction ADR-0010 rejected — every adapter would have to reimplement
 checkpoint replay, SSE transport and approval state for a shape that cannot hold
 them. `test/port.test.ts` fails to compile if one appears.
+
+A generator also cannot read the disk, so anything a Spec references — a prompt,
+a JSON Schema, a Model Profile — arrives resolved in the generate input:
+
+| Input field | What it is | Who resolves it |
+| --- | --- | --- |
+| `files` | `solution.lock.spec.files`, path → content | the CLI, from the same bytes the lock digested |
+| `modelProfiles` | the parsed `ModelProfile` documents agents reference, keyed by name | the CLI, digest-verified against the lock |
+| `connectors` | Connector typed operations (D6) | the CLI |
+
+A generator that needs one of them and was not given it throws: a build that
+cannot read a pinned prompt is a different build, not a smaller one.
 
 Everything crossing the port is JSON-serializable plain data, because a second
 generator may be Python behind a JSON/CLI shim (`docs/runtime-adapter.md` §4.1).
@@ -165,6 +178,13 @@ Environment or the Extension.
 | `runtime_license_blocked` | an air-gapped target would need a license key or egress | error |
 | `runtime_connector_contract_missing` | a Connector-backed Tool's Connector or typed operation is not resolved | error |
 | `runtime_connector_operation_untyped` | neither the Connector operation nor the Tool declares input/output schemas (GAPS.md GAP-1) | warning |
+| `runtime_grammar_unsupported` | a construct the Spec's grammar allows but this generator version cannot emit: an `approval` step, a side-effecting Tool, a `memory` declaration, a reference it cannot resolve | error |
+
+`runtime_grammar_unsupported` is the generator-side member of the closed union:
+each generator's `validate` adds the grammar it alone understands, so "this slice
+does not generate that yet" is a build failure with a code, never a silently
+dropped construct. The first implementer is
+[`@fde/runtime-generator-mastra`](../runtime-generator-mastra/README.md).
 
 `runtime_schema_mismatch` (graph/audit schema) and the generation codes
 (`runtime_generation_nondeterministic`, `runtime_manifest_invalid`) are decided by
@@ -174,6 +194,15 @@ runtime-side handshake codes belong to the generated app (#30).
 An Environment that selects no state store is left to the platform default
 (libsql/SQLite, user story 38); only an explicit selection is checked against the
 profile.
+
+## Determinism helpers
+
+`canonicalJsonFile`, `sortedFiles` and `sourceDigest` live here rather than in each
+generator, because "deterministic" is a property the whole build has or does not
+have: a second generator that sorted differently would make the bundle digest
+depend on which component happened to be generated last. `canonicalJsonFile` is
+canonical JSON (`@fde/spec`'s serializer, sorted keys) written out indented with
+one trailing newline — byte-stable and still reviewable in a diff.
 
 ## Test seams
 
@@ -186,3 +215,4 @@ profile.
 | `test/port.test.ts` | port surface, JSON round-trip, no lifecycle method |
 | `test/boundary.test.ts` | dependency, network, disk, clock and randomness rules |
 | `test/fixtures.test.ts` | the checked-in Profile + Acme Spec as one reference path |
+| `test/files.test.ts` | the A11 helpers: canonical JSON, ordered paths, duplicate refusal, digest shape |
