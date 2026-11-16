@@ -1,0 +1,834 @@
+{
+  "artifact": {
+    "trace_id": "tr-rest-1794657774184",
+    "tenant_id": "acme",
+    "actor": "mastra-agent:spike",
+    "wall_ms": 272,
+    "final_text": "Refund approved. Decision 8a587262-78c5-40f9-b0fc-c368acbf1c27 recorded with provenance; chain valid: true.",
+    "finish_reason": "stop",
+    "steps": [
+      {
+        "tool_calls": [
+          {
+            "toolName": "retrieve_context",
+            "args": {
+              "query": "refund policy premium customer 31 days",
+              "maxHops": 2,
+              "topK": 5
+            }
+          }
+        ],
+        "tool_results": [
+          {
+            "toolName": "retrieve_context",
+            "result": {
+              "items": [
+                {
+                  "entity_id": "606231ac-51c1-4f25-bba4-badb35c061ac",
+                  "type": "decision",
+                  "content": "Premium customer requests a refund 31 days after delivery on order 1001.",
+                  "score": 0.8333,
+                  "hop": 0,
+                  "source": "mastra-agent"
+                },
+                {
+                  "entity_id": "acme:policy:refund",
+                  "type": "Policy",
+                  "content": "Acme refund policy: refunds allowed within 30 days of delivery; exceptions require manager approval.",
+                  "score": 1,
+                  "hop": 1,
+                  "source": "policy/refund-v3.pdf"
+                },
+                {
+                  "entity_id": "acme:order:1001",
+                  "type": "Order",
+                  "content": "Order 1001 delivered 2026-10-01; customer tier premium; total $420.",
+                  "score": 1,
+                  "hop": 1,
+                  "source": "erp/orders/1001"
+                },
+                {
+                  "entity_id": "acme:customer:42",
+                  "type": "Customer",
+                  "content": "Customer 42 (Acme Corp), premium tier since 2024, account owner Dana.",
+                  "score": 1,
+                  "hop": 1,
+                  "source": "crm/customers/42"
+                },
+                {
+                  "entity_id": "acme:policy:premium",
+                  "type": "Policy",
+                  "content": "Acme premium customers get a 45-day refund window under the customer success addendum.",
+                  "score": 1,
+                  "hop": 1,
+                  "source": "policy/premium-addendum.pdf"
+                }
+              ],
+              "provenance": [
+                {
+                  "entity_id": "606231ac-51c1-4f25-bba4-badb35c061ac",
+                  "source_document": "context-service:decision",
+                  "checksum": "02f2030fb8858d25c2e24820467e1ecfab23f2c1acbcdd91585d54f9d73debd7",
+                  "activity_id": "tr-rest-1794657759976",
+                  "agent_id": "mastra-agent:spike"
+                },
+                {
+                  "entity_id": "acme:policy:refund",
+                  "source_document": "policy/refund-v3.pdf",
+                  "checksum": "14495311937635e9c123b0277ba67b56abfa184acfe24c672c11b0f6e00fde11",
+                  "activity_id": "seed",
+                  "agent_id": "seed-script"
+                },
+                {
+                  "entity_id": "acme:order:1001",
+                  "source_document": "erp/orders/1001",
+                  "checksum": "93629e8ada99ea1588d95f6b01aec4c014dedd68e5960c126b0d81af82f912e1",
+                  "activity_id": "seed",
+                  "agent_id": "seed-script"
+                },
+                {
+                  "entity_id": "acme:customer:42",
+                  "source_document": "crm/customers/42",
+                  "checksum": "5de5562a60417ba1c0cd4c8720d685babfdbd5e91f0691743327b42e246a57ed",
+                  "activity_id": "seed",
+                  "agent_id": "seed-script"
+                },
+                {
+                  "entity_id": "acme:policy:premium",
+                  "source_document": "policy/premium-addendum.pdf",
+                  "checksum": "2276046c1f5e704bb206d16e6373701c870768db268fd874a781047b93ad7203",
+                  "activity_id": "seed",
+                  "agent_id": "seed-script"
+                }
+              ],
+              "trace_id": "tr-rest-1794657774184",
+              "tenant_id": "acme",
+              "latency_ms": 14.13
+            }
+          }
+        ],
+        "text": ""
+      },
+      {
+        "tool_calls": [
+          {
+            "toolName": "record_decision",
+            "args": {
+              "category": "refund_request",
+              "scenario": "Premium customer requests a refund 31 days after delivery on order 1001.",
+              "reasoning": "Premium policy gives a 45-day window, which covers this request; standard 30-day policy is augmented by the premium addendum.",
+              "outcome": "approve_refund",
+              "confidence": 0.87,
+              "evidenceIds": [
+                "acme:policy:refund",
+                "acme:order:1001",
+                "acme:customer:42",
+                "acme:policy:premium"
+              ]
+            }
+          }
+        ],
+        "tool_results": [
+          {
+            "toolName": "record_decision",
+            "result": {
+              "decision_id": "8a587262-78c5-40f9-b0fc-c368acbf1c27",
+              "provenance_id": "8a587262-78c5-40f9-b0fc-c368acbf1c27",
+              "trace_id": "tr-rest-1794657774184",
+              "tenant_id": "acme",
+              "latency_ms": 7.21,
+              "graph_save_ms": 2.74
+            }
+          }
+        ],
+        "text": ""
+      },
+      {
+        "tool_calls": [
+          {
+            "toolName": "get_provenance",
+            "args": {
+              "entityId": "8a587262-78c5-40f9-b0fc-c368acbf1c27"
+            }
+          }
+        ],
+        "tool_results": [
+          {
+            "toolName": "get_provenance",
+            "result": {
+              "entity_id": "8a587262-78c5-40f9-b0fc-c368acbf1c27",
+              "entry": {
+                "entity_id": "8a587262-78c5-40f9-b0fc-c368acbf1c27",
+                "entity_type": "decision",
+                "activity_id": "tr-rest-1794657774184",
+                "agent_id": "mastra-agent:spike",
+                "agent_type": "software_agent",
+                "is_automated": true,
+                "role": null,
+                "source_document": "context-service:decision",
+                "source_location": null,
+                "source_quote": null,
+                "timestamp": "2026-11-14T12:02:54.401567+00:00",
+                "first_seen": "2026-11-14T12:02:54.401530+00:00",
+                "last_updated": "2026-11-14T12:02:54.401551+00:00",
+                "confidence": 1,
+                "checksum": "a3d15b7bf4f00a75c7b854c7901430b8943fc34506969f76a93df16279feb354",
+                "sequence_id": 15,
+                "previous_checksum": "079f422b1970400b11c80caddf79a688ec79f890987701d32583142f38879f8a",
+                "parent_entity_id": null,
+                "used_entities": [
+                  "acme:policy:refund",
+                  "acme:order:1001",
+                  "acme:customer:42",
+                  "acme:policy:premium"
+                ],
+                "previous_version_id": null,
+                "derived_from_id": null,
+                "activity_started_at_time": null,
+                "activity_ended_at_time": null,
+                "acted_on_behalf_of": null,
+                "informed_by_activities": [],
+                "valid_from": null,
+                "valid_until": null,
+                "revision_type": null,
+                "supersedes": null,
+                "bundle_id": null,
+                "invalidated": false,
+                "invalidated_at_time": null,
+                "invalidated_by": null,
+                "invalidation_reason": null,
+                "start_index": null,
+                "end_index": null,
+                "credibility": null,
+                "metadata": {
+                  "tenant_id": "acme",
+                  "trace_id": "tr-rest-1794657774184",
+                  "actor": "mastra-agent:spike",
+                  "category": "refund_request",
+                  "evidence_ids": [
+                    "acme:policy:refund",
+                    "acme:order:1001",
+                    "acme:customer:42",
+                    "acme:policy:premium"
+                  ]
+                },
+                "version": "1.0"
+              },
+              "lineage": {
+                "entity_id": "8a587262-78c5-40f9-b0fc-c368acbf1c27",
+                "lineage_chain": [
+                  {
+                    "entity_id": "8a587262-78c5-40f9-b0fc-c368acbf1c27",
+                    "entity_type": "decision",
+                    "activity_id": "tr-rest-1794657774184",
+                    "agent_id": "mastra-agent:spike",
+                    "agent_type": "software_agent",
+                    "is_automated": true,
+                    "role": null,
+                    "source_document": "context-service:decision",
+                    "source_location": null,
+                    "source_quote": null,
+                    "timestamp": "2026-11-14T12:02:54.401567+00:00",
+                    "first_seen": "2026-11-14T12:02:54.401530+00:00",
+                    "last_updated": "2026-11-14T12:02:54.401551+00:00",
+                    "confidence": 1,
+                    "checksum": "a3d15b7bf4f00a75c7b854c7901430b8943fc34506969f76a93df16279feb354",
+                    "sequence_id": 15,
+                    "previous_checksum": "079f422b1970400b11c80caddf79a688ec79f890987701d32583142f38879f8a",
+                    "parent_entity_id": null,
+                    "used_entities": [
+                      "acme:policy:refund",
+                      "acme:order:1001",
+                      "acme:customer:42",
+                      "acme:policy:premium"
+                    ],
+                    "previous_version_id": null,
+                    "derived_from_id": null,
+                    "activity_started_at_time": null,
+                    "activity_ended_at_time": null,
+                    "acted_on_behalf_of": null,
+                    "informed_by_activities": [],
+                    "valid_from": null,
+                    "valid_until": null,
+                    "revision_type": null,
+                    "supersedes": null,
+                    "bundle_id": null,
+                    "invalidated": false,
+                    "invalidated_at_time": null,
+                    "invalidated_by": null,
+                    "invalidation_reason": null,
+                    "start_index": null,
+                    "end_index": null,
+                    "credibility": null,
+                    "metadata": {
+                      "tenant_id": "acme",
+                      "trace_id": "tr-rest-1794657774184",
+                      "actor": "mastra-agent:spike",
+                      "category": "refund_request",
+                      "evidence_ids": [
+                        "acme:policy:refund",
+                        "acme:order:1001",
+                        "acme:customer:42",
+                        "acme:policy:premium"
+                      ]
+                    },
+                    "version": "1.0"
+                  },
+                  {
+                    "entity_id": "acme:policy:refund",
+                    "entity_type": "Policy",
+                    "activity_id": "seed",
+                    "agent_id": "seed-script",
+                    "agent_type": "software_agent",
+                    "is_automated": true,
+                    "role": null,
+                    "source_document": "policy/refund-v3.pdf",
+                    "source_location": null,
+                    "source_quote": null,
+                    "timestamp": "2026-11-14T12:01:52.185727+00:00",
+                    "first_seen": "2026-11-14T12:01:52.185370+00:00",
+                    "last_updated": "2026-11-14T12:01:52.185699+00:00",
+                    "confidence": 1,
+                    "checksum": "14495311937635e9c123b0277ba67b56abfa184acfe24c672c11b0f6e00fde11",
+                    "sequence_id": 1,
+                    "previous_checksum": null,
+                    "parent_entity_id": null,
+                    "used_entities": [],
+                    "previous_version_id": null,
+                    "derived_from_id": null,
+                    "activity_started_at_time": null,
+                    "activity_ended_at_time": null,
+                    "acted_on_behalf_of": null,
+                    "informed_by_activities": [],
+                    "valid_from": null,
+                    "valid_until": null,
+                    "revision_type": null,
+                    "supersedes": null,
+                    "bundle_id": null,
+                    "invalidated": false,
+                    "invalidated_at_time": null,
+                    "invalidated_by": null,
+                    "invalidation_reason": null,
+                    "start_index": null,
+                    "end_index": null,
+                    "credibility": null,
+                    "metadata": {
+                      "tenant_id": "acme",
+                      "trace_id": "seed",
+                      "actor": "seed-script"
+                    },
+                    "version": "1.0"
+                  },
+                  {
+                    "entity_id": "acme:order:1001",
+                    "entity_type": "Order",
+                    "activity_id": "seed",
+                    "agent_id": "seed-script",
+                    "agent_type": "software_agent",
+                    "is_automated": true,
+                    "role": null,
+                    "source_document": "erp/orders/1001",
+                    "source_location": null,
+                    "source_quote": null,
+                    "timestamp": "2026-11-14T12:01:52.193951+00:00",
+                    "first_seen": "2026-11-14T12:01:52.193926+00:00",
+                    "last_updated": "2026-11-14T12:01:52.193938+00:00",
+                    "confidence": 1,
+                    "checksum": "93629e8ada99ea1588d95f6b01aec4c014dedd68e5960c126b0d81af82f912e1",
+                    "sequence_id": 3,
+                    "previous_checksum": "2276046c1f5e704bb206d16e6373701c870768db268fd874a781047b93ad7203",
+                    "parent_entity_id": null,
+                    "used_entities": [],
+                    "previous_version_id": null,
+                    "derived_from_id": null,
+                    "activity_started_at_time": null,
+                    "activity_ended_at_time": null,
+                    "acted_on_behalf_of": null,
+                    "informed_by_activities": [],
+                    "valid_from": null,
+                    "valid_until": null,
+                    "revision_type": null,
+                    "supersedes": null,
+                    "bundle_id": null,
+                    "invalidated": false,
+                    "invalidated_at_time": null,
+                    "invalidated_by": null,
+                    "invalidation_reason": null,
+                    "start_index": null,
+                    "end_index": null,
+                    "credibility": null,
+                    "metadata": {
+                      "tenant_id": "acme",
+                      "trace_id": "seed",
+                      "actor": "seed-script"
+                    },
+                    "version": "1.0"
+                  },
+                  {
+                    "entity_id": "acme:customer:42",
+                    "entity_type": "Customer",
+                    "activity_id": "seed",
+                    "agent_id": "seed-script",
+                    "agent_type": "software_agent",
+                    "is_automated": true,
+                    "role": null,
+                    "source_document": "crm/customers/42",
+                    "source_location": null,
+                    "source_quote": null,
+                    "timestamp": "2026-11-14T12:01:52.196952+00:00",
+                    "first_seen": "2026-11-14T12:01:52.196914+00:00",
+                    "last_updated": "2026-11-14T12:01:52.196935+00:00",
+                    "confidence": 1,
+                    "checksum": "5de5562a60417ba1c0cd4c8720d685babfdbd5e91f0691743327b42e246a57ed",
+                    "sequence_id": 4,
+                    "previous_checksum": "93629e8ada99ea1588d95f6b01aec4c014dedd68e5960c126b0d81af82f912e1",
+                    "parent_entity_id": null,
+                    "used_entities": [],
+                    "previous_version_id": null,
+                    "derived_from_id": null,
+                    "activity_started_at_time": null,
+                    "activity_ended_at_time": null,
+                    "acted_on_behalf_of": null,
+                    "informed_by_activities": [],
+                    "valid_from": null,
+                    "valid_until": null,
+                    "revision_type": null,
+                    "supersedes": null,
+                    "bundle_id": null,
+                    "invalidated": false,
+                    "invalidated_at_time": null,
+                    "invalidated_by": null,
+                    "invalidation_reason": null,
+                    "start_index": null,
+                    "end_index": null,
+                    "credibility": null,
+                    "metadata": {
+                      "tenant_id": "acme",
+                      "trace_id": "seed",
+                      "actor": "seed-script"
+                    },
+                    "version": "1.0"
+                  },
+                  {
+                    "entity_id": "acme:policy:premium",
+                    "entity_type": "Policy",
+                    "activity_id": "seed",
+                    "agent_id": "seed-script",
+                    "agent_type": "software_agent",
+                    "is_automated": true,
+                    "role": null,
+                    "source_document": "policy/premium-addendum.pdf",
+                    "source_location": null,
+                    "source_quote": null,
+                    "timestamp": "2026-11-14T12:01:52.191082+00:00",
+                    "first_seen": "2026-11-14T12:01:52.191047+00:00",
+                    "last_updated": "2026-11-14T12:01:52.191065+00:00",
+                    "confidence": 1,
+                    "checksum": "2276046c1f5e704bb206d16e6373701c870768db268fd874a781047b93ad7203",
+                    "sequence_id": 2,
+                    "previous_checksum": "14495311937635e9c123b0277ba67b56abfa184acfe24c672c11b0f6e00fde11",
+                    "parent_entity_id": null,
+                    "used_entities": [],
+                    "previous_version_id": null,
+                    "derived_from_id": null,
+                    "activity_started_at_time": null,
+                    "activity_ended_at_time": null,
+                    "acted_on_behalf_of": null,
+                    "informed_by_activities": [],
+                    "valid_from": null,
+                    "valid_until": null,
+                    "revision_type": null,
+                    "supersedes": null,
+                    "bundle_id": null,
+                    "invalidated": false,
+                    "invalidated_at_time": null,
+                    "invalidated_by": null,
+                    "invalidation_reason": null,
+                    "start_index": null,
+                    "end_index": null,
+                    "credibility": null,
+                    "metadata": {
+                      "tenant_id": "acme",
+                      "trace_id": "seed",
+                      "actor": "seed-script"
+                    },
+                    "version": "1.0"
+                  }
+                ],
+                "entries": [
+                  {
+                    "entity_id": "8a587262-78c5-40f9-b0fc-c368acbf1c27",
+                    "entity_type": "decision",
+                    "activity_id": "tr-rest-1794657774184",
+                    "agent_id": "mastra-agent:spike",
+                    "agent_type": "software_agent",
+                    "is_automated": true,
+                    "role": null,
+                    "source_document": "context-service:decision",
+                    "source_location": null,
+                    "source_quote": null,
+                    "timestamp": "2026-11-14T12:02:54.401567+00:00",
+                    "first_seen": "2026-11-14T12:02:54.401530+00:00",
+                    "last_updated": "2026-11-14T12:02:54.401551+00:00",
+                    "confidence": 1,
+                    "checksum": "a3d15b7bf4f00a75c7b854c7901430b8943fc34506969f76a93df16279feb354",
+                    "sequence_id": 15,
+                    "previous_checksum": "079f422b1970400b11c80caddf79a688ec79f890987701d32583142f38879f8a",
+                    "parent_entity_id": null,
+                    "used_entities": [
+                      "acme:policy:refund",
+                      "acme:order:1001",
+                      "acme:customer:42",
+                      "acme:policy:premium"
+                    ],
+                    "previous_version_id": null,
+                    "derived_from_id": null,
+                    "activity_started_at_time": null,
+                    "activity_ended_at_time": null,
+                    "acted_on_behalf_of": null,
+                    "informed_by_activities": [],
+                    "valid_from": null,
+                    "valid_until": null,
+                    "revision_type": null,
+                    "supersedes": null,
+                    "bundle_id": null,
+                    "invalidated": false,
+                    "invalidated_at_time": null,
+                    "invalidated_by": null,
+                    "invalidation_reason": null,
+                    "start_index": null,
+                    "end_index": null,
+                    "credibility": null,
+                    "metadata": {
+                      "tenant_id": "acme",
+                      "trace_id": "tr-rest-1794657774184",
+                      "actor": "mastra-agent:spike",
+                      "category": "refund_request",
+                      "evidence_ids": [
+                        "acme:policy:refund",
+                        "acme:order:1001",
+                        "acme:customer:42",
+                        "acme:policy:premium"
+                      ]
+                    },
+                    "version": "1.0"
+                  },
+                  {
+                    "entity_id": "acme:policy:refund",
+                    "entity_type": "Policy",
+                    "activity_id": "seed",
+                    "agent_id": "seed-script",
+                    "agent_type": "software_agent",
+                    "is_automated": true,
+                    "role": null,
+                    "source_document": "policy/refund-v3.pdf",
+                    "source_location": null,
+                    "source_quote": null,
+                    "timestamp": "2026-11-14T12:01:52.185727+00:00",
+                    "first_seen": "2026-11-14T12:01:52.185370+00:00",
+                    "last_updated": "2026-11-14T12:01:52.185699+00:00",
+                    "confidence": 1,
+                    "checksum": "14495311937635e9c123b0277ba67b56abfa184acfe24c672c11b0f6e00fde11",
+                    "sequence_id": 1,
+                    "previous_checksum": null,
+                    "parent_entity_id": null,
+                    "used_entities": [],
+                    "previous_version_id": null,
+                    "derived_from_id": null,
+                    "activity_started_at_time": null,
+                    "activity_ended_at_time": null,
+                    "acted_on_behalf_of": null,
+                    "informed_by_activities": [],
+                    "valid_from": null,
+                    "valid_until": null,
+                    "revision_type": null,
+                    "supersedes": null,
+                    "bundle_id": null,
+                    "invalidated": false,
+                    "invalidated_at_time": null,
+                    "invalidated_by": null,
+                    "invalidation_reason": null,
+                    "start_index": null,
+                    "end_index": null,
+                    "credibility": null,
+                    "metadata": {
+                      "tenant_id": "acme",
+                      "trace_id": "seed",
+                      "actor": "seed-script"
+                    },
+                    "version": "1.0"
+                  },
+                  {
+                    "entity_id": "acme:order:1001",
+                    "entity_type": "Order",
+                    "activity_id": "seed",
+                    "agent_id": "seed-script",
+                    "agent_type": "software_agent",
+                    "is_automated": true,
+                    "role": null,
+                    "source_document": "erp/orders/1001",
+                    "source_location": null,
+                    "source_quote": null,
+                    "timestamp": "2026-11-14T12:01:52.193951+00:00",
+                    "first_seen": "2026-11-14T12:01:52.193926+00:00",
+                    "last_updated": "2026-11-14T12:01:52.193938+00:00",
+                    "confidence": 1,
+                    "checksum": "93629e8ada99ea1588d95f6b01aec4c014dedd68e5960c126b0d81af82f912e1",
+                    "sequence_id": 3,
+                    "previous_checksum": "2276046c1f5e704bb206d16e6373701c870768db268fd874a781047b93ad7203",
+                    "parent_entity_id": null,
+                    "used_entities": [],
+                    "previous_version_id": null,
+                    "derived_from_id": null,
+                    "activity_started_at_time": null,
+                    "activity_ended_at_time": null,
+                    "acted_on_behalf_of": null,
+                    "informed_by_activities": [],
+                    "valid_from": null,
+                    "valid_until": null,
+                    "revision_type": null,
+                    "supersedes": null,
+                    "bundle_id": null,
+                    "invalidated": false,
+                    "invalidated_at_time": null,
+                    "invalidated_by": null,
+                    "invalidation_reason": null,
+                    "start_index": null,
+                    "end_index": null,
+                    "credibility": null,
+                    "metadata": {
+                      "tenant_id": "acme",
+                      "trace_id": "seed",
+                      "actor": "seed-script"
+                    },
+                    "version": "1.0"
+                  },
+                  {
+                    "entity_id": "acme:customer:42",
+                    "entity_type": "Customer",
+                    "activity_id": "seed",
+                    "agent_id": "seed-script",
+                    "agent_type": "software_agent",
+                    "is_automated": true,
+                    "role": null,
+                    "source_document": "crm/customers/42",
+                    "source_location": null,
+                    "source_quote": null,
+                    "timestamp": "2026-11-14T12:01:52.196952+00:00",
+                    "first_seen": "2026-11-14T12:01:52.196914+00:00",
+                    "last_updated": "2026-11-14T12:01:52.196935+00:00",
+                    "confidence": 1,
+                    "checksum": "5de5562a60417ba1c0cd4c8720d685babfdbd5e91f0691743327b42e246a57ed",
+                    "sequence_id": 4,
+                    "previous_checksum": "93629e8ada99ea1588d95f6b01aec4c014dedd68e5960c126b0d81af82f912e1",
+                    "parent_entity_id": null,
+                    "used_entities": [],
+                    "previous_version_id": null,
+                    "derived_from_id": null,
+                    "activity_started_at_time": null,
+                    "activity_ended_at_time": null,
+                    "acted_on_behalf_of": null,
+                    "informed_by_activities": [],
+                    "valid_from": null,
+                    "valid_until": null,
+                    "revision_type": null,
+                    "supersedes": null,
+                    "bundle_id": null,
+                    "invalidated": false,
+                    "invalidated_at_time": null,
+                    "invalidated_by": null,
+                    "invalidation_reason": null,
+                    "start_index": null,
+                    "end_index": null,
+                    "credibility": null,
+                    "metadata": {
+                      "tenant_id": "acme",
+                      "trace_id": "seed",
+                      "actor": "seed-script"
+                    },
+                    "version": "1.0"
+                  },
+                  {
+                    "entity_id": "acme:policy:premium",
+                    "entity_type": "Policy",
+                    "activity_id": "seed",
+                    "agent_id": "seed-script",
+                    "agent_type": "software_agent",
+                    "is_automated": true,
+                    "role": null,
+                    "source_document": "policy/premium-addendum.pdf",
+                    "source_location": null,
+                    "source_quote": null,
+                    "timestamp": "2026-11-14T12:01:52.191082+00:00",
+                    "first_seen": "2026-11-14T12:01:52.191047+00:00",
+                    "last_updated": "2026-11-14T12:01:52.191065+00:00",
+                    "confidence": 1,
+                    "checksum": "2276046c1f5e704bb206d16e6373701c870768db268fd874a781047b93ad7203",
+                    "sequence_id": 2,
+                    "previous_checksum": "14495311937635e9c123b0277ba67b56abfa184acfe24c672c11b0f6e00fde11",
+                    "parent_entity_id": null,
+                    "used_entities": [],
+                    "previous_version_id": null,
+                    "derived_from_id": null,
+                    "activity_started_at_time": null,
+                    "activity_ended_at_time": null,
+                    "acted_on_behalf_of": null,
+                    "informed_by_activities": [],
+                    "valid_from": null,
+                    "valid_until": null,
+                    "revision_type": null,
+                    "supersedes": null,
+                    "bundle_id": null,
+                    "invalidated": false,
+                    "invalidated_at_time": null,
+                    "invalidated_by": null,
+                    "invalidation_reason": null,
+                    "start_index": null,
+                    "end_index": null,
+                    "credibility": null,
+                    "metadata": {
+                      "tenant_id": "acme",
+                      "trace_id": "seed",
+                      "actor": "seed-script"
+                    },
+                    "version": "1.0"
+                  }
+                ],
+                "source_documents": [
+                  "policy/premium-addendum.pdf",
+                  "context-service:decision",
+                  "erp/orders/1001",
+                  "policy/refund-v3.pdf",
+                  "crm/customers/42"
+                ],
+                "first_seen": "2026-11-14T12:01:52.185370+00:00",
+                "last_updated": "2026-11-14T12:02:54.401551+00:00",
+                "entity_count": 5,
+                "metadata": {
+                  "tenant_id": "acme",
+                  "trace_id": "tr-rest-1794657774184",
+                  "actor": "mastra-agent:spike",
+                  "category": "refund_request",
+                  "evidence_ids": [
+                    "acme:policy:refund",
+                    "acme:order:1001",
+                    "acme:customer:42",
+                    "acme:policy:premium"
+                  ]
+                },
+                "integrity_verified": true
+              },
+              "chain": {
+                "valid": true,
+                "total_entries": 15,
+                "broken_links": []
+              },
+              "trace_id": "tr-rest-1794657774184",
+              "latency_ms": 7.52
+            }
+          }
+        ],
+        "text": ""
+      },
+      {
+        "tool_calls": [],
+        "tool_results": [],
+        "text": "Refund approved. Decision 8a587262-78c5-40f9-b0fc-c368acbf1c27 recorded with provenance; chain valid: true."
+      }
+    ]
+  },
+  "health": {
+    "status": "ok",
+    "pid": 16786,
+    "uptime_s": 45.94,
+    "graph": {
+      "nodes": 13,
+      "edges": 26,
+      "node_types": {
+        "Policy": 4,
+        "Order": 2,
+        "Customer": 2,
+        "decision": 3,
+        "category": 1,
+        "decision_maker": 1
+      },
+      "edge_types": {
+        "APPLIES_TO": 2,
+        "AUGMENTS": 1,
+        "PLACED_BY": 2,
+        "CONSTRAINS": 1,
+        "involves": 14,
+        "belongs_to": 3,
+        "made_by": 3
+      }
+    },
+    "save_seconds_last": 0.0027,
+    "data_dir": "/tmp/fdesforce-spike-5/data"
+  },
+  "decision_provenance": {
+    "entity_id": "8a587262-78c5-40f9-b0fc-c368acbf1c27",
+    "entry": {
+      "entity_id": "8a587262-78c5-40f9-b0fc-c368acbf1c27",
+      "entity_type": "decision",
+      "activity_id": "tr-rest-1794657774184",
+      "agent_id": "mastra-agent:spike",
+      "agent_type": "software_agent",
+      "is_automated": true,
+      "role": null,
+      "source_document": "context-service:decision",
+      "source_location": null,
+      "source_quote": null,
+      "timestamp": "2026-11-14T12:02:54.401567+00:00",
+      "first_seen": "2026-11-14T12:02:54.401530+00:00",
+      "last_updated": "2026-11-14T12:02:54.401551+00:00",
+      "confidence": 1,
+      "checksum": "a3d15b7bf4f00a75c7b854c7901430b8943fc34506969f76a93df16279feb354",
+      "sequence_id": 15,
+      "previous_checksum": "079f422b1970400b11c80caddf79a688ec79f890987701d32583142f38879f8a",
+      "parent_entity_id": null,
+      "used_entities": [
+        "acme:policy:refund",
+        "acme:order:1001",
+        "acme:customer:42",
+        "acme:policy:premium"
+      ],
+      "previous_version_id": null,
+      "derived_from_id": null,
+      "activity_started_at_time": null,
+      "activity_ended_at_time": null,
+      "acted_on_behalf_of": null,
+      "informed_by_activities": [],
+      "valid_from": null,
+      "valid_until": null,
+      "revision_type": null,
+      "supersedes": null,
+      "bundle_id": null,
+      "invalidated": false,
+      "invalidated_at_time": null,
+      "invalidated_by": null,
+      "invalidation_reason": null,
+      "start_index": null,
+      "end_index": null,
+      "credibility": null,
+      "metadata": {
+        "tenant_id": "acme",
+        "trace_id": "tr-rest-1794657774184",
+        "actor": "mastra-agent:spike",
+        "category": "refund_request",
+        "evidence_ids": [
+          "acme:policy:refund",
+          "acme:order:1001",
+          "acme:customer:42",
+          "acme:policy:premium"
+        ]
+      },
+      "version": "1.0"
+    },
+    "chain": {
+      "valid": true,
+      "total_entries": 15,
+      "broken_links": []
+    },
+    "trace_id": "tr-rest-1794657774184"
+  }
+}

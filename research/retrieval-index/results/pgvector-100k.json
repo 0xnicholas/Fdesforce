@@ -1,0 +1,125 @@
+{
+  "backend": "postgres+pgvector",
+  "dataset": "100k",
+  "versions": {
+    "postgres": "17",
+    "pgvector": "image pgvector/pgvector:pg17"
+  },
+  "index_params": {
+    "hnsw": {
+      "m": 16,
+      "ef_construction": 64,
+      "ef_search": 100
+    },
+    "gin": "tsvector('english')"
+  },
+  "query_params": {
+    "candidate_k": 50,
+    "rrf_k": 60,
+    "expand_anchors": 5,
+    "expand_limit": 40
+  },
+  "cold_start_s": 5.0,
+  "warmup": 100,
+  "measured": 500,
+  "load": {
+    "nodes": 100000,
+    "edges": 500000,
+    "ingest_nodes_s": 55.968,
+    "ingest_edges_s": 1.159,
+    "index_tenant_s": 0.126,
+    "index_hnsw_s": 105.563,
+    "index_gin_s": 3.726,
+    "index_edges_s": 0.692
+  },
+  "modes": {
+    "keyword": {
+      "latency_ms": {
+        "n": 500,
+        "p50": 1.801,
+        "p95": 3.231,
+        "p99": 5.41,
+        "max": 11.787,
+        "mean": 2.03,
+        "qps": 492.7,
+        "p50_ms": 1.801
+      },
+      "recall_at_10": 1.0,
+      "failures": 0,
+      "end_to_end": {
+        "latency_ms": {
+          "n": 200,
+          "p50": 10.36,
+          "p95": 18.615,
+          "p99": 28.655,
+          "max": 50.643,
+          "mean": 11.654,
+          "qps": 85.8,
+          "p50_ms": 10.36
+        }
+      }
+    },
+    "vector": {
+      "latency_ms": {
+        "n": 500,
+        "p50": 16.377,
+        "p95": 97.331,
+        "p99": 272.101,
+        "max": 1025.3,
+        "mean": 30.497,
+        "qps": 32.8,
+        "p50_ms": 16.377
+      },
+      "recall_at_10": 0.0656,
+      "failures": 0,
+      "end_to_end": {
+        "latency_ms": {
+          "n": 200,
+          "p50": 27.101,
+          "p95": 34.852,
+          "p99": 50.832,
+          "max": 64.775,
+          "mean": 26.981,
+          "qps": 37.1,
+          "p50_ms": 27.101
+        }
+      }
+    },
+    "hybrid": {
+      "latency_ms": {
+        "n": 500,
+        "p50": 14.812,
+        "p95": 23.708,
+        "p99": 40.57,
+        "max": 133.036,
+        "mean": 15.471,
+        "qps": 64.6,
+        "p50_ms": 14.812
+      },
+      "recall_at_10": 0.5514,
+      "failures": 0,
+      "end_to_end": {
+        "latency_ms": {
+          "n": 200,
+          "p50": 31.557,
+          "p95": 56.888,
+          "p99": 69.68,
+          "max": 73.383,
+          "mean": 33.574,
+          "qps": 29.8,
+          "p50_ms": 31.557
+        }
+      }
+    }
+  },
+  "memory_mb": {
+    "peak": 206.2,
+    "idle": 204.2
+  },
+  "disk_mb": {
+    "/var/lib/postgresql/data": 1283.0,
+    "total": 1283.0
+  },
+  "db_size_mb": 668.0,
+  "generated_at": "2026-11-15T18:45:53+0800"
+}

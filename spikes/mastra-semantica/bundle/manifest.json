@@ -1,0 +1,78 @@
+{
+  "schema_version": "0.1.0",
+  "bundle": {
+    "name": "fde-customer-bundle",
+    "version": "0.1.0-spike",
+    "tenant_id": "acme"
+  },
+  "components": {
+    "mastra_app": {
+      "image": "node:22-bookworm-slim",
+      "command": [
+        "node",
+        "dist/main.js"
+      ],
+      "port": 4111,
+      "env": {
+        "CONTEXT_SERVICE_URL": "http://context-service:8011",
+        "DEFAULT_TENANT_ID": "acme"
+      },
+      "depends_on": [
+        "context_service"
+      ]
+    },
+    "context_service": {
+      "image": "python:3.12-slim",
+      "command": [
+        "uvicorn",
+        "app:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8011"
+      ],
+      "env": {
+        "SPIKE_DATA_DIR": "/data",
+        "PROVENANCE_VERIFY_ON_READ": "false"
+      },
+      "volumes": [
+        "context-data:/data"
+      ],
+      "healthcheck": {
+        "path": "/health",
+        "interval_s": 10,
+        "timeout_s": 3,
+        "startup_grace_s": 30
+      },
+      "resources": {
+        "cpu": "1",
+        "memory": "1Gi"
+      }
+    },
+    "graph_store": {
+      "type": "embedded-json",
+      "path": "/data/graph.json",
+      "note": "Prototype only; production must use Neo4j or another LPG with stable external ids."
+    },
+    "provenance_store": {
+      "type": "sqlite",
+      "path": "/data/provenance.db"
+    }
+  },
+  "secrets": [],
+  "migrations": [],
+  "observability": {
+    "trace_header": "X-Trace-Id",
+    "actor_header": "X-Actor",
+    "tenant_header": "X-Tenant-Id"
+  },
+  "missing_from_candidate": [
+    "Mastra -> context-service authentication (token/mTLS) and per-user authorization",
+    "bundle signing / checksum manifest and image digests for air-gapped installs",
+    "graph backend selection and credentials (Neo4j URI/user/password secret refs)",
+    "upgrade and rollback policy (bundle, graph schema, provenance schema)",
+    "TLS / network policy between bundle components",
+    "API contract version negotiation and compatibility checks",
+    "backup/restore and provenance retention policy"
+  ]
+}

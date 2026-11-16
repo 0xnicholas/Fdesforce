@@ -1,0 +1,19 @@
+{
+  "100": {
+    "verify_chain_ms": 8.68,
+    "valid": true,
+    "entries": 100
+  },
+  "1000": {
+    "verify_chain_ms": 47.51,
+    "valid": true,
+    "entries": 1100
+  },
+  "5000": {
+    "verify_chain_ms": 1074.02,
+    "valid": true,
+    "entries": 6100
+  },
+  "get_provenance_ms": 5.51,
+  "db_bytes": 3244032
+}

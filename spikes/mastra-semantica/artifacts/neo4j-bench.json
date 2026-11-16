@@ -1,0 +1,31 @@
+{
+  "nodes": 500,
+  "relationships": 1000,
+  "create_nodes_s": 5.808,
+  "create_relationships_s": 15.113,
+  "get_neighbors_p50_ms": 11.48,
+  "get_neighbors_p95_ms": 39.57,
+  "stats": {
+    "node_count": 500,
+    "relationship_count": 995,
+    "label_counts": {
+      "Entity": 500
+    },
+    "relationship_type_counts": {
+      "RELATED": 995
+    }
+  },
+  "id_type": "int",
+  "sample_node": {
+    "id": 4,
+    "labels": [
+      "Entity"
+    ],
+    "properties": {
+      "tenant_id": "bench",
+      "name": "entity 0",
+      "entity_id": "neo:n:0"
+    }
+  },
+  "note": "Neo4jStore identifies nodes by Neo4j internal integer id; entity_id is just a property."
+}

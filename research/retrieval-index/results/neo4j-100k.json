@@ -1,0 +1,166 @@
+{
+  "backend": "neo4j",
+  "dataset": "100k",
+  "versions": {
+    "neo4j": "5.26.0-community"
+  },
+  "container": {
+    "memory_limit": "6g",
+    "heap": "2g",
+    "pagecache": "512m"
+  },
+  "cold_start_s": 37.1,
+  "index_params": {
+    "fulltext_analyzer": "standard (default)",
+    "vector": {
+      "dimensions": 512,
+      "similarity": "cosine",
+      "hnsw": "defaults"
+    }
+  },
+  "query_params": {
+    "candidate_k": 50,
+    "vector_ann_k": 100,
+    "rrf_k": 60,
+    "expand_anchors": 5,
+    "expand_limit": 40
+  },
+  "warmup": 100,
+  "measured": 500,
+  "load": {
+    "nodes": 100000,
+    "edges": 500000,
+    "ingest_nodes_s": 133.641,
+    "ingest_edges_s": 29.492,
+    "index_fulltext_s": 3.736,
+    "index_vector_s": 34.617,
+    "index_total_s": 38.382
+  },
+  "modes": {
+    "keyword": {
+      "latency_ms": {
+        "n": 500,
+        "p50": 4.282,
+        "p95": 6.213,
+        "p99": 7.973,
+        "max": 10.736,
+        "mean": 4.48,
+        "qps": 223.2,
+        "p50_ms": 4.282
+      },
+      "recall_at_10": 1.0,
+      "embed_ms": {
+        "n": 500,
+        "p50": 0.0,
+        "p95": 0.0,
+        "p99": 0.0,
+        "max": 0.0,
+        "mean": 0.0,
+        "qps": 0.0,
+        "p50_ms": 0.0
+      },
+      "failures": 0,
+      "end_to_end": {
+        "latency_ms": {
+          "n": 200,
+          "p50": 8.627,
+          "p95": 13.476,
+          "p99": 16.925,
+          "max": 22.059,
+          "mean": 9.437,
+          "qps": 106.0,
+          "p50_ms": 8.627
+        },
+        "failures": 0
+      }
+    },
+    "vector": {
+      "latency_ms": {
+        "n": 500,
+        "p50": 21.039,
+        "p95": 25.607,
+        "p99": 29.058,
+        "max": 45.265,
+        "mean": 21.352,
+        "qps": 46.8,
+        "p50_ms": 21.039
+      },
+      "recall_at_10": 0.2174,
+      "embed_ms": {
+        "n": 500,
+        "p50": 0.261,
+        "p95": 0.379,
+        "p99": 0.797,
+        "max": 1.563,
+        "mean": 0.285,
+        "qps": 3507.8,
+        "p50_ms": 0.261
+      },
+      "failures": 0,
+      "end_to_end": {
+        "latency_ms": {
+          "n": 200,
+          "p50": 25.995,
+          "p95": 31.465,
+          "p99": 37.625,
+          "max": 49.236,
+          "mean": 26.509,
+          "qps": 37.7,
+          "p50_ms": 25.995
+        },
+        "failures": 0
+      }
+    },
+    "hybrid": {
+      "latency_ms": {
+        "n": 500,
+        "p50": 24.845,
+        "p95": 32.536,
+        "p99": 48.302,
+        "max": 117.809,
+        "mean": 25.788,
+        "qps": 38.8,
+        "p50_ms": 24.845
+      },
+      "recall_at_10": 0.6574,
+      "embed_ms": {
+        "n": 500,
+        "p50": 0.259,
+        "p95": 0.356,
+        "p99": 0.504,
+        "max": 13.398,
+        "mean": 0.301,
+        "qps": 3324.1,
+        "p50_ms": 0.259
+      },
+      "failures": 0,
+      "end_to_end": {
+        "latency_ms": {
+          "n": 200,
+          "p50": 29.402,
+          "p95": 37.558,
+          "p99": 40.296,
+          "max": 50.488,
+          "mean": 30.009,
+          "qps": 33.3,
+          "p50_ms": 29.402
+        },
+        "failures": 0
+      }
+    }
+  },
+  "memory_mb": {
+    "peak": 2584.6,
+    "idle": 2583.6
+  },
+  "disk_mb": {
+    "/data/databases": 847.0,
+    "/data/transactions": 1543.0,
+    "total": 2390.0
+  },
+  "counts": {
+    "nodes": 100000,
+    "edges": 500000
+  },
+  "generated_at": "2026-11-15T18:31:25+0800"
+}

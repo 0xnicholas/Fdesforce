@@ -1,0 +1,13 @@
+{
+  "backend": "neo4j",
+  "dataset": "500k",
+  "resumed_from_nodes": 310000,
+  "nodes_added": 190000,
+  "nodes_total": 500000,
+  "edges": 2500000,
+  "nodes_s": 426.598,
+  "edges_s": 241.978,
+  "index_fulltext_s": 26.227,
+  "index_vector_s": 209.68,
+  "generated_at": "2026-11-15T19:19:00+0800"
+}

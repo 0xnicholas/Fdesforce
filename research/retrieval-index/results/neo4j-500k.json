@@ -1,0 +1,168 @@
+{
+  "backend": "neo4j",
+  "dataset": "500k",
+  "versions": {
+    "neo4j": "5.26.0-community"
+  },
+  "container": {
+    "memory_limit": "7g",
+    "heap": "3g",
+    "pagecache": "1g"
+  },
+  "cold_start_s": null,
+  "index_params": {
+    "fulltext_analyzer": "standard (default)",
+    "vector": {
+      "dimensions": 512,
+      "similarity": "cosine",
+      "hnsw": "defaults"
+    }
+  },
+  "query_params": {
+    "candidate_k": 50,
+    "vector_ann_k": 100,
+    "rrf_k": 60,
+    "expand_anchors": 5,
+    "expand_limit": 40
+  },
+  "warmup": 30,
+  "measured": 100,
+  "load": {
+    "nodes": 500000,
+    "edges": 2500000,
+    "resumed_from_nodes": 310000,
+    "nodes_added": 190000,
+    "ingest_nodes_s": 426.598,
+    "ingest_edges_s": 241.978,
+    "index_fulltext_s": 26.227,
+    "index_vector_s": 209.68,
+    "note": "first 310k nodes loaded by an earlier run that hit the tool timeout; 190k resumed in ingest_nodes_s"
+  },
+  "modes": {
+    "keyword": {
+      "latency_ms": {
+        "n": 100,
+        "p50": 7.648,
+        "p95": 16.533,
+        "p99": 23.248,
+        "max": 42.265,
+        "mean": 9.391,
+        "qps": 106.5,
+        "p50_ms": 7.648
+      },
+      "recall_at_10": 1.0,
+      "embed_ms": {
+        "n": 100,
+        "p50": 0.0,
+        "p95": 0.0,
+        "p99": 0.0,
+        "max": 0.0,
+        "mean": 0.0,
+        "qps": 0.0,
+        "p50_ms": 0.0
+      },
+      "failures": 0,
+      "end_to_end": {
+        "latency_ms": {
+          "n": 50,
+          "p50": 34.741,
+          "p95": 48.607,
+          "p99": 58.047,
+          "max": 58.047,
+          "mean": 30.837,
+          "qps": 32.4,
+          "p50_ms": 34.741
+        },
+        "failures": 0
+      }
+    },
+    "vector": {
+      "latency_ms": {
+        "n": 100,
+        "p50": 62.321,
+        "p95": 78.191,
+        "p99": 94.715,
+        "max": 95.219,
+        "mean": 63.589,
+        "qps": 15.7,
+        "p50_ms": 62.321
+      },
+      "recall_at_10": 0.073,
+      "embed_ms": {
+        "n": 100,
+        "p50": 0.266,
+        "p95": 0.397,
+        "p99": 0.983,
+        "max": 4.446,
+        "mean": 0.33,
+        "qps": 3029.6,
+        "p50_ms": 0.266
+      },
+      "failures": 0,
+      "end_to_end": {
+        "latency_ms": {
+          "n": 50,
+          "p50": 80.268,
+          "p95": 100.929,
+          "p99": 118.71,
+          "max": 118.71,
+          "mean": 79.387,
+          "qps": 12.6,
+          "p50_ms": 80.268
+        },
+        "failures": 0
+      }
+    },
+    "hybrid": {
+      "latency_ms": {
+        "n": 100,
+        "p50": 62.886,
+        "p95": 72.788,
+        "p99": 77.018,
+        "max": 107.058,
+        "mean": 63.474,
+        "qps": 15.8,
+        "p50_ms": 62.886
+      },
+      "recall_at_10": 0.562,
+      "embed_ms": {
+        "n": 100,
+        "p50": 0.258,
+        "p95": 0.344,
+        "p99": 0.668,
+        "max": 0.726,
+        "mean": 0.275,
+        "qps": 3641.3,
+        "p50_ms": 0.258
+      },
+      "failures": 0,
+      "end_to_end": {
+        "latency_ms": {
+          "n": 50,
+          "p50": 70.697,
+          "p95": 92.583,
+          "p99": 103.35,
+          "max": 103.35,
+          "mean": 73.399,
+          "qps": 13.6,
+          "p50_ms": 70.697
+        },
+        "failures": 0
+      }
+    }
+  },
+  "memory_mb": {
+    "peak": 4163.6,
+    "idle": 4163.6
+  },
+  "disk_mb": {
+    "/data/databases": 4035.0,
+    "/data/transactions": 2309.0,
+    "total": 6344.0
+  },
+  "counts": {
+    "nodes": 500000,
+    "edges": 2500000
+  },
+  "generated_at": "2026-11-15T19:20:34+0800"
+}

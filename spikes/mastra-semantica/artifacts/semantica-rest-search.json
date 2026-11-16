@@ -1,0 +1,1 @@
+{"results":[{"node":{"id":"acme:policy:refund","type":"Policy","content":"Acme refund policy: refunds allowed within 30 days.","properties":{"tenant_id":"acme","source":"policy.pdf","content":"Acme refund policy: refunds allowed within 30 days."},"valid_from":null,"valid_until":null},"score":96.6,"hop_distance":null,"semantic_similarity":null}],"total":1,"query":"refund"}

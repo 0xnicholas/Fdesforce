@@ -1,0 +1,16 @@
+== missing tenant: HTTP 400
+{"error":{"code":"missing_tenant","message":"X-Tenant-Id is required","trace_id":null}}
+== missing actor: HTTP 400
+{"error":{"code":"missing_actor","message":"X-Actor is required","trace_id":null}}
+== cross-tenant entity read: HTTP 403
+{"error":{"code":"tenant_mismatch","entity_id":"acme:policy:refund","trace_id":"tr-fm-1"}}
+== unknown entity: HTTP 404
+{"error":{"code":"entity_not_found","entity_id":"acme:missing","trace_id":"tr-fm-2"}}
+== invalid confidence: HTTP 422
+{"detail":[{"type":"less_than_equal","loc":["body","confidence"],"msg":"Input should be less than or equal to 1","input":2,"ctx":{"le":1.0}}]}
+== unknown provenance: HTTP 404
+{"error":{"code":"provenance_not_found","entity_id":"nope","trace_id":"tr-fm-4"}}
+== globex retrieval: HTTP 200
+{"items":[{"entity_id":"globex:policy:refund","type":"Policy","content":"Globex refund policy: 14 days, no exceptions.","score":1.0,"hop":0,"source":"globex/policy/refund-v1.pdf"},{"entity_id":"globex:order:9001","type":"Order","content":"Globex order 9001 delivered 2026-11-01; standard tier.","score":1.0,"hop":1,"source":"globex/erp/orders/9001"}],"provenance":[{"entity_id":"globex:policy:refund","source_document":"globex/policy/refund-v1.pdf","checksum":"23cfcad954049927d940d5863f9432b20f85e1f
+== acme retrieval other tenant marker: HTTP 200
+{"items":[{"entity_id":"acme:policy:refund","type":"Policy","content":"Acme refund policy: refunds allowed within 30 days of delivery; exceptions require manager approval.","score":0.5,"hop":0,"source":"policy/refund-v3.pdf"},{"entity_id":"acme:order:1001","type":"Order","content":"Order 1001 delivered 2026-10-01; customer tier premium; total $420.","score":1.0,"hop":1,"source":"erp/orders/1001"},{"entity_id":"acme:policy:premium","type":"Policy","content":"Acme premium customers get a 45-day re

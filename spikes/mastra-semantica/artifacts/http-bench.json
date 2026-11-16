@@ -1,0 +1,29 @@
+[
+  {
+    "name": "retrieve",
+    "n": 200,
+    "p50_ms": 15.02,
+    "p95_ms": 17.01,
+    "p99_ms": 120.42,
+    "max_ms": 127.01,
+    "server_reported_p50_ms": 12.46
+  },
+  {
+    "name": "decision",
+    "n": 50,
+    "p50_ms": 11.76,
+    "p95_ms": 17.4,
+    "p99_ms": 20.23,
+    "max_ms": 20.23,
+    "server_reported_p50_ms": 9.21
+  },
+  {
+    "name": "provenance",
+    "n": 100,
+    "p50_ms": 19.27,
+    "p95_ms": 32.39,
+    "p99_ms": 314.58,
+    "max_ms": 314.58,
+    "server_reported_p50_ms": 15.32
+  }
+]

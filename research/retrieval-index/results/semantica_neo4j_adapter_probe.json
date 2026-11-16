@@ -1,0 +1,37 @@
+{
+  "backend": "semantica_neo4j_store",
+  "semantica_version": "0.7.0",
+  "sequential_create_nodes_s": 11.153,
+  "sequential_create_nodes_per_s": 44.8,
+  "sequential_create_relationships_s": 15.353,
+  "sequential_create_relationships_count": 995,
+  "sequential_create_relationships_per_s": 64.8,
+  "get_neighbors_1hop_ms": {
+    "p50": 9.862,
+    "p95": 20.163
+  },
+  "create_nodes_batch_500_s": 5.386,
+  "id_semantics": {
+    "returned_id_type": "int",
+    "returned_id": 0,
+    "entity_id_property": "probe:n:0",
+    "relationship_lookup_by_entity_id": "ProcessingError: Failed to create relationship: Failed to create relationship - nodes not found",
+    "get_neighbors_argument": "internal integer id",
+    "get_neighbors_by_entity_id": "unexpected success"
+  },
+  "create_index_vector": "created a non-vector index (unexpected semantic)",
+  "bulk_unwind_nodes_s": 20.536,
+  "bulk_unwind_nodes": 100000,
+  "bulk_unwind_nodes_per_s": 4869.5,
+  "bulk_unwind_edges_s": 121.072,
+  "bulk_unwind_edges": 500000,
+  "bulk_unwind_edges_per_s": 4129.8,
+  "memory_peak_mb": 1536.0,
+  "extrapolation": {
+    "adapter_100k_nodes_minutes": 37.2,
+    "adapter_500k_edges_minutes": 128.6,
+    "bulk_100k_nodes_minutes": 0.34,
+    "bulk_500k_edges_minutes": 2.02
+  },
+  "generated_at": "2026-11-15T18:02:52+0800"
+}

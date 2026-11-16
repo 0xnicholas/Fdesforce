@@ -1,0 +1,136 @@
+{
+  "backend": "semantica-embedded",
+  "dataset": "10k",
+  "versions": {
+    "semantica": "0.7.0",
+    "python": "3.12.12"
+  },
+  "backend_notes": {
+    "query": "ContextGraph.query: full scan over nodes, substring match on content",
+    "expansion": "get_neighbors: BFS over outgoing adjacency only"
+  },
+  "warmup": 20,
+  "measured": 300,
+  "ingest": {
+    "nodes_s": 0.141,
+    "edges_s": 3.607,
+    "rss_mb": 301.1
+  },
+  "counts": {
+    "nodes": 10000,
+    "edges": 50000,
+    "node_types": {
+      "Policy": 1107,
+      "Claim": 1116,
+      "Customer": 1092,
+      "Contract": 1123,
+      "Document": 1104,
+      "Product": 1124,
+      "Incident": 1124,
+      "Agent": 1112,
+      "Workflow": 1098
+    },
+    "edge_types": {
+      "appliesTo": 1843,
+      "covers": 1831,
+      "documents": 5532,
+      "mentions": 3671,
+      "hasPolicy": 1870,
+      "assignedTo": 3714,
+      "relatesTo": 8247,
+      "hasContract": 1874,
+      "binds": 1921,
+      "causedBy": 1889,
+      "affects": 1830,
+      "handledBy": 3744,
+      "escalatesTo": 3683,
+      "triggers": 1863,
+      "includes": 1848,
+      "owns": 1800,
+      "coveredBy": 2840
+    }
+  },
+  "modes": {
+    "keyword": {
+      "latency_ms": {
+        "n": 300,
+        "p50": 17.357,
+        "p95": 46.673,
+        "p99": 178.904,
+        "max": 203.464,
+        "mean": 23.908,
+        "qps": 41.8,
+        "p50_ms": 17.357
+      },
+      "recall_at_10": 1.0
+    },
+    "paraphrase": {
+      "latency_ms": {
+        "n": 300,
+        "p50": 60.697,
+        "p95": 287.32,
+        "p99": 406.24,
+        "max": 476.928,
+        "mean": 97.671,
+        "qps": 10.2,
+        "p50_ms": 60.697
+      },
+      "recall_at_10": 0.0373
+    },
+    "expand_2hop_from_5": {
+      "latency_ms": {
+        "n": 200,
+        "p50": 0.392,
+        "p95": 0.863,
+        "p99": 3.31,
+        "max": 10.08,
+        "mean": 0.559,
+        "qps": 1787.9,
+        "p50_ms": 0.392
+      }
+    }
+  },
+  "snapshot": {
+    "save_s": 1.033,
+    "load_s": 3.734,
+    "size_mb": 18.85,
+    "reloaded": {
+      "nodes": 10000,
+      "edges": 50000,
+      "node_types": {
+        "Policy": 1107,
+        "Claim": 1116,
+        "Customer": 1092,
+        "Contract": 1123,
+        "Document": 1104,
+        "Product": 1124,
+        "Incident": 1124,
+        "Agent": 1112,
+        "Workflow": 1098
+      },
+      "edge_types": {
+        "appliesTo": 1843,
+        "covers": 1831,
+        "documents": 5532,
+        "mentions": 3671,
+        "hasPolicy": 1870,
+        "assignedTo": 3714,
+        "relatesTo": 8247,
+        "hasContract": 1874,
+        "binds": 1921,
+        "causedBy": 1889,
+        "affects": 1830,
+        "handledBy": 3744,
+        "escalatesTo": 3683,
+        "triggers": 1863,
+        "includes": 1848,
+        "owns": 1800,
+        "coveredBy": 2840
+      }
+    }
+  },
+  "memory_mb": {
+    "peak_rss": 368.2
+  },
+  "generated_at": "2026-11-15T18:07:37+0800"
+}

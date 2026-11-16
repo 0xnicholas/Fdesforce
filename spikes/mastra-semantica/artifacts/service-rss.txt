@@ -1,0 +1,2 @@
+  PID    RSS ELAPSED COMMAND
+18677 212012   00:07 /Library/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python -m uvicorn app:app --host 127.0.0.1 --port 8011 --log-level warning

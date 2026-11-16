@@ -1,0 +1,33 @@
+{
+  "nodes": 10000,
+  "edges": 50000,
+  "build_nodes_s": 0.057,
+  "build_edges_s": 4.86,
+  "query_p50_ms": 61.444,
+  "query_p95_ms": 245.683,
+  "neighbors_2hop_p50_ms": 0.096,
+  "neighbors_2hop_p95_ms": 0.322,
+  "save_s": 1.377,
+  "save_mb": 14.59,
+  "load_s": 5.96,
+  "record_2k_decisions_s": 0.96,
+  "rss_mb": 263.5,
+  "graph_after_decisions": {
+    "nodes": 12002,
+    "edges": 55999,
+    "node_types": {
+      "Policy": 3334,
+      "Order": 3333,
+      "Customer": 3333,
+      "decision": 2000,
+      "category": 1,
+      "decision_maker": 1
+    },
+    "edge_types": {
+      "RELATED": 49999,
+      "involves": 2000,
+      "belongs_to": 2000,
+      "made_by": 2000
+    }
+  }
+}

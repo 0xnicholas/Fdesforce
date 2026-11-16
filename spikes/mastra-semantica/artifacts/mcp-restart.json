@@ -1,0 +1,36 @@
+{
+  "summary": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\n  \"node_count\": 5,\n  \"decision_count\": 1,\n  \"graph_ready\": true\n}"
+      }
+    ]
+  },
+  "decisions": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\n  \"decisions\": [\n    {\n      \"id\": \"7f98fb74-6fc6-4a88-9e9a-f35e8858104f\",\n      \"type\": \"decision\",\n      \"content\": \"MCP control: premium customer asks for refund after 31 days.\",\n      \"metadata\": {\n        \"category\": \"refund_request\",\n        \"outcome\": \"approve_refund\",\n        \"confidence\": 0.8,\n        \"timestamp\": 1794657840.095323,\n        \"scenario\": \"MCP control: premium customer asks for refund after 31 days.\",\n        \"decision_maker\": \"mcp-agent:control\",\n        \"reasoning\": \"MCP graph has its own isolated copy of the policy.\",\n        \"recorded_at\": \"2026-11-14T12:04:00.095356\",\n        \"content\": \"MCP control: premium customer asks for refund after 31 days.\"\n      }\n    }\n  ]\n}"
+      }
+    ]
+  },
+  "tools": [
+    "semantica_add_entity",
+    "semantica_add_relationship",
+    "semantica_delete_node",
+    "semantica_export_graph",
+    "semantica_extract_entities",
+    "semantica_extract_relations",
+    "semantica_find_precedents",
+    "semantica_get_causal_chain",
+    "semantica_get_graph_analytics",
+    "semantica_get_graph_summary",
+    "semantica_query_decisions",
+    "semantica_query_graph",
+    "semantica_record_decision",
+    "semantica_run_reasoning",
+    "semantica_update_node"
+  ],
+  "has_provenance": false
+}

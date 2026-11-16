@@ -1,0 +1,148 @@
+{
+  "backend": "qdrant+neo4j",
+  "dataset": "10k",
+  "versions": {
+    "qdrant": "1.12.5",
+    "qdrant-client": "1.20.0"
+  },
+  "collection": "fde_entities_10k",
+  "index_params": {
+    "dimension": 512,
+    "distance": "cosine",
+    "hnsw": {
+      "m": 16,
+      "ef_construct": 100,
+      "ef_search": 128
+    },
+    "payload_indexes": [
+      "tenant_id",
+      "type"
+    ]
+  },
+  "query_params": {
+    "candidate_k": 50,
+    "rrf_k": 60,
+    "expand_anchors": 5,
+    "expand_limit": 40
+  },
+  "cold_start_s": 0.15,
+  "warmup": 50,
+  "measured": 500,
+  "load": {
+    "points": 10000,
+    "upsert_s": 2.642,
+    "settle_s": 0.018,
+    "status": "green",
+    "optimizer_status": "ok"
+  },
+  "modes": {
+    "vector": {
+      "latency_ms": {
+        "n": 500,
+        "p50": 8.043,
+        "p95": 10.828,
+        "p99": 14.005,
+        "max": 96.346,
+        "mean": 8.681,
+        "qps": 115.2,
+        "p50_ms": 8.043
+      },
+      "recall_at_10": 0.3506,
+      "embed_ms": {
+        "n": 50,
+        "p50": 0.155,
+        "p95": 0.378,
+        "p99": 1.424,
+        "max": 1.424,
+        "mean": 0.198,
+        "qps": 5048.8,
+        "p50_ms": 0.155
+      },
+      "failures": 0,
+      "end_to_end": {
+        "latency_ms": {
+          "n": 200,
+          "p50": 13.251,
+          "p95": 18.908,
+          "p99": 23.728,
+          "max": 28.968,
+          "mean": 14.081,
+          "qps": 71.0,
+          "p50_ms": 13.251
+        }
+      }
+    },
+    "keyword": {
+      "latency_ms": {
+        "n": 500,
+        "p50": 3.592,
+        "p95": 4.867,
+        "p99": 6.297,
+        "max": 8.217,
+        "mean": 3.77,
+        "qps": 265.3,
+        "p50_ms": 3.592
+      },
+      "recall_at_10": 1.0,
+      "embed_ms": {},
+      "failures": 0,
+      "end_to_end": {
+        "latency_ms": {
+          "n": 200,
+          "p50": 8.768,
+          "p95": 11.061,
+          "p99": 16.527,
+          "max": 30.51,
+          "mean": 9.23,
+          "qps": 108.3,
+          "p50_ms": 8.768
+        }
+      }
+    },
+    "hybrid": {
+      "latency_ms": {
+        "n": 500,
+        "p50": 11.995,
+        "p95": 16.866,
+        "p99": 22.17,
+        "max": 30.771,
+        "mean": 12.739,
+        "qps": 78.5,
+        "p50_ms": 11.995
+      },
+      "recall_at_10": 0.7788,
+      "embed_ms": {
+        "n": 50,
+        "p50": 0.134,
+        "p95": 0.164,
+        "p99": 0.296,
+        "max": 0.296,
+        "mean": 0.141,
+        "qps": 7101.9,
+        "p50_ms": 0.134
+      },
+      "failures": 0,
+      "end_to_end": {
+        "latency_ms": {
+          "n": 200,
+          "p50": 16.656,
+          "p95": 21.383,
+          "p99": 22.998,
+          "max": 25.588,
+          "mean": 17.2,
+          "qps": 58.1,
+          "p50_ms": 16.656
+        }
+      }
+    }
+  },
+  "memory_mb": {
+    "peak": 578.9,
+    "idle": 342.1
+  },
+  "disk_mb": {
+    "/qdrant/storage": 48.0,
+    "total": 48.0
+  },
+  "generated_at": "2026-11-15T18:23:56+0800"
+}

@@ -1,0 +1,20 @@
+{
+  "name": "mastra-semantica-spike",
+  "version": "1.0.0",
+  "description": "Deterministic Mastra agent that calls the Semantica context service over REST, plus MCP control",
+  "main": "index.js",
+  "scripts": {
+    "rest": "node rest-path.mjs",
+    "mcp": "node mcp-path.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "@mastra/core": "^1.83.0",
+    "@mastra/mcp": "^2.9.0",
+    "ai": "^7.0.173",
+    "zod": "^4.6.7"
+  }
+}
