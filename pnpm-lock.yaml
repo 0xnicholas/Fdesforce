@@ -33,6 +33,16 @@ importers:
         specifier: ^2.9.1
         version: 2.9.1
 
+  packages/runtime-generator:
+    dependencies:
+      '@fde/spec':
+        specifier: workspace:*
+        version: link:../spec
+    devDependencies:
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
+
   packages/spec:
     dependencies:
       zod:

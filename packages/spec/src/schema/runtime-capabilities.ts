@@ -19,6 +19,18 @@ export const DurabilityModeSchema = z.enum(['sync', 'async', 'exit']);
 export const ExtensionArtifactKindSchema = z.enum(['ts-package', 'python-wheel', 'http']);
 export const TopologyModeSchema = z.enum(['split', 'merged-container', 'agent-server']);
 
+/**
+ * The contract's own enumeration order, exported so a normalizer can canonicalize
+ * a declaration without keeping a second copy of the order. `capabilities()`
+ * sorts by these (see `@fde/runtime-generator`), which is why they are data, not
+ * an implementation detail of the Zod schema.
+ */
+export const SUPPORT_LEVELS = SupportSchema.options;
+export const STATE_STORE_KINDS = StateStoreKindSchema.options;
+export const DURABILITY_MODES = DurabilityModeSchema.options;
+export const EXTENSION_ARTIFACT_KINDS = ExtensionArtifactKindSchema.options;
+export const TOPOLOGY_MODES = TopologyModeSchema.options;
+
 export const LimitationsSchema = z
   .array(z.string().min(1).max(300))
   .max(10)

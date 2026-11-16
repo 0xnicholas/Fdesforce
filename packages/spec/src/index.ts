@@ -14,8 +14,13 @@ export {
   CAPABILITY_GROUPS,
   CapabilityDetailsSchema,
   CapabilityNodeSchema,
+  DURABILITY_MODES,
+  EXTENSION_ARTIFACT_KINDS,
   RuntimeCapabilitiesSchema,
+  STATE_STORE_KINDS,
+  SUPPORT_LEVELS,
   SupportSchema,
+  TOPOLOGY_MODES,
 } from './schema/runtime-capabilities.js';
 export type {
   CapabilityDetails,

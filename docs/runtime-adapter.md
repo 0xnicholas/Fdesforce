@@ -368,6 +368,13 @@ Schema：
 | Profile `topology.modes` 不含 `split` | v0 只选择 `split` | error |
 | Profile `topology.modes` 含 `merged-container` / `agent-server` | v0 build 只选择 `split`；其他 mode 不渲染并产生 warning | warning |
 
+实现补充（[#26](https://github.com/0xnicholas/Fdesforce/issues/26)，与上表一起生效）：
+
+- `approval` step 除 `interrupt / resume / approvalResource / consume` 外还要求 `hitl.expiry`：step 声明了 `expiresAfter`，生成物必须能调度到期处理（A7）。
+- Agent 声明 `memory.thread` 时，除 `memory.thread` 外还要求 `stateStore`：thread memory 落在 runtime state store 里（A12）；`longTerm` 由平台 `fde_memory` 承担，不要求 runtime state store。
+- 任意声明的 Tool（含只读）都要求 `tools.native` 或 `tools.connectorOperations`：上表只写副作用 Tool 的 record-before-act，能力矩阵的"声明 tools 即 must"同样成立。
+- 离线目标遇到 `licensing.requiresLicenseKey: true` 一律 `runtime_license_blocked`：v0 的 Solution Spec 尚无 `licenseRef` 字段，没有可满足的路径（A10）。
+
 ### 7.2 `spec.build.requirements`
 
 只允许封闭集合，默认不写：
@@ -397,6 +404,7 @@ build:
 | `runtime_profile_mismatch` | Profile 的 family/language/contract 与 lock 不一致 | build fail |
 | `runtime_capability_missing` | `must` 要求的能力为 `none` | build fail |
 | `runtime_capability_degraded` | `must` 要求的能力为 `degraded` | build fail |
+| `runtime_capability_inconsistent` | 组级 `support` 强于子项（如 `hitl.support: native` 而 `hitl.consume: degraded`），或组级 `degraded` 未带 `limitations` | build fail |
 | `runtime_extension_unsupported` | artifact kind 或 runtime compatibility 不匹配 | build fail |
 | `runtime_state_store_unsupported` | Environment 选择的 state store 不在 `kinds` | build fail |
 | `runtime_topology_unsupported` | 需要 split 但 Profile 不含 `split` | build fail |
@@ -411,6 +419,8 @@ build:
 
 - **无 `--force`、无 waiver（v0）**。要过门禁只能改 Spec、Profile、Environment 或 Extension。
 - `should` 的 `degraded / none` 产生 warning，写入 build provenance；不静默。
+- 组级一致性只比较 build 可见的三档（满足 / `degraded` / `none`）：§5.2 中 `native` 与 `adapter` 都"满足"，因此互不比强弱（参考 Profile 的 `durableWorkflow: native` 搭配 `autoResume: adapter` 是合法声明）；组级不得掩盖子项的 `degraded / none`。
+- 两个 warning 码（不阻塞 build）：`runtime_topology_unused_mode`（Profile 声明了 v0 不渲染的 mode，§8.3）、`runtime_connector_operation_untyped`（`connectorRef` 的 typed operation 已声明，但既无 input/output schema、Tool 也未自行 pin schema，GAP-1）。
 - `RuntimeValidationResult.requirements` 记录每条要求的 `capability / level / source`，build provenance 同时记录 Profile digest、generator 版本、解析后的要求和 warnings。
 - 运行时启动再握手一次；build 通过不等于运行时可服务。
 

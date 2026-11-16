@@ -18,6 +18,7 @@ crosses a process boundary.
 | `platform/` | Vendored platform artifacts: Templates, Overlays, Extensions, Model/Runtime Profiles and the pinned toolchain. The offline stand-in for the template registry. |
 | `prototype/` | Throwaway prototype kept as a consistency checkbed (not a deliverable). |
 | `packages/spec` | `@fde/spec` — Solution Spec / lock / Runtime Profile / Capabilities / Bundle Topology / Model Profile schemas (Zod), the exported JSON Schema, cross-document validation and topology invariants. |
+| `packages/runtime-generator` | `@fde/runtime-generator` — the build-time `RuntimeGenerator` port, Runtime Profile content addressing, `must/should` derivation and the fail-closed capability gate. |
 | `packages/cli` | `@fde/cli` — the `fde` command: `spec init`, `spec validate`, `spec lock`, `spec lock --check`. |
 | `packages/contracts-client` | `@fde/contracts-client` — TypeScript wire types and clients generated from `contracts/`. Nothing in `src/generated/` is hand-written. |
 
@@ -46,6 +47,7 @@ generated: change `contracts/`, then run `pnpm generate`.
 
 Slice 1「配置 → 部署 → 只读闭环」is in progress (`docs/architecture-synthesis.md`
 §5). Landed so far: the monorepo scaffold, the schema/validation layer (#24), the
-contract-derived client, and the `fde spec init/validate/lock` command chain
-(#25). The Mastra generator, the Compose renderer and context-service are
-separate tickets.
+contract-derived client, the `fde spec init/validate/lock` command chain (#25),
+and the `RuntimeGenerator` port with the Runtime Profile artifact and its
+fail-closed capability gate (#26). The Mastra generator, the Compose renderer and
+context-service are separate tickets.

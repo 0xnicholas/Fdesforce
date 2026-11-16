@@ -1,0 +1,27 @@
+{
+  "name": "@fde/runtime-generator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The build-time RuntimeGenerator port, Runtime Profile content addressing and the fail-closed runtime capability gate.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@fde/spec": "workspace:*"
+  },
+  "devDependencies": {
+    "yaml": "^2.9.1"
+  }
+}

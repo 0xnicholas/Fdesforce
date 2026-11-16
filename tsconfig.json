@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "./packages/spec" },
+    { "path": "./packages/runtime-generator" },
     { "path": "./packages/contracts-client" },
     { "path": "./packages/cli" }
   ]
