@@ -3,7 +3,7 @@
 > 状态：决策稿，对应 ticket「语义建模与上下文组装方法」。
 > 范围：v0 单客户 bundle；不做多租户托管、首客场景、可视化 Builder。
 > 术语：见 [`GLOSSARY.md`](../GLOSSARY.md)。领域模型见 [`domain-model.md`](domain-model.md)，运行时接缝见 [`runtime-contract.md`](runtime-contract.md)。
-> 契约版本：`fde.runtime/v1`。示例工件见 [`examples/semantic/`](../examples/semantic/)。
+> 契约版本：`fde.runtime/v1.2.0`。示例工件见 [`examples/semantic/`](../examples/semantic/)。
 
 本文定义 FDE 如何从客户的数据与业务知识中构建可用的语义模型，如何把它打包成可复用的 **Customer Context Package**，以及 Agent 在运行时如何组装正确的上下文。
 
@@ -560,13 +560,13 @@ sequenceDiagram
 
 1. **源端下推**：Connector 把 `rowFilter`、列投影、dataset 限制下推到客户数据源；这是第一道防线。
 2. **context-service 强制**：从 `ExecutionContext` 注入 tenant/subject/roles/scopes；编译 Recipe 过滤器；对返回 item 应用 mask；丢掉未授权 item。Recipe 不能覆盖。
-3. **审计**：Decision 记录 `policy_evaluations`、`redaction_applied`、`classification`、`retention_class`；审计库只存引用/摘要，不存明文 PII。
+3. **审计**：Decision 记录 `policy_evaluations`、`redaction_applied`、`classification`、`retention_class`；审计库只存引用/摘要，不存明文 PII。Retrieval 响应返回每个 item 的 `classification` 和数据策略 `policy_evaluations`；context-service 在 Decision 写入时服务端追加 authoritative 结果（见 [`decision-audit-binding.md`](decision-audit-binding.md) §5）。
 4. **默认拒绝**：未分类字段 = restricted；无法下推/无法 mask 时 fail closed，不能“先返回再过滤”。
 
 ### 7.3 边界
 
 - 角色词表、IdP/SSO、客户管理员权限、审批人角色由「客户环境内的身份、权限与部署」决定；本文只定注解格式和强制点。
-- PII 保留期、legal hold、分类词表由「评测、验收与可观测性」与身份 ticket 共同决定。
+- PII 保留期、legal hold、分类词表已由[评测、验收与可观测性](evaluation-and-observability.md)定默认值；身份/RBAC 词表由「客户环境内的身份、权限与部署」决定。
 - 文档抽取的 PII 在 ingest 时分类；检索时 mask；审计不存完整文档内容。
 
 ## 8. 客户环境内的运维
@@ -595,7 +595,7 @@ sequenceDiagram
 - v0 交互上限：**10k 节点 / 50k 边**；超过返回 `degraded=true` + `reason=scale_limit`。
 - 默认资源：context-service 0.5 CPU / 1 GiB；mastra-app 1 CPU / 1 GiB；卷按规模预留。
 - 单写者：context-service 不能多副本；mastra-app 不能多副本共享 `mastra-state`。
-- 生产索引/图存储由「生产检索索引与 100k+ 规模上限」决定；本票不承诺 100k+。
+- 生产检索后端已由「生产检索索引与 100k+ 规模上限」定为 Postgres 17 + pgvector（Recipe 的 stage 接口不变，只替换 `GraphStore`/索引实现）；100k/500k p95 实测留作实施阶段 gate，本票不承诺 100k+。
 
 ### 8.4 监控
 
@@ -624,7 +624,7 @@ sequenceDiagram
 
 ### 9.1 定义
 
-上下文质量 = **在预算内拿到正确事实，并且可追溯、不过期、不隐藏冲突**。它不等于答案质量；答案质量由「评测、验收与可观测性」定义。
+上下文质量 = **在预算内拿到正确事实，并且可追溯、不过期、不隐藏冲突**。它不等于答案质量；答案质量由[评测、验收与可观测性](evaluation-and-observability.md)定义。
 
 ### 9.2 离线 Context Eval
 
@@ -669,22 +669,22 @@ spec:
 
 ### 9.3 在线抽样
 
-- 按 Run 采样（例如 5%），人工/LLM judge 检查 groundedness、引用、时效、冲突。
-- 记录空结果率、degraded 率、人工修正率；修正进入下一轮 CCP 版本。
-- 生产日志不回流工作台；抽样在客户环境完成，只回传脱敏指标。
+- 确定性监控覆盖 100% Run；LLM judge 默认按 2% 抽样（可配 0–10%），按 trace ID 确定性采样，检查 groundedness、引用、时效、冲突。
+- 人工每月抽检 20–50 条 Run；P1/P2 事故窗口 100% 复核。记录空结果率、degraded 率、人工修正率；修正进入下一轮 CCP 版本。
+- 生产日志不回流工作台；抽样和评分在客户环境完成，只回传脱敏指标。完整规则见[评测、验收与可观测性](evaluation-and-observability.md) §7。
 
 ### 9.4 Gate
 
 - CCP `freeze` 必须通过 context eval；不达标不能冻结。
 - Recipe 变更、mapping 变更、ontology major 变更都必须重跑。
 - 失败可以用 Waiver 放行，但必须有理由、审批人和有效期；Waiver 是一条 Decision。
-- 整体评测架构、答案级指标、数据集污染控制由「评测、验收与可观测性」承接；本文只定 context eval 的口径。
+- 整体评测架构、答案级指标、数据集污染控制已由[评测、验收与可观测性](evaluation-and-observability.md)定稿；Context Eval 是 L1，答案级是 L2。本文只定 context eval 的口径。
 
 ### 9.5 数据集来源
 
 - 业务专家编写 + 历史案例脱敏；合成数据只用于边缘案例。
 - golden questions 不包含生产数据；期望事实用稳定 entity ID/业务 key。
-- 评测集版本化，随 CCP 版本冻结；变更走新版本。
+- 评测集版本化，随 CCP 版本冻结；变更走新版本。来源配额、`dev`/`holdout`/`regression` 分区、holdout ACL 和重复检测见[评测、验收与可观测性](evaluation-and-observability.md) §4；生产日志不自动回流。
 
 ## 10. 参考场景走查
 
@@ -695,7 +695,7 @@ spec:
 - Customer `acme`；Solution `claims-triage`；Capability `document-triage`。
 - Context Sources：`claims-db`（结构化，staleAfter 1h）、`sharepoint-claims`（文档，staleAfter 24h）。
 - CCP：`acme-claims-context@1.0.0`，包含 `insurance-claims@1.0.0` + Acme 扩展、mapping、`claims-context` Recipe、权限 baseline、context eval。
-- Solution Spec pin `customerContextPackage: 1.0.0@sha256:...`。
+- Solution Spec 用 `contextPackageRef: acme-claims-context@^1.0.0` 引用；`solution.lock` pin 精确版本与 digest（`1.0.0@sha256:...`）。
 
 **建模**
 
@@ -755,8 +755,8 @@ sequenceDiagram
 
 - 首客/垂直场景、多租户、可视化 Builder、客户交付 SOP：地图已排除。
 - 身份/RBAC/IdP 词表：归「客户环境内的身份、权限与部署」。
-- 生产图存储/索引/100k+：归「生产检索索引与 100k+ 规模上限」。
-- 答案级评测/可观测性基础设施：归「评测、验收与可观测性」。
+- 生产图存储/索引：已由「生产检索索引与 100k+ 规模上限」定为 Postgres 17 + pgvector；100k/500k p95 实测留作实施阶段 gate。
+- 答案级评测/可观测性基础设施：已由[评测、验收与可观测性](evaluation-and-observability.md)定稿；本文不重复定义。
 - 成本模型、Agent 安全威胁模型、长会话记忆：地图的 fog。
 - 实现代码：由「样例 Solution Spec 与生成物骨架」和「架构综合与实施切片」承接。
 
@@ -764,8 +764,8 @@ sequenceDiagram
 
 - 「样例 Solution Spec 与生成物骨架」：用 `examples/semantic/acme/` 的 CCP 形状压测 Spec/生成物，检查字段缺口。
 - 「架构综合与实施切片」：最薄切片建议为 `context init → freeze → build → ingest → retrieve → decision`，参考 Acme q1/q2。
-- 「生产检索索引与 100k+ 规模上限」：Recipe 的 stage 接口保持不变，只替换 `GraphStore`/索引实现。
-- 「评测、验收与可观测性」：消费 context eval 指标，补答案级 groundedness 和 SLO。
+- 「生产检索索引与 100k+ 规模上限」已定稿：Recipe 的 stage 接口保持不变，生产检索由 Postgres + pgvector 承担（Semantica 不承担 serving 检索），只替换 `GraphStore`/索引实现。
+- 「评测、验收与可观测性」：已消费 context eval 指标，补答案级 groundedness、SLO、在线抽样和 Acceptance Report；见[评测、验收与可观测性](evaluation-and-observability.md)。
 
 ## 12. 决策记录
 

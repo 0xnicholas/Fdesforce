@@ -6,6 +6,8 @@ They are deliberately phrased as decisions, not implementation slices.
 
 ## GAP-1 — Connector-backed Tools have no runtime seam
 
+**Status (resolved)**: [Runtime Adapter 端口与能力矩阵](https://github.com/0xnicholas/Fdesforce/issues/17) D6：Connector-backed Tool 只通过 context-service 的 typed operation 端点；typed operation manifest（input/output schema、sideEffects、scopes、idempotency）字段随 [Solution Spec 与配置工具形态](https://github.com/0xnicholas/Fdesforce/issues/7) 的 `design/7-solution-spec` 分支落地；scope/secret 引用归 [客户环境内的身份、权限与部署](https://github.com/0xnicholas/Fdesforce/issues/12)。
+
 **Evidence**
 
 - `acme/solutions/claims-triage/solution.yaml` binds `claims-lookup` and
@@ -44,6 +46,8 @@ Lands in: **#17** (runtime-neutral Tool/Connector protocol, extension packaging)
 with **#8** (wire contract) and **#12** (scopes/secret refs).
 
 ## GAP-2 — Workflow/HITL step grammar is missing
+
+**Status (resolved)**: [Workflow/HITL step grammar 与 policy 参数化](https://github.com/0xnicholas/Fdesforce/issues/18) / `contracts/conformance/cases.md` C16–C25。注意：下面 "Proposed change" 里的 `branch | parallel` 和自由 `when` 已被 #18 的更窄 grammar 取代——v0 只有有序 `context | agent | tool | approval`，`requiredWhen` 只引用 Policy Template 命名 predicate。
 
 **Evidence**
 
@@ -85,6 +89,8 @@ Lands in: **#7** (Spec schema), **#12** (approver roles/identity), **#13**
 
 ## GAP-3 — `solution.lock` does not pin every build input
 
+**Status (resolved)**: [solution.lock 完整性、model profile 与 eval dataset 解析](https://github.com/0xnicholas/Fdesforce/issues/19) / [ADR-0007](../../docs/adr/0007-lock-completeness-and-eval-evidence.md). The lock now pins Model Profiles, Eval Datasets, Extensions and per-file digests; the prototype sample below is updated to the new shape.
+
 **Evidence**
 
 - `triage-agent` uses `modelProfile: standard`, but the lock has no
@@ -124,6 +130,8 @@ or when a prompt/schema file is outside the digest.
 Lands in: **#7** (Spec/lock schema), **#10** (eval dataset resolution).
 
 ## GAP-4 — Bundle topology is not one abstraction across targets
+
+**Status (resolved)**: [Runtime Adapter 端口与能力矩阵](https://github.com/0xnicholas/Fdesforce/issues/17) D7/D11：`build.platform` 与 `build.delivery` 分离；`BundleTopology` 是 Compose/Helm/airgap 渲染器消费的唯一拓扑真相；v0 限定一个 Environment 一个 Solution，部署实例名从 `deployment_id` 派生、端口/卷名确定性生成；secretRef 绑定归 [客户环境内的身份、权限与部署](https://github.com/0xnicholas/Fdesforce/issues/12)；打包切片归 [架构综合与实施切片](https://github.com/0xnicholas/Fdesforce/issues/13)。
 
 **Evidence**
 
@@ -165,6 +173,8 @@ Lands in: **#17** (topology declaration), **#12** (secrets/deployment),
 **#13** (packaging slice).
 
 ## GAP-5 — record-before-act evidence cannot be generated
+
+**Status (resolved)**: [record-before-act evidence 与审计绑定](https://github.com/0xnicholas/Fdesforce/issues/20) / [ADR-0008](../../docs/adr/0008-decision-audit-binding.md). `Tool.audit` + `Capability.audit.evidence` 合并成 `DecisionBinding`；Evidence 扩成 `graph_entity | retrieval | run_artifact | approval`；Policy 增加 `tool.pre_invoke` 覆盖；`@fde/runtime` 负责 ID/outbox/digest；conformance C26–C32。
 
 **Evidence**
 

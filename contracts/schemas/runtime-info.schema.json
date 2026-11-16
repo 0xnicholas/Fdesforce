@@ -97,7 +97,7 @@
           "properties": {
             "graph": {
               "type": "string",
-              "enum": ["embedded", "neo4j"]
+              "enum": ["embedded", "neo4j", "postgres"]
             },
             "audit": {
               "type": "string",

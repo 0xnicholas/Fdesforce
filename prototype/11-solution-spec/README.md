@@ -18,7 +18,11 @@ symlink so this prototype does not fork them.
   `context | agent | tool | approval` steps, an approval gate over a named
   side-effecting Tool, and a typed Policy predicate instead of a free-form
   `when`.
-- A sample `solution.lock`.
+- A **Decision Binding** (#20): Tool `audit` facts + Capability evidence
+  selectors, the evidence union, `tool.pre_invoke` Policy coverage, and the
+  generated record-before-act skeleton.
+- A sample `solution.lock` with `spec.files`, typed `templates`/`assets`,
+  `modelProfiles` and `evalDatasets`.
 - A generated **Mastra app** skeleton (agent, workflow, tools, Run API, generated
   context client, record-before-act wrapper).
 - A generated **context-service** skeleton with Semantica ontology loading,
@@ -56,13 +60,13 @@ inspect.rb                    throwaway cross-reference checker
 ruby prototype/11-solution-spec/inspect.rb
 ```
 
-Expected result: **112 ok, 3 warnings, 0 failures**. The remaining warnings are
-intentional gap markers (unpinned model profile, `builtin` tool, missing Helm),
-not broken references. The checker parses all YAML/JSON, walks the Spec
+Expected result: **147 ok, 2 warnings, 0 failures**. The remaining warnings are
+the `builtin` tool implementation marker and missing Helm, not broken
+references. The checker parses all YAML/JSON, walks the Spec
 references into the generated tree, validates the #18 workflow/approval grammar,
-checks eval/dataset digests, and runs `docker compose config` when Docker is
-present. Helm rendering is skipped here because `helm` is not installed on this
-machine.
+checks the #20 Decision Binding/evidence/Policy coverage, checks eval/dataset
+digests, and runs `docker compose config` when Docker is present. Helm rendering
+is skipped here because `helm` is not installed on this machine.
 
 To inspect the packaging manually:
 

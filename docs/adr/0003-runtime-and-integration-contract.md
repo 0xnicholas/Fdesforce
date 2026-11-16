@@ -16,7 +16,7 @@ v0 的运行时契约由 context-service 独占：Mastra 只通过生成的 TS c
 ## Consequences
 
 - v0 的 embedded 图是单写者、10k/50k 交互上限；无 HA/灾备认证，不能把 v0 拓扑当生产规模承诺。
-- 真实 LLM 的 tool 选择未验证；contract tests 用 mock/固定序列覆盖通路，评测由「评测、验收与可观测性」补。
+- 真实 LLM 的 tool 选择未验证；contract tests 用 mock/固定序列覆盖通路，评测已由「评测、验收与可观测性」补，见 [`evaluation-and-observability.md`](../evaluation-and-observability.md)。
 - 审计库 v0 为 SQLite；大规模 audit 保留/查询需要后续存储方案。
 - 客户端 Run API 与审批 API 由生成的 `mastra-app` 提供；客户审批 UI 不在本阶段。
 - 生产图存储、Neo4j serving adapter、索引组合与迁移路径仍由「生产检索索引与 100k+ 规模上限」决定。
