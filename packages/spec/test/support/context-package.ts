@@ -43,6 +43,14 @@ export function walkPackage(dir: string, prefix = ''): string[] {
   return files;
 }
 
+/** A document as an untyped record: what an author could actually write (`schema.test.ts`). */
+export type Loose = Record<string, any>;
+
+/** Deep-copy a parsed document into a `Loose` record so a test can write an invalid value. */
+export function loose<T>(value: T): Loose {
+  return structuredClone(value) as Loose;
+}
+
 export interface LoadedPackage {
   input: CheckContextPackageInput;
   errors: Diagnostic[];

@@ -16,7 +16,7 @@ import {
   parsePermissionProfile,
   parseSemanticModel,
 } from '../src/index.js';
-import { loadPackage, examplePackageDir } from './support/context-package.js';
+import { examplePackageDir, loadPackage, loose, type Loose } from './support/context-package.js';
 
 const codes = (errors: ReadonlyArray<{ code: string }>): string[] => errors.map((error) => error.code);
 const messages = (errors: ReadonlyArray<{ message: string }>): string => errors.map((error) => error.message).join('\n');
@@ -142,7 +142,7 @@ describe('ContextPackageRevision', () => {
 describe('SemanticModel', () => {
   it('requires an ontology module digest, so a frozen package names the TTL it was modelled against', () => {
     const { input } = loadPackage(examplePackageDir);
-    const document = structuredClone(input.documents.semanticModel);
+    const document = loose(input.documents.semanticModel);
     if (document === undefined) throw new Error('no semantic model');
     delete (document.spec.ontology.modules[0] as { digest?: string }).digest;
 
@@ -153,7 +153,7 @@ describe('SemanticModel', () => {
 
   it('rejects a resolution rule with no key columns', () => {
     const { input } = loadPackage(examplePackageDir);
-    const document = structuredClone(input.documents.semanticModel);
+    const document = loose(input.documents.semanticModel);
     if (document === undefined) throw new Error('no semantic model');
     document.spec.resolution.keys = { Claim: [] };
 
@@ -180,18 +180,18 @@ describe('ContextSource', () => {
     };
     expect(parseContextSource(source).ok).toBe(true);
 
-    const withoutClassification: Record<string, unknown> = structuredClone(source);
-    delete (withoutClassification['spec'] as Record<string, unknown>)['classification'];
+    const withoutClassification = loose(source);
+    delete withoutClassification['spec']['classification'];
     expect(parseContextSource(withoutClassification).ok).toBe(false);
 
-    const unknownClassification = structuredClone(source);
-    unknownClassification.spec.classification = 'secret' as never;
+    const unknownClassification = loose(source);
+    unknownClassification.spec.classification = 'secret';
     expect(parseContextSource(unknownClassification).ok).toBe(false);
   });
 
   it('rejects a secret value where only a secretRef belongs', () => {
     const { input } = loadPackage(examplePackageDir);
-    const source = structuredClone(input.documents.contextSources['context-sources/claims-db.yaml']);
+    const source = loose(input.documents.contextSources['context-sources/claims-db.yaml']);
     if (source === undefined) throw new Error('no source');
 
     const result = parseContextSource({ ...source, spec: { ...source.spec, password: 'hunter2' } });
@@ -203,7 +203,7 @@ describe('ContextSource', () => {
 describe('mappings', () => {
   it('rejects a bare local name as a term, because a term is prefixed', () => {
     const { input } = loadPackage(examplePackageDir);
-    const mapping = structuredClone(input.documents.mappings['mappings/claims-db.yaml']);
+    const mapping = loose(input.documents.mappings['mappings/claims-db.yaml']);
     if (mapping === undefined || mapping.kind !== 'EntityMapping') throw new Error('no mapping');
     mapping.spec.entity = 'Claim';
 
@@ -214,9 +214,9 @@ describe('mappings', () => {
 
   it('rejects a column type the ingress has no writer for', () => {
     const { input } = loadPackage(examplePackageDir);
-    const mapping = structuredClone(input.documents.mappings['mappings/claims-db.yaml']);
+    const mapping = loose(input.documents.mappings['mappings/claims-db.yaml']);
     if (mapping === undefined || mapping.kind !== 'EntityMapping') throw new Error('no mapping');
-    mapping.spec.properties['amount'] = { property: 'ic:amount', type: 'money' as never };
+    mapping.spec.properties['amount'] = { property: 'ic:amount', type: 'money' };
 
     const result = parseMapping(mapping);
 
@@ -225,9 +225,9 @@ describe('mappings', () => {
 
   it('keeps document extraction as candidates only', () => {
     const { input } = loadPackage(examplePackageDir);
-    const mapping = structuredClone(input.documents.mappings['mappings/sharepoint-claims.yaml']);
+    const mapping = loose(input.documents.mappings['mappings/sharepoint-claims.yaml']);
     if (mapping === undefined || mapping.kind !== 'DocumentMapping') throw new Error('no document mapping');
-    mapping.spec.extraction.mode = 'authoritative' as never;
+    mapping.spec.extraction.mode = 'authoritative';
 
     const result = parseMapping(mapping);
 
@@ -245,9 +245,9 @@ describe('ContextRecipe', () => {
 
   it('bounds the graph stage to two hops, because the v0 graph is 1–2', () => {
     const { input } = loadPackage(examplePackageDir);
-    const recipe = structuredClone(input.documents.recipes['recipes/claims-context.yaml']);
+    const recipe = loose(input.documents.recipes['recipes/claims-context.yaml']);
     if (recipe === undefined) throw new Error('no recipe');
-    const graph = recipe.spec.stages.find((stage) => stage.type === 'graph');
+    const graph = recipe.spec.stages.find((stage: Loose) => stage.type === 'graph');
     if (graph === undefined) throw new Error('no graph stage');
     graph.maxHops = 3;
 
@@ -258,9 +258,9 @@ describe('ContextRecipe', () => {
 
   it('rejects a stage type the pipeline does not have', () => {
     const { input } = loadPackage(examplePackageDir);
-    const recipe = structuredClone(input.documents.recipes['recipes/claims-context.yaml']);
+    const recipe = loose(input.documents.recipes['recipes/claims-context.yaml']);
     if (recipe === undefined) throw new Error('no recipe');
-    recipe.spec.stages.push({ type: 'reorder' } as never);
+    recipe.spec.stages.push({ type: 'reorder' });
 
     const result = parseContextRecipe(recipe);
 
@@ -269,10 +269,10 @@ describe('ContextRecipe', () => {
 
   it('requires the query stage to declare its source and topK', () => {
     const { input } = loadPackage(examplePackageDir);
-    const recipe = structuredClone(input.documents.recipes['recipes/claims-context.yaml']);
+    const recipe = loose(input.documents.recipes['recipes/claims-context.yaml']);
     if (recipe === undefined) throw new Error('no recipe');
-    recipe.spec.stages = recipe.spec.stages.filter((stage) => stage.type !== 'lexical');
-    recipe.spec.stages.splice(3, 0, { type: 'lexical', query: '$query' } as never);
+    recipe.spec.stages = recipe.spec.stages.filter((stage: Loose) => stage.type !== 'lexical');
+    recipe.spec.stages.splice(3, 0, { type: 'lexical', query: '$query' });
 
     const result = parseContextRecipe(recipe);
 
@@ -290,9 +290,9 @@ describe('PermissionProfile', () => {
 
   it('refuses to let a baseline relax the fail-closed default', () => {
     const { input } = loadPackage(examplePackageDir);
-    const profile = structuredClone(input.documents.permissions);
+    const profile = loose(input.documents.permissions);
     if (profile === undefined) throw new Error('no permissions');
-    profile.spec.defaults.unknownClassification = 'internal' as never;
+    profile.spec.defaults.unknownClassification = 'internal';
 
     const result = parsePermissionProfile(profile);
 
@@ -302,7 +302,7 @@ describe('PermissionProfile', () => {
 
   it('rejects an annotation that says nothing', () => {
     const { input } = loadPackage(examplePackageDir);
-    const profile = structuredClone(input.documents.permissions);
+    const profile = loose(input.documents.permissions);
     if (profile === undefined) throw new Error('no permissions');
     profile.spec.properties['ic:coveragetype'] = {};
 
@@ -314,9 +314,9 @@ describe('PermissionProfile', () => {
 
   it('rejects a mask action outside redact | hash | tokenize | null', () => {
     const { input } = loadPackage(examplePackageDir);
-    const profile = structuredClone(input.documents.permissions);
+    const profile = loose(input.documents.permissions);
     if (profile === undefined) throw new Error('no permissions');
-    profile.spec.defaults.pii = 'scramble' as never;
+    profile.spec.defaults.pii = 'scramble';
 
     const result = parsePermissionProfile(profile);
 
@@ -334,7 +334,7 @@ describe('ContextEvalSuite', () => {
 
   it('bounds the thresholds to a ratio a report can produce', () => {
     const { input } = loadPackage(examplePackageDir);
-    const suite = structuredClone(input.documents.evals['evals/claims-context.golden.yaml']);
+    const suite = loose(input.documents.evals['evals/claims-context.golden.yaml']);
     if (suite === undefined) throw new Error('no eval suite');
     suite.spec.thresholds.recallAtBudget = 80;
 

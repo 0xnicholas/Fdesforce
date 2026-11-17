@@ -196,7 +196,7 @@ describe('recipe pipeline', () => {
     const document = recipe(input);
     const lexical = document.spec.stages.find((stage) => stage.type === 'lexical');
     document.spec.stages = document.spec.stages.filter((stage) => stage.type !== 'lexical');
-    document.spec.stages.unshift(lexical as never);
+    if (lexical !== undefined) document.spec.stages.unshift(lexical);
 
     const result = report(input);
 
