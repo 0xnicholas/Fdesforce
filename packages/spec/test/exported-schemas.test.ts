@@ -73,6 +73,10 @@ describe('exported schemas accept the checked-in documents', () => {
     }
   });
 
+  it('IdentityProfile accepts the Acme environment identity source', () => {
+    accepts('IdentityProfile', readYaml(paths.exampleIdentityProfile));
+  });
+
   it('RuntimeTopology and BundleTopology accept split-topology documents', () => {
     const runtime = {
       apiVersion: 'fde.dev/v0',

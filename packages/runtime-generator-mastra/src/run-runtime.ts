@@ -1,9 +1,9 @@
 import { GENERATED_FILE_MODE } from '@fde/runtime-generator';
 import type { GeneratedFile, RuntimeGenerateInput } from '@fde/runtime-generator';
 
-import { PROBE_PATH } from './deployment.js';
+import { IDENTITY_ENV, PROBE_PATH } from './deployment.js';
 import { generatedHeader } from './generated.js';
-import { identifier, jsonLiteral } from './naming.js';
+import { identifier, jsonLiteral, singleQuoted } from './naming.js';
 import {
   CAPABILITY_ID_PATTERN,
   ERROR_CODES,
@@ -37,7 +37,7 @@ import {
  *   config, state-store   deployment configuration, persistence
  *   sync/migrate          the job entrypoint
  *   exec-context, client  per-call identity, the context-service seam
- *   identity              the issuance seam (#29)
+ *   roles, identity       the role matrix and the ES256 issuer (`identity.ts`)
  *   run-registry, router  the Run lifecycle and the HTTP surface
  *   run-service           capability → workflow, abort propagation
  */
@@ -112,6 +112,11 @@ export function idsModule(generatorVersion: string): GeneratedFile {
       '/** RFC 3339, millisecond precision: the contract `Timestamp`. */',
       'export function nowIso(): string {',
       '  return new Date().toISOString();',
+      '}',
+      '',
+      '/** Epoch seconds: the unit a JWT counts `iat` and `exp` in. */',
+      'export function unixSeconds(now: number = Date.now()): number {',
+      '  return Math.trunc(now / 1000);',
       '}',
       '',
     ].join('\n'),
@@ -847,7 +852,13 @@ export function stateStoreModule(generatorVersion: string, schemaVersion: string
 }
 
 /** `runtime/config.ts` — deployment configuration from the Environment (§9.3). */
-export function configModule(generatorVersion: string, appPort: number): GeneratedFile {
+export function configModule(
+  generatorVersion: string,
+  appPort: number,
+  customer: string,
+  solution: string,
+  environment: string,
+): GeneratedFile {
   return file(
     'mastra-app/src/runtime/config.ts',
     [
@@ -855,11 +866,28 @@ export function configModule(generatorVersion: string, appPort: number): Generat
       "import { HEARTBEAT_INTERVAL_MS } from './sse.ts';",
       '',
       '// Configuration arrives as environment variables; secrets arrive as mounted files or',
-      '// secret refs the deployer resolves. Nothing here reads a secret, and nothing here is',
-      '// baked at build time except the defaults.',
+      '// secret refs the deployer resolves. This is the only module that reads',
+      '// `process.env`, so "where does this value come from" has one answer.',
+      '',
+      '/**',
+      ' * The Customer this bundle serves. `ExecutionContext.tenant_id` is the immutable',
+      ' * Customer id (ADR-0006 §4.5), not a deployment value: one bundle is one tenant, so',
+      ' * the tenant is baked from the Spec rather than configured at install time.',
+      ' */',
+      `export const TENANT_ID = ${singleQuoted(customer)};`,
+      '',
+      '/** The Solution this bundle serves (`ExecutionContext.solution_id`). Baked, like the tenant. */',
+      `export const SOLUTION_ID = ${singleQuoted(solution)};`,
+      '',
+      '/**',
+      ' * The Environment this build targets. Not a `ExecutionContext` claim, but the',
+      ' * identity source is Environment-scoped (§4.3): a profile for another Environment',
+      ' * carries roles nobody reviewed for this one, so the app refuses it by name.',
+      ' */',
+      `export const ENVIRONMENT_NAME = ${singleQuoted(environment)};`,
       '',
       'export interface AppConfig {',
-      '  /** The tenant every request in this deployment belongs to (identity is #29). */',
+      '  /** The tenant every request in this deployment belongs to. */',
       '  tenantId: string;',
       '  /** The port to listen on; the topology exposes the container port this defaults to. */',
       '  port: number;',
@@ -869,7 +897,24 @@ export function configModule(generatorVersion: string, appPort: number): Generat
       '  heartbeatIntervalMs: number;',
       '}',
       '',
-      "export const DEFAULT_TENANT_ID = 'default';",
+      '/**',
+      ' * The identity settings a deployment injects (#29). The signing key is injected,',
+      ' * never baked (§5.4): it lives in the customer secret store and reaching this object',
+      ' * is as far as it travels — nothing serializes an `IdentityEnv`.',
+      ' */',
+      'export interface IdentityEnv {',
+      '  /** `fde://<deployment_id>` is the `iss` this app signs under; `dep_<ulid>`. */',
+      '  deploymentId?: string;',
+      '  /** Path to the mounted static identity profile (JSON): fixed subjects and roles. */',
+      '  configPath?: string;',
+      '  /** The same profile inline, for a local run that has no mount. */',
+      '  configJson?: string;',
+      '  /** The `mastra-app` issuer key, PKCS#8 PEM, ES256. */',
+      '  signingKeyPem?: string;',
+      '  /** A mounted PEM, for a secret store that injects files instead of variables. */',
+      '  signingKeyFile?: string;',
+      '}',
+      '',
       "export const DEFAULT_STATE_STORE_PATH = './state/mastra.db';",
       `export const DEFAULT_PORT = ${appPort};`,
       'export const DEFAULT_RUN_DEADLINE_MS = 5 * 60_000;',
@@ -883,11 +928,27 @@ export function configModule(generatorVersion: string, appPort: number): Generat
       '/** Read the deployment configuration; a malformed value falls back, never throws. */',
       'export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {',
       '  return {',
-      "    tenantId: env['FDE_TENANT_ID'] ?? DEFAULT_TENANT_ID,",
+      '    tenantId: TENANT_ID,',
       "    port: positiveInteger(env['FDE_PORT'], DEFAULT_PORT),",
       "    stateStorePath: env['FDE_STATE_STORE_PATH'] ?? DEFAULT_STATE_STORE_PATH,",
       "    runDeadlineMs: positiveInteger(env['FDE_RUN_DEADLINE_MS'], DEFAULT_RUN_DEADLINE_MS),",
       '    heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,',
+      '  };',
+      '}',
+      '',
+      '/**',
+      ' * The identity settings (#29). Read here and nowhere else: `runtime/identity.ts`',
+      ' * takes this object as an argument, so a test can mount a profile and a key without',
+      ' * touching the process environment, and a value that should not travel (the key)',
+      ' * is passed once rather than re-read.',
+      ' */',
+      'export function loadIdentityEnv(env: Record<string, string | undefined> = process.env): IdentityEnv {',
+      '  return {',
+      `    deploymentId: env['${IDENTITY_ENV.deploymentId}'],`,
+      `    configPath: env['${IDENTITY_ENV.configPath}'],`,
+      `    configJson: env['${IDENTITY_ENV.configJson}'],`,
+      `    signingKeyPem: env['${IDENTITY_ENV.signingKeyPem}'],`,
+      `    signingKeyFile: env['${IDENTITY_ENV.signingKeyFile}'],`,
       '  };',
       '}',
       '',
@@ -1269,54 +1330,6 @@ export function contextClientModule(generatorVersion: string): GeneratedFile {
       '}',
       '',
       'export const contextClient = new ContextClient();',
-      '',
-    ].join('\n'),
-  );
-}
-
-/**
- * `runtime/identity.ts` — the ExecutionContext issuance seam.
- *
- * Signing is the identity slice's (#29): static identity configuration → platform
- * and business role mapping → a short-lived ES256 token with the `mastra-app`
- * issuer key. Until that lands, this module refuses to mint a token. Refusing is
- * the honest failure: the alternative is calling context-service with the
- * customer's token, which is not an ExecutionContext and would be rejected by the
- * service (C2/C3) or, worse, accepted by a build that did not check.
- */
-export function identityModule(generatorVersion: string): GeneratedFile {
-  return file(
-    'mastra-app/src/runtime/identity.ts',
-    [
-      generatedHeader(generatorVersion, 'docs/runtime-contract.md §5.1, §5.4 + issue #29'),
-      "import { ApiError } from './errors.ts';",
-      '',
-      'export interface ExecutionContextRequest {',
-      '  tenantId: string;',
-      '  runId: string;',
-      '  traceId: string;',
-      '}',
-      '',
-      'export interface IssuedExecutionContext {',
-      '  /** Compact ES256 JWT: `iss` = `fde://<deployment_id>`, `aud` = context-service. */',
-      '  token: string;',
-      '}',
-      '',
-      '/**',
-      ' * Mint the short-lived ExecutionContext one call runs under (§5.1): ES256, 5-minute',
-      ' * expiry, `kid`/`jti`, roles = platform ∪ business, `trace_id` equal to the Run trace.',
-      ' *',
-      ' * The body of this function is generated by the identity slice (#29). This build',
-      ' * carries the seam so the Run service, the Tools and the context client are all',
-      ' * written against the real signature; it fails closed until the signing key, the',
-      ' * static identity configuration and the role mapping exist.',
-      ' */',
-      'export function issueExecutionContext(request: ExecutionContextRequest): IssuedExecutionContext {',
-      "  throw new ApiError('unavailable', `ExecutionContext issuance is not generated in this build, so run ${request.runId} for ${request.tenantId} cannot call context-service yet`, {",
-      '    retryable: false,',
-      '    details: { run_id: request.runId, trace_id: request.traceId, generated_by: \'#29\' },',
-      '  });',
-      '}',
       '',
     ].join('\n'),
   );
@@ -1949,7 +1962,7 @@ export function runServiceModule(input: RuntimeGenerateInput, generatorVersion: 
       "import { ApiError } from './errors.ts';",
       "import { EXECUTION_CONTEXT_TOKEN, RUN_DEADLINE, RUN_EVENTS, RUN_ID, TRACE_ID, TRACEPARENT } from './execution-context.ts';",
       "import type { RunEventSink } from './execution-context.ts';",
-      "import { issueExecutionContext } from './identity.ts';",
+      "import type { ExecutionContextIssuer } from './identity.ts';",
       "import { traceparent } from './ids.ts';",
       "import type { RunRegistry } from './run-registry.ts';",
       "import type { RunExecutorInput } from './router.ts';",
@@ -1974,7 +1987,12 @@ export function runServiceModule(input: RuntimeGenerateInput, generatorVersion: 
       '',
       'export interface RunServiceOptions {',
       '  registry: RunRegistry;',
-      '  tenantId: string;',
+      '  /**',
+      '   * Mints the Run\'s ExecutionContext. Injected rather than imported: the issuer',
+      '   * holds the deployment\'s signing key, which the entrypoint resolves once at',
+      '   * startup and the Run service never sees (see `identity.ts`).',
+      '   */',
+      '  issue: ExecutionContextIssuer;',
       '}',
       '',
       '/**',
@@ -1992,10 +2010,10 @@ export function runServiceModule(input: RuntimeGenerateInput, generatorVersion: 
       '',
       '    // Issued before the workflow run exists: a token failure must not leave a',
       '    // workflow snapshot behind for a Run that can never call context-service.',
-      '    const issued = issueExecutionContext({',
-      '      tenantId: options.tenantId,',
+      '    const issued = options.issue({',
       '      runId: run.run_id,',
       '      traceId: run.trace_id,',
+      '      deadline: options.registry.deadlineOf(run.run_id),',
       '    });',
       '',
       '    const execution = await workflow.createRun({ runId: run.run_id });',

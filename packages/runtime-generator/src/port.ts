@@ -1,6 +1,7 @@
 import type {
   Component,
   Digest,
+  IdentityProfile,
   ModelProfile,
   RuntimeCapabilities,
   RuntimeProfile,
@@ -97,6 +98,16 @@ export interface RuntimeValidationInput {
   environment: RuntimeEnvironmentView;
   /** Absent when resolution failed; `validate` then reports `runtime_profile_missing`. */
   profile?: RuntimeProfile;
+  /**
+   * The Environment's identity source (#29), when the build was given one.
+   *
+   * The static profile is mounted at deploy time, not baked into the bundle, but a
+   * build that can see it must refuse an escalated one: a profile is an
+   * authorization document, and a role mistake in it is something the build should
+   * catch rather than a Run. Absent means the deployment supplies it later, and the
+   * generated app's own load-time check is the only gate.
+   */
+  identity?: IdentityProfile;
   generator?: RuntimeGeneratorIdentity;
   extensions?: RuntimeExtensionView[];
   connectors?: Record<string, RuntimeConnectorView>;

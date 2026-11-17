@@ -14,12 +14,12 @@ crosses a process boundary.
 | --- | --- |
 | `contracts/` | `fde.runtime/v1` OpenAPI + JSON Schema. Source of truth for the wire surface. |
 | `docs/` | Design documents, ADRs, agent guidance. |
-| `examples/` | Reference artifacts: Acme Solution Spec + lock, eval and semantic assets, and the workspace manifest the CLI resolves them through. |
+| `examples/` | Reference artifacts: Acme Solution Spec + lock, eval and semantic assets, the `acme-prod` Identity Profile, and the workspace manifest the CLI resolves them through. |
 | `platform/` | Vendored platform artifacts: Templates, Overlays, Extensions, Model/Runtime Profiles and the pinned toolchain. The offline stand-in for the template registry. |
 | `prototype/` | Throwaway prototype kept as a consistency checkbed (not a deliverable). |
-| `packages/spec` | `@fde/spec` — Solution Spec / lock / Runtime Profile / Capabilities / Bundle Topology / Model Profile schemas (Zod), the exported JSON Schema, cross-document validation and topology invariants. |
-| `packages/runtime-generator` | `@fde/runtime-generator` — the build-time `RuntimeGenerator` port, Runtime Profile content addressing, `must/should` derivation and the fail-closed capability gate. |
-| `packages/runtime-generator-mastra` | `@fde/runtime-generator-mastra` — the v0 Mastra generator: the mastra-app source tree with its Run API and SSE transport, the libsql/SQLite state store, the context client's retry policy, the topology fragment, the state migration and the A-case plan. |
+| `packages/spec` | `@fde/spec` — Solution Spec / lock / Runtime Profile / Capabilities / Bundle Topology / Model Profile / Identity Profile schemas (Zod), the platform role vocabulary and its scope matrix, the exported JSON Schema, cross-document validation and topology invariants. |
+| `packages/runtime-generator` | `@fde/runtime-generator` — the build-time `RuntimeGenerator` port, Runtime Profile content addressing, `must/should` derivation and the fail-closed capability and identity gate. |
+| `packages/runtime-generator-mastra` | `@fde/runtime-generator-mastra` — the v0 Mastra generator: the mastra-app source tree with its Run API and SSE transport, the libsql/SQLite state store, the context client's retry policy, the ES256 `ExecutionContext` issuer, the topology fragment, the state migration and the A-case plan. |
 | `packages/cli` | `@fde/cli` — the `fde` command: `spec init`, `spec validate`, `spec lock`, `spec lock --check`. |
 | `packages/contracts-client` | `@fde/contracts-client` — TypeScript wire types and clients generated from `contracts/`. Nothing in `src/generated/` is hand-written. |
 

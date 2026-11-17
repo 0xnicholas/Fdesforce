@@ -18,7 +18,8 @@ src/
   capabilities.ts  normalization, one-path lookup, group/member consistency, handshake map
   profile.ts       profileRef / profileDigest / resolveRuntimeProfile and lock-pin reading
   requirements.ts  must/should derivation from the Solution Spec
-  validate.ts      the gate: profile, capabilities, state store, topology, extensions, license, connectors
+  identity.ts      the identity half of the gate (#29): role vocabulary, role collisions, scope escalation
+  validate.ts      the gate: profile, capabilities, state store, topology, extensions, license, connectors, identity
 ```
 
 ## The port
@@ -26,7 +27,7 @@ src/
 | Method | Input | Output | Answers |
 | --- | --- | --- | --- |
 | `capabilities` | `RuntimeProfile` | `RuntimeCapabilities` | what can the generated app do? |
-| `validate` | Spec + Profile + Environment + lock + Extensions (+ Connectors) | `RuntimeValidationResult` | may this be built? |
+| `validate` | Spec + Profile + Environment + lock + Extensions (+ Connectors + the Environment's `IdentityProfile`) | `RuntimeValidationResult` | may this be built? |
 | `generateApp` | validation input + build context + resolved `files` / `modelProfiles` | `GeneratedApp` | the source tree, Dockerfile and entrypoint |
 | `generateTopology` | same | `RuntimeTopology` | the runtime-owned fragment of the deployment topology |
 | `generateMigrations` | same | `RuntimeMigrationPlan` | the runtime-owned state store migrations |
@@ -180,12 +181,40 @@ Environment or the Extension.
 | `runtime_connector_contract_missing` | a Connector-backed Tool's Connector or typed operation is not resolved | error |
 | `runtime_connector_operation_untyped` | neither the Connector operation nor the Tool declares input/output schemas (GAPS.md GAP-1) | warning |
 | `runtime_grammar_unsupported` | a construct the Spec's grammar allows but this generator version cannot emit: an `approval` step, a side-effecting Tool, a `memory` declaration, a reference it cannot resolve | error |
+| `runtime_identity_role_unknown` | a subject of the Environment's `IdentityProfile` asserts a role outside the fixed platform vocabulary | error |
+| `runtime_identity_role_collision` | a business role reuses a platform role name, which would let a Customer IdP group pose as platform authority | error |
+| `runtime_identity_scope_escalation` | a subject claims a scope its platform roles do not grant — including any scope a business role would confer | error |
+| `runtime_identity_invalid` | the profile is not the one this deployment needs: another Customer or Environment, a `defaultSubject` that is not declared, a subject declared twice | error |
+
+A business role that only *looks* like a platform role (`Customer_Admin`) collides
+too: IdP group names are not normalised by the customer, and a name that reads as
+authority in an audit trail is the footgun the rule exists to close.
 
 `runtime_grammar_unsupported` is the generator-side member of the closed union:
 each generator's `validate` adds the grammar it alone understands, so "this slice
 does not generate that yet" is a build failure with a code, never a silently
 dropped construct. The first implementer is
 [`@fde/runtime-generator-mastra`](../runtime-generator-mastra/README.md).
+
+### The identity gate (#29)
+
+An `IdentityProfile` is an authorization document: it says which subject a Run runs
+as and which roles that subject asserts, and the generated app turns those roles
+into a signed `ExecutionContext`. So the three refusals above are escalations, not
+typos — a role the vocabulary does not have grants nothing, a business role that
+poses as `customer_admin` grants everything, and a scope no platform role grants is
+privilege a credential asked for and nobody gave.
+
+Scopes are derived from platform roles only (`scopesForRoles`), which is what makes
+"a business role never receives a platform scope" a property of the code rather
+than a promise in a document. The profile is mounted at deploy time, so the
+generated app re-checks the same three rules when it loads it; the build check is
+still worth having, because it reports them next to the Spec that will be built.
+
+`identity` is optional in the validation input: a build that was not given the
+Environment's profile mounts it later, and then the app's load-time check is the
+only gate. A profile the build *can* see is judged, and nothing about it is baked
+into the tree — it names people.
 
 `runtime_schema_mismatch` (graph/audit schema) and the generation codes
 (`runtime_generation_nondeterministic`, `runtime_manifest_invalid`) are decided by
@@ -213,6 +242,7 @@ one trailing newline — byte-stable and still reviewable in a diff.
 | `test/requirements.test.ts` | `must`/`should` derivation, promotion, source provenance, determinism |
 | `test/profile.test.ts` | the artifact's content address and both lock-pin shapes |
 | `test/validate.test.ts` | the gate, one diagnostic at a time |
+| `test/identity.test.ts` | the identity half of the gate: the three escalations, each with its own code |
 | `test/port.test.ts` | port surface, JSON round-trip, no lifecycle method |
 | `test/boundary.test.ts` | dependency, network, disk, clock and randomness rules |
 | `test/fixtures.test.ts` | the checked-in Profile + Acme Spec as one reference path |

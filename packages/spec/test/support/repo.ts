@@ -33,6 +33,7 @@ export const paths = {
   exampleModelProfile: 'platform/model-profiles/standard.yaml',
   exampleFallbackProfile: 'platform/model-profiles/standard-fallback.yaml',
   exampleContextPackage: 'examples/semantic/acme',
+  exampleIdentityProfile: 'examples/identity/acme/acme-prod.yaml',
   prototypeSpec: 'prototype/11-solution-spec/acme/solutions/claims-triage/solution.yaml',
   prototypeLock: 'prototype/11-solution-spec/acme/solutions/claims-triage/solution.lock',
   prototypeSpecDir: 'prototype/11-solution-spec/acme/solutions/claims-triage',

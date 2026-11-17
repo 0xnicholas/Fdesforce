@@ -60,6 +60,7 @@ describe('the file set', () => {
       'mastra-app/src/runtime/identity.ts',
       'mastra-app/src/runtime/ids.ts',
       'mastra-app/src/runtime/retrieval.ts',
+      'mastra-app/src/runtime/roles.ts',
       'mastra-app/src/runtime/router.ts',
       'mastra-app/src/runtime/run-registry.ts',
       'mastra-app/src/runtime/run-service.ts',
@@ -74,6 +75,15 @@ describe('the file set', () => {
       'mastra-app/src/workflows/document-triage-flow.ts',
       'mastra-app/tsconfig.json',
     ]);
+  });
+
+  it('bakes the Customer and the Solution, which a token asserts and an install cannot change', () => {
+    const config = content(app().files, 'mastra-app/src/runtime/config.ts');
+
+    expect(config).toContain("export const TENANT_ID = 'acme';");
+    expect(config).toContain("export const SOLUTION_ID = 'claims-triage';");
+    // One bundle is one Customer (ADR-0006 §4.5): no environment variable renames the tenant.
+    expect(config).not.toContain('FDE_TENANT_ID');
   });
 
   it('names the Spec construct each file came from, so the tree is reviewable', () => {

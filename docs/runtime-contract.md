@@ -331,6 +331,7 @@ sequenceDiagram
 ### 5.4 密钥
 
 - 每 Deployment/issuer 一对 ES256 密钥：`mastra-app`（`iss=fde://<deployment_id>`）和 `fde-jobs`（`iss=fde://<deployment_id>/jobs`）。私钥在客户 secret store；`mastra-app` 私钥只注入 `mastra-app`，job 私钥只注入维护作业容器；公钥 + `kid` 注入 `context-service` 配置。
+- `kid` 由公钥的 RFC 7638 JWK thumbprint 派生（`sha256`，base64url），不是手工配置的字符串：context-service 用同一公钥算出同一 `kid`，因此 `kid` 不会指向错误的密钥，密钥轮换后新公钥自动获得新 `kid`。
 - 轮换时新旧公钥重叠接受，直到旧 token 过期；`kid` 用于选择公钥。轮换用 `fde keys rotate` 手动执行，写 security Decision。
 - `fde install` 在缺失时为两个 issuer 生成密钥；客户也可自带。密钥不出现在 Bundle、Spec、日志或审计库中。
 - 服务间 mTLS 可选；v0 至少签名断言。客户 IdP 的 OIDC 在边缘由 `mastra-app` 处理；客户应用不直连 `context-service`。

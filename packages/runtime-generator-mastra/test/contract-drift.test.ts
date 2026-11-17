@@ -10,11 +10,16 @@
 // So this test compares the copy to the contract, property by property. It is the
 // same idea as `@fde/spec`'s `contract-drift.test.ts`, for the one document whose
 // types a *generated* artifact has to carry itself.
+import { generateKeyPairSync, verify } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { MAX_EXECUTION_CONTEXT_ROLES } from '@fde/spec';
 import { parse } from 'yaml';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import type { MaterializedTree } from './support/generated-app.js';
+import { materialize } from './support/generated-app.js';
 
 import { RETRIEVAL } from '../src/index.js';
 import { generateContractTests } from '../src/contract-tests.js';
@@ -218,5 +223,152 @@ describe('the Run API catalogue is the contract', () => {
     expect(fixture.operations).toEqual(JSON.parse(JSON.stringify(RUN_API_OPERATIONS)));
     expect(fixture.eventTypes).toEqual(SLICE_EVENT_TYPES);
     expect(fixture.errorCodes).toEqual(ERROR_CODES);
+  });
+});
+
+// --- the ExecutionContext (#29) --------------------------------------------
+
+/**
+ * The second wire shape a generated artifact has to carry itself: the claims the
+ * app signs. `contracts/schemas/execution-context.schema.json` is the authority —
+ * context-service validates against it — and the app cannot import it, so this test
+ * mints a real token from the emitted issuer and compares the claim set with the
+ * schema, property by property.
+ *
+ * `additionalProperties: false` is what makes this a *set* comparison: a claim the
+ * schema does not declare is a token the service rejects, and a required claim the
+ * app omits is the same failure from the other side.
+ */
+const executionContext = readFileSync(join(repoRoot, 'contracts/schemas/execution-context.schema.json'), 'utf8');
+const contextSchema = JSON.parse(executionContext) as {
+  required: string[];
+  additionalProperties: boolean;
+  properties: Record<string, { type?: string; const?: unknown; pattern?: string; minLength?: number; maxLength?: number; maxItems?: number; uniqueItems?: boolean; $ref?: string }>;
+};
+
+let tokenTree: MaterializedTree;
+beforeAll(() => {
+  tokenTree = materialize();
+});
+afterAll(() => {
+  tokenTree.cleanup();
+});
+
+const issuedToken = async (): Promise<{ claims: Record<string, any>; header: Record<string, any>; verified: boolean }> => {
+  const module = await tokenTree.load<{
+    loadIdentity(env: Record<string, string>): unknown;
+    createExecutionContextIssuer(identity: unknown): (request: { runId: string; traceId: string }) => { token: string };
+  }>('runtime/identity.ts');
+  const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+
+  const identity = module.loadIdentity({
+    deploymentId: 'dep_01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    configJson: JSON.stringify({
+      apiVersion: 'fde.dev/v0',
+      kind: 'IdentityProfile',
+      metadata: { customer: 'acme', environment: 'acme-prod' },
+      spec: {
+        source: 'static',
+        defaultSubject: 'adjuster-1',
+        subjects: [{ subject: 'adjuster-1', platformRoles: ['end_user'], businessRoles: ['claims-adjuster'] }],
+      },
+    }),
+    signingKeyPem: privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
+  });
+
+  const token = module.createExecutionContextIssuer(identity)({
+    runId: 'run_01ARZ3NDEKTSV4RRFFQ69G5FAW',
+    traceId: '4bf92f3577b34da6a3ce929d0e0e4736',
+  }).token;
+
+  const [header, payload, signature] = token.split('.') as [string, string, string];
+  return {
+    header: JSON.parse(Buffer.from(header, 'base64url').toString('utf8')) as Record<string, any>,
+    claims: JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Record<string, any>,
+    verified: verify(
+      'sha256',
+      Buffer.from(`${header}.${payload}`),
+      { key: publicKey, dsaEncoding: 'ieee-p1363' },
+      Buffer.from(signature, 'base64url'),
+    ),
+  };
+};
+
+describe('the issued ExecutionContext is the contract', () => {
+  it('carries every required claim, and nothing the schema does not declare', async () => {
+    const { claims } = await issuedToken();
+    const declared = Object.keys(contextSchema.properties).sort();
+
+    expect(contextSchema.additionalProperties).toBe(false);
+    expect([...contextSchema.required].filter((name) => claims[name] === undefined)).toEqual([]);
+    // `run_id` is declared but only conditionally required (§5.1): this app always
+    // mints for a Run, so it is always present — and no claim is *outside* the schema.
+    expect(Object.keys(claims).sort().filter((name) => !declared.includes(name))).toEqual([]);
+    expect(claims['run_id']).toBeDefined();
+  });
+
+  it('mints every identifier in the shape common.schema.json declares', async () => {
+    const { claims } = await issuedToken();
+    const pattern = (name: string): string | undefined => (common.$defs[name] as { pattern?: string } | undefined)?.pattern;
+
+    expect(claims['iss']).toMatch(new RegExp(contextSchema.properties['iss']?.pattern ?? ''));
+    expect(claims['aud']).toBe(contextSchema.properties['aud']?.const);
+    expect(new RegExp(pattern('DeploymentId') ?? '').test(claims['deployment_id'])).toBe(true);
+    expect(new RegExp(pattern('SolutionId') ?? '').test(claims['solution_id'])).toBe(true);
+    expect(new RegExp(pattern('TenantId') ?? '').test(claims['tenant_id'])).toBe(true);
+    expect(new RegExp(pattern('RunId') ?? '').test(claims['run_id'])).toBe(true);
+    expect(new RegExp(pattern('TraceId') ?? '').test(claims['trace_id'])).toBe(true);
+    expect(claims['iat']).toEqual(expect.any(Number));
+    expect(claims['exp'] - claims['iat']).toBeLessThanOrEqual(300);
+  });
+
+  it('bounds the role union at what the schema allows', async () => {
+    // The profile is bounded rather than the token overflowing: a document that
+    // asserts more roles than an ExecutionContext can carry fails the build (and the
+    // app's load), instead of minting an assertion context-service rejects.
+    expect(MAX_EXECUTION_CONTEXT_ROLES).toBe(contextSchema.properties['roles']?.maxItems);
+    expect(MAX_EXECUTION_CONTEXT_ROLES).toBe(64);
+  });
+
+  it('declares the same bounds on `roles`, `scopes`, `jti` and `kid`', async () => {
+    const { claims, header } = await issuedToken();
+    const bound = (name: string) => ({
+      minLength: contextSchema.properties[name]?.minLength,
+      maxLength: contextSchema.properties[name]?.maxLength,
+    });
+
+    for (const name of ['jti', 'kid']) {
+      const declared = bound(name);
+      expect(claims[name]).toEqual(expect.any(String));
+      expect(claims[name].length, name).toBeGreaterThanOrEqual(declared.minLength ?? 0);
+      expect(claims[name].length, name).toBeLessThanOrEqual(declared.maxLength ?? Number.MAX_SAFE_INTEGER);
+    }
+
+    for (const name of ['roles', 'scopes']) {
+      expect(claims[name]).toEqual(expect.any(Array));
+      expect(new Set(claims[name]).size, `${name} unique`).toBe(claims[name].length);
+      expect(claims[name].length, `${name} maxItems`).toBeLessThanOrEqual(contextSchema.properties[name]?.maxItems ?? 0);
+    }
+
+    // The `kid` names the key in the JWS header; the claim is the contract's copy of
+    // it, so a service that reads either finds the same key id.
+    expect(header['kid']).toBe(claims['kid']);
+  });
+
+  it('carries an `actor` the common schema accepts', async () => {
+    const { claims } = await issuedToken();
+    const actor = common.$defs['Actor'] as JsonSchemaObject & { properties: Record<string, { enum?: string[] }> };
+
+    expect(Object.keys(claims['actor']).sort().every((key) => Object.hasOwn(actor.properties, key))).toBe(true);
+    expect([...(actor.required ?? [])].filter((key) => claims['actor'][key] === undefined)).toEqual([]);
+    expect((actor.properties['type'] as { enum?: string[] }).enum).toContain(claims['actor']['type']);
+  });
+
+  it('is a JWS whose ES256 signature the public key verifies', async () => {
+    const { header, verified } = await issuedToken();
+
+    expect(header['alg']).toBe('ES256');
+    expect(header['typ']).toBe('JWT');
+    expect(verified).toBe(true);
   });
 });

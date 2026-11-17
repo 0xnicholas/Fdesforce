@@ -83,7 +83,6 @@ export {
   EnvironmentRequirementSchema,
   EvidenceSelectorSchema,
   GovernanceSchema,
-  PLATFORM_ROLES,
   PolicyRefSchema,
   SemanticSchema,
   SolutionSpecSchema,
@@ -105,6 +104,25 @@ export type {
 } from './schema/solution-spec.js';
 
 export {
+  IdentityProfileSchema,
+  IdentityProfileSpecSchema,
+  IdentityProfileSubjectSchema,
+  MAX_EXECUTION_CONTEXT_ROLES,
+  MAX_EXECUTION_CONTEXT_SCOPES,
+} from './schema/identity-profile.js';
+export type { IdentityProfile, IdentityProfileSpec, IdentityProfileSubject } from './schema/identity-profile.js';
+
+export {
+  PLATFORM_ROLES,
+  PLATFORM_ROLE_SCOPES,
+  PLATFORM_SCOPES,
+  isPlatformRole,
+  isPlatformRoleName,
+  scopesForRoles,
+} from './schema/platform-roles.js';
+export type { PlatformRole } from './schema/platform-roles.js';
+
+export {
   AssetPinsSchema,
   ConcreteAssetSchema,
   CustomerAssetSchema,
@@ -120,6 +138,7 @@ export type { AssetPins, ConcreteAsset, RuntimePinBlock, SolutionLock, TemplateP
 
 export {
   parseBundleTopology,
+  parseIdentityProfile,
   parseModelProfile,
   parseRuntimeCapabilities,
   parseRuntimeProfile,

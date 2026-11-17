@@ -1,5 +1,6 @@
 import { emitJsonSchema } from './schema-emit.js';
 import { BundleTopologySchema, RuntimeTopologySchema } from './schema/bundle-topology.js';
+import { IdentityProfileSchema } from './schema/identity-profile.js';
 import { ModelProfileSchema } from './schema/model-profile.js';
 import { RuntimeCapabilitiesSchema } from './schema/runtime-capabilities.js';
 import { RuntimeProfileSchema } from './schema/runtime-profile.js';
@@ -31,6 +32,7 @@ export function documentSchemas(): DocumentSchema[] {
     ['RuntimeTopology', 'runtime-topology.schema.json', RuntimeTopologySchema],
     ['BundleTopology', 'bundle-topology.schema.json', BundleTopologySchema],
     ['ModelProfile', 'model-profile.schema.json', ModelProfileSchema],
+    ['IdentityProfile', 'identity-profile.schema.json', IdentityProfileSchema],
   ];
 
   return entries.map(([kind, file, schema]) => ({ kind, file, schema: emitJsonSchema(schema) }));

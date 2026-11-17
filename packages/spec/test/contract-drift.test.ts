@@ -89,6 +89,7 @@ describe('exported JSON Schema documents', () => {
       'RuntimeTopology',
       'BundleTopology',
       'ModelProfile',
+      'IdentityProfile',
     ]);
     for (const entry of schemas) {
       expect(entry.schema['$schema']).toBe('https://json-schema.org/draft/2020-12/schema');
@@ -100,10 +101,11 @@ describe('exported JSON Schema documents', () => {
     const mirrored = new Set(['runtime-profile.schema.json', 'runtime-capabilities.schema.json', 'bundle-topology.schema.json']);
     const exported = documentSchemas().map((entry) => entry.file);
 
-    // Solution Spec, lock and Model Profile are workbench documents with no
-    // published wire contract; everything else must be compared below.
+    // Solution Spec, lock, Model Profile and the identity profile are workbench
+    // documents with no published wire contract; everything else must be compared below.
     expect(exported.filter((file) => mirrored.has(file)).sort()).toEqual([...mirrored].sort());
     expect(exported.filter((file) => !mirrored.has(file)).sort()).toEqual([
+      'identity-profile.schema.json',
       'model-profile.schema.json',
       'runtime-topology.schema.json',
       'solution-lock.schema.json',

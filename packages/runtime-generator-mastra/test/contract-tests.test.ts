@@ -26,10 +26,11 @@ const file = (files: ReadonlyArray<GeneratedFile>, path: string): GeneratedFile 
 };
 
 describe('the A-case plan', () => {
-  it('maps the cases this slice can satisfy: Run API, SSE envelope and determinism', () => {
+  it('maps the cases this slice can satisfy: Run API, SSE envelope, identity and determinism', () => {
     expect(plan().cases.map((entry) => [entry.caseId, entry.tier])).toEqual([
       ['A2', 'smoke'],
       ['A5', 'smoke'],
+      ['A8', 'smoke'],
       ['A11', 'static'],
     ]);
   });
@@ -38,24 +39,36 @@ describe('the A-case plan', () => {
     const claimed = new Set(plan().cases.map((entry) => entry.caseId));
 
     // A3/A4 are HITL and record-before-act, A6 restart resume, A7 approval expiry,
-    // A9 extension load, A10 offline install, A12 memory; A1's runtime half and A8
-    // are the handshake (#30) and identity (#29) slices.
-    for (const caseId of ['A1', 'A3', 'A4', 'A6', 'A7', 'A8', 'A9', 'A10', 'A12'] as const) {
+    // A9 extension load, A10 offline install, A12 memory; A1's runtime half is the
+    // handshake slice (#30).
+    for (const caseId of ['A1', 'A3', 'A4', 'A6', 'A7', 'A9', 'A10', 'A12'] as const) {
       expect(claimed.has(caseId)).toBe(false);
     }
   });
 
-  it('runs the smoke cases through the one emitted script', () => {
+  it('runs the HTTP cases through one emitted script, and A8 through the identity one', () => {
     const cases = plan().cases.filter((entry) => entry.tier === 'smoke');
 
     expect(cases.map((entry) => entry.command)).toEqual([
       ['node', 'contract-tests/run-api-smoke.mjs', '--case', 'A2'],
       ['node', 'contract-tests/run-api-smoke.mjs', '--case', 'A5'],
+      ['node', '--experimental-strip-types', 'contract-tests/identity-smoke.mjs'],
     ]);
     expect(cases.map((entry) => entry.fixtures)).toEqual([
       ['contract-tests/fixtures/run-api-parity.json'],
       ['contract-tests/fixtures/run-api-parity.json'],
+      [],
     ]);
+  });
+
+  it('says which half of A8 the bundle can prove', () => {
+    const a8 = plan().cases.find((entry) => entry.caseId === 'A8');
+
+    // Tenant/trace propagation is only half the case: context-service enforcing the
+    // tenant and the scopes is the platform's fragment (#32). A plan that claimed the
+    // whole case would be a conformance claim this bundle cannot keep.
+    expect(a8?.notes).toMatch(/#32/);
+    expect(a8?.notes).toMatch(/platform/i);
   });
 
   it('maps A11 to the static rebuild check the CLI already runs', () => {
@@ -69,7 +82,9 @@ describe('the A-case plan', () => {
     expect(referenced.length).toBeGreaterThan(0);
     expect(referenced.filter((fixture) => !shipped.has(fixture))).toEqual([]);
     for (const entry of plan().cases.filter((candidate) => candidate.tier === 'smoke')) {
-      expect(shipped.has(entry.command[1] ?? '')).toBe(true);
+      // `node [--flag] <script>` — the script is the first argument that is not a flag.
+      const script = entry.command.find((part) => part.endsWith('.mjs'));
+      expect(shipped.has(script ?? ''), JSON.stringify(entry.command)).toBe(true);
     }
   });
 
@@ -94,6 +109,25 @@ describe('the emitted assets', () => {
           stdio: 'pipe',
         }),
       ).not.toThrow();
+    } finally {
+      tree.cleanup();
+    }
+  });
+
+  it('the identity smoke script is valid ESM and passes against the bundle it ships in', () => {
+    // `tmp`, not `cache`: the script imports the app's `.ts` sources, and Node refuses
+    // type stripping under `node_modules` — the same situation as the container.
+    const tree = materialize(undefined, { location: 'tmp' });
+    try {
+      const script = join(tree.bundle, 'contract-tests/identity-smoke.mjs');
+      expect(() => execFileSync(process.execPath, ['--check', script], { stdio: 'pipe' })).not.toThrow();
+
+      const output = execFileSync(process.execPath, ['--experimental-strip-types', script], {
+        cwd: tree.bundle,
+        stdio: 'pipe',
+        encoding: 'utf8',
+      });
+      expect(output).toContain('A8: ok');
     } finally {
       tree.cleanup();
     }

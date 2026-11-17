@@ -7,6 +7,7 @@ import {
   capabilitySupport,
   normalizeCapabilities,
 } from './capabilities.js';
+import { checkIdentity } from './identity.js';
 import { deriveRequirements } from './requirements.js';
 import { pinnedProfileDigest, pinnedProfileRef, profileDigest, profileRef } from './profile.js';
 import type {
@@ -46,6 +47,13 @@ export function validateRuntime(input: RuntimeValidationInput): RuntimeValidatio
   const requirements = deriveRequirements({ spec: input.spec, environment: input.environment });
   const errors: RuntimeDiagnostic[] = [];
   const warnings: RuntimeDiagnostic[] = [];
+
+  // The identity profile is judged against the Spec and the Environment, not against
+  // the Profile: a build with an unusable Runtime Profile still learns that it is
+  // about to mount an escalated identity source.
+  if (input.identity !== undefined) {
+    errors.push(...checkIdentity({ spec: input.spec, environment: input.environment, identity: input.identity }));
+  }
 
   // Without a trustworthy Profile there is nothing to check requirements against;
   // the requirements are still reported, because provenance does not depend on it.

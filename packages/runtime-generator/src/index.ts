@@ -15,6 +15,9 @@ export { GENERATED_FILE_MODE, canonicalJsonFile, sortedFiles, sourceDigest } fro
 export { deriveRequirements } from './requirements.js';
 export type { DeriveRequirementsInput } from './requirements.js';
 
+export { checkIdentity } from './identity.js';
+export type { IdentityCheckInput } from './identity.js';
+
 export { pinnedProfileDigest, pinnedProfileRef, profileDigest, profileRef, resolveRuntimeProfile } from './profile.js';
 export type { ResolvedRuntimeProfile } from './profile.js';
 

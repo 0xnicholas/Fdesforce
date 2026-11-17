@@ -8,8 +8,8 @@ A-case plan — and refuses to build anything this slice cannot generate honestl
 Landed by ticket: the app skeleton and grammar gate
 ([#27](https://github.com/0xnicholas/Fdesforce/issues/27)), the Run API, SSE
 transport, state store and the three remaining port methods
-([#28](https://github.com/0xnicholas/Fdesforce/issues/28)). Identity issuance is
-[#29](https://github.com/0xnicholas/Fdesforce/issues/29); `/readyz` and the
+([#28](https://github.com/0xnicholas/Fdesforce/issues/28)), and the identity chain
+([#29](https://github.com/0xnicholas/Fdesforce/issues/29)). `/readyz` and the
 startup handshake are [#30](https://github.com/0xnicholas/Fdesforce/issues/30).
 
 ```text
@@ -18,6 +18,7 @@ src/
   grammar.ts        what this generator refuses, and why
   app.ts            the Spec-derived emitters: agents, workflows, tools, schemas, entrypoint
   run-runtime.ts    the Run API runtime emitters: wire, errors, ids, sse, store, registry, router, client
+  identity.ts       the identity chain emitters: the role matrix, the loader and the ES256 issuer (#29)
   run-api.ts        the Run API contract as data: operations, statuses, event types, error table
   topology.ts       the RuntimeTopology fragment and the state migration plan
   contract-tests.ts the A2/A5/A11 plan and the assets those cases read
@@ -50,12 +51,14 @@ mastra-app/
   src/runtime/router.ts            the HTTP surface: routes, SSE responses, error envelopes
   src/runtime/run-service.ts       capability → workflow, RequestContext, abort propagation
   src/runtime/context-client.ts    the single seam to context-service, with the retry policy
-  src/runtime/config.ts            deployment configuration from environment variables
+  src/runtime/config.ts            deployment + identity settings from environment variables
   src/runtime/execution-context.ts the per-call token, trace, deadline and event sink
-  src/runtime/identity.ts          the ExecutionContext issuance seam (#29)
+  src/runtime/roles.ts             the platform role vocabulary and the scope matrix, baked
+  src/runtime/identity.ts          the mounted identity source, the issuer key and the ES256 issuer
   src/runtime/retrieval.ts         the platform retrieval contract (types + JSON Schema)
 contract-tests/
   run-api-smoke.mjs                A2 / A5 against a running bundle
+  identity-smoke.mjs               A8: the issued ExecutionContext, verified
   fixtures/run-api-parity.json     the operations, event types and error table the cases assert
 ```
 
@@ -73,12 +76,19 @@ Paths are bundle-root-relative and sorted; every file carries an explicit mode;
 | state store schema | `RuntimeProfile.spec.capabilities.stateStore.schemaVersion` |
 | contract version | `solution.lock.runtime.contractVersion` (`FDE_CONTRACT_VERSION` build arg) |
 
+Two values are baked from the Spec rather than configured: the Customer
+(`TENANT_ID`, the `ExecutionContext` tenant) and the Solution (`SOLUTION_ID`,
+`ExecutionContext.solution_id`). One bundle is one Customer, so the tenant is not
+a deployment knob (ADR-0006 §4.5) — an install that sets `FDE_TENANT_ID` gets the
+baked value.
+
 Nothing in the generated tree is a constant in this package, and generation reads
 no clock, randomness, environment value, network or disk. The *generated* app
-does read a clock and randomness — it has to, Run ids are ULIDs and heartbeats
-have timestamps — but only in four named modules (`ids.ts`, `config.ts`,
-`run-registry.ts`, `context-client.ts`); `test/determinism.test.ts` fails if a
-timestamp or an environment read appears anywhere else.
+does read a clock, randomness and the environment — it has to, Run ids are ULIDs,
+heartbeats have timestamps and a deployment injects its key — but only in the
+named modules (`ids.ts`, `config.ts`, `run-registry.ts`, `context-client.ts`);
+`test/determinism.test.ts` fails if a timestamp, a random source or an environment
+read appears anywhere else.
 
 ### Why the app runs TypeScript directly
 
@@ -154,6 +164,99 @@ the evidence already recorded.
 
 **Deadline.** Five minutes by default (`FDE_RUN_DEADLINE_MS`). The same abort path
 fails the Run with `504 timeout`, which is retryable by the client application.
+
+## The identity chain (#29)
+
+A Run cannot call context-service until the app can prove who it is. The chain has
+four links, and every one of them is an artifact in the tree:
+
+| Link | Where | What it decides |
+| --- | --- | --- |
+| platform role vocabulary + scope matrix | `src/runtime/roles.ts` | who may do what; baked from the bundle, never configured |
+| static identity source | mounted at deploy: `FDE_IDENTITY_CONFIG` (JSON file) or `FDE_IDENTITY_CONFIG_JSON` | which subject a Run runs as, and the platform/business roles it asserts |
+| role mapping | `scopesForRoles` in `roles.ts` | platform roles grant scopes; business roles are data permissions and grant nothing |
+| ES256 signature | `src/runtime/identity.ts` | `iss = fde://<deployment_id>`, `aud = context-service`, five minutes, `kid` + `jti` |
+
+The shape is the future OIDC resource server's (`docs/runtime-contract.md` §5.1):
+claims in, mapping, signed assertion out. Real JWKS/introspection/JIT replace the
+second link in Slice 2.4; nothing else moves.
+
+**The `ExecutionContext`.** `test/contract-drift.test.ts` mints a real token and
+compares its claim set with `contracts/schemas/execution-context.schema.json`, so
+the emitted assertion cannot drift from the shape context-service validates
+against. The claims are: `iss` `fde://<deployment_id>`, `aud` `context-service`,
+`sub`/`actor` from the configured subject, `tenant_id` = the Customer,
+`deployment_id`, `solution_id`, `run_id`, `trace_id` (the Run's, so `traceparent`
+and the token agree), `roles` = platform ∪ business, `scopes` = the union the
+platform roles grant, `iat`/`exp`, `jti` (a ULID, so two tokens for one Run never
+match) and `kid`.
+
+`exp - iat` is five minutes, and never past the Run's deadline: the token is
+minted for one Run before the workflow starts, and a token that outlived its Run
+would be a replayable credential for a Run that is over.
+
+**`kid` is derived, not configured.** It is the RFC 7638 JWK thumbprint of the
+public key, so context-service computes the same id from the public key it is
+given: a `kid` cannot name the wrong key, and a rotated key automatically gets a
+new id instead of inheriting a stale one.
+
+**Nothing secret is in the tree.** The `mastra-app` issuer key is injected
+(`FDE_SIGNING_KEY` as a PEM, or `FDE_SIGNING_KEY_FILE` pointing at a mounted one,
+which wins when both are set) and §5.4 is explicit that it never appears in the
+bundle — so the emitter has no key, the loader never serializes one, and an error
+message names the setting rather than echoing a value. The token is not logged
+either: it is a bearer credential. `test/identity.test.ts` asserts all three.
+
+**The app refuses to serve without it.** `src/index.ts` resolves the deployment id,
+the key and the profile *after* the state-store schema check and before it listens;
+a failure exits non-zero with one line naming the missing setting. A Run API that
+can never call context-service is not a degraded deployment, it is a broken one.
+
+**The same refusals as the build, plus the one the build cannot make.** The profile
+is mounted at deploy time and can differ from the one the build saw, so
+`loadIdentity` re-asserts what `runtime-generator`'s gate asserts: an unknown
+platform role, a business role that reuses (or, ignoring case and space, only looks
+like) a platform role name, a scope no platform role grants, more roles than an
+`ExecutionContext` carries, and a profile for another Customer. It also refuses a
+profile for another **Environment** (`ENVIRONMENT_NAME` is baked from the build) —
+a check the build cannot be the only owner of, because the mount happens after the
+build and §4.3 scopes a profile's roles to one Environment.
+`test/identity.test.ts` drives both gates with the same documents, in both
+directions.
+
+| Setting | Meaning |
+| --- | --- |
+| `FDE_DEPLOYMENT_ID` | `dep_<ulid>`; `iss` is `fde://<deployment_id>`, and the contract schema pins the shape |
+| `FDE_IDENTITY_CONFIG` | path to the mounted `IdentityProfile` (JSON — the app carries no YAML parser) |
+| `FDE_IDENTITY_CONFIG_JSON` | the same document inline, for a run with no mount |
+| `FDE_SIGNING_KEY` | the issuer key, PKCS#8 PEM, EC P-256 |
+| `FDE_SIGNING_KEY_FILE` | a mounted PEM; wins over `FDE_SIGNING_KEY` |
+
+None of them may arrive through `Environment.values`: `generateTopology` refuses a
+build that puts an identity setting there, because `values` is rendered into the
+topology artifact — a signing key in a signed, shipped bundle is exactly what §5.4
+forbids, and a subject list there is deploy data in a build artifact.
+
+```yaml
+# examples/identity/acme/acme-prod.yaml, mounted as JSON
+apiVersion: fde.dev/v0
+kind: IdentityProfile
+metadata: { customer: acme, environment: acme-prod }
+spec:
+  source: static            # OIDC is Slice 2.4
+  defaultSubject: adjuster-1
+  subjects:
+    - subject: adjuster-1
+      display: Ada Adjuster
+      platformRoles: [end_user]          # grant scopes
+      businessRoles: [claims-adjuster]   # data permissions only
+```
+
+That profile names people, so it is mounted beside the key rather than baked: the
+bundle carries the matrix, never the subjects (`test/identity.test.ts` asserts a
+subject the build saw does not appear in the tree). Rendering those mounts and
+injecting `FDE_DEPLOYMENT_ID` is the deployment's: the topology's `secretBindings`
+stay empty because secrets are the platform's fragment (#32).
 
 ## The state store
 
@@ -243,19 +346,34 @@ app cannot listen on a port the topology does not expose.
 | --- | --- | --- | --- |
 | A2 Run API parity | smoke | `node contract-tests/run-api-smoke.mjs --case A2` | `contract-tests/fixtures/run-api-parity.json` |
 | A5 SSE envelope | smoke | `node contract-tests/run-api-smoke.mjs --case A5` | `contract-tests/fixtures/run-api-parity.json` |
+| A8 Tenant / trace propagation | smoke | `node --experimental-strip-types contract-tests/identity-smoke.mjs` | — |
 | A11 Deterministic generation | static | `fde verify --case A11` | — |
 
 The parity fixture carries the Solution's own capability ids, so the smoke starts
 one of *this* Spec's capabilities rather than a hardcoded Acme id, and A2 accepts
 `202` or the contract's `409` for a cancel that races the Run's end.
 
+A8 is claimed for the half this app owns. The token's tenant, trace, role union and
+signature are one half; the other is propagation — so the smoke drives the app's own
+`ContextClient` against a recording transport and asserts the bearer token it sends
+is the Run's token and that `traceparent`'s trace-id equals the claim's. That
+context-service *enforces* them is the platform fragment's (#32), and the plan says
+so in the case's notes instead of claiming the whole case. The identity smoke has no fixture because it mints with a
+key it generates: a committed signing key is the one thing §5.4 forbids in a
+bundle.
+
+Because the app now refuses to serve without an identity (#29), whatever boots a
+bundle for A2/A5 has to inject a deployment id, a key and a profile — a dev profile
+is fine, and generating one is the CLI's job (#33), not the runner's.
+
 The generator maps cases to commands; it does not implement a runner
 (`contracts/conformance/adapter-cases.md`). A3/A4/A6/A7/A9/A10/A12 belong to HITL,
 record-before-act, restart resume, extension loading, offline install and memory;
-A1's runtime half and A8 belong to #30 and #29. The plan says so by omission, and
-the smoke script is executed twice in this package's tests — against the emitted
-router with a stub executor (`test/run-api-http.test.ts`) and against the booted
-bundle (`test/boot.test.ts`) — so the mapping cannot rot into a command that
+A1's runtime half belongs to #30. The plan says so by omission, and the smoke
+scripts are executed in this package's tests — A2/A5 against the emitted router with
+a stub executor (`test/run-api-http.test.ts`) and against the booted bundle
+(`test/boot.test.ts`), A8 against the materialised bundle
+(`test/contract-tests.test.ts`) — so the mapping cannot rot into a command that
 proves nothing.
 
 ## The grammar gate
@@ -292,11 +410,12 @@ is recorded here so an FDE engineer reading the tree knows where it went.
 
 | Spec construct / contract behaviour | Where it lands |
 | --- | --- |
-| ExecutionContext issuance (ES256, static identity config, role mapping) | `runtime/identity.ts` is the seam and throws `unavailable`; the body is #29. A Run therefore fails with `run.failed` + `unavailable` in a bundle built before #29 — a built bundle serves the Run API, but cannot call context-service yet |
+| real OIDC: JWKS/introspection, JIT provisioning, claim mapping | Slice 2.4 replaces the *source* of the role mapping (`loadIdentity`) and nothing else; the ES256 chain behind it is #29 and does not move |
+| per-call token reissuance, `on_behalf_of`, approval-proxy tokens | the whole Run shares the ExecutionContext minted for it, with `exp` capped at the Run deadline; `on_behalf_of` stays unimplemented because v0 does not let a service impersonate a user (§5.1) |
 | `/readyz`, `/v1/runtime-info`, the startup handshake | #30 |
-| capability `audit.runOutcomeDecision`, the run-level Decision write | `ContextClient.recordDecision` carries the write path and its retry semantics; the call lands with identity and audit (#29/#37/#42) |
+| capability `audit.runOutcomeDecision`, the run-level Decision write | `ContextClient.recordDecision` carries the write path and its retry semantics; the call lands with audit (#37/#42) |
 | `text.delta` / `text.done` (token streaming) | the envelope already allows them; emitting them needs the Agent `stream()` path and the Mastra `writer` mapping, an additive follow-up after this slice |
-| `approval.*` events, approval proxy routes | #29/#40, C16–C25 |
+| `approval.*` events, approval proxy routes | #40, C16–C25 |
 | `workflow.durable` resume, reconciler | C26–C32/A6 |
 | capability `budget` (tool calls / steps per Run) | #29 |
 | `build.toolchain.image` | build provenance (#33) |
@@ -312,11 +431,12 @@ is recorded here so an FDE engineer reading the tree knows where it went.
 | `test/state-store.test.ts` | the emitted state store on a real database file: migration, restart, event log, idempotency |
 | `test/context-client.test.ts` | the emitted client against a recording transport: the whole §7.1 retry policy |
 | `test/run-api-http.test.ts` | the emitted router over a socket: create/replay/conflict, cancel, SSE, error envelopes, and the A2/A5 smoke |
-| `test/boot.test.ts` | the generated entrypoint as a process: migrate, boot, liveness, a Run failing closed without identity, refusing an unmigrated store, and the A2/A5 smoke against the real bundle |
+| `test/boot.test.ts` | the generated entrypoint as a process: migrate, boot, liveness, a Run reaching context-service with a minted token, refusing to start without a key or identity source, refusing an unmigrated store, and the A2/A5 smoke against the real bundle |
 | `test/topology.test.ts` | the RuntimeTopology fragment: schema, pins, ports, volumes, job, startup order |
 | `test/migrations.test.ts` | the migration plan and its agreement with the topology job |
 | `test/contract-tests.test.ts` | the A-case mapping, the parity fixture and the smoke script's syntax |
-| `test/contract-drift.test.ts` | the retrieval and Run API copies against `contracts/` and the contract doc |
+| `test/identity.test.ts` | the identity chain, executed: a real ES256 token verified with its public key, the role mapping, both injection mechanisms, every load refusal, and no key or token in an emitted file or a message |
+| `test/contract-drift.test.ts` | the retrieval and Run API copies, and the issued `ExecutionContext` claims, against `contracts/` and the contract doc |
 | `test/determinism.test.ts` | A11: same input → same bytes and digest; entropy only where it is allowed |
 | `test/compile.test.ts` | the tree typechecks against the pinned `@mastra/core`, plus the package boundary |
 | `test/port.test.ts` | port identity, `capabilities`, and every `generate*` re-checking the gate |

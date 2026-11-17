@@ -5,13 +5,14 @@ derived from `docs/` and `contracts/`; nothing is a second copy of a decision.
 
 ```text
 src/
-  schema/          Zod definitions, one module per document
-  parse.ts         document seams: parse → typed value | diagnostics
-  crossref.ts      cross-document validation (references, pins, freshness, gates)
-  topology.ts      topology invariants the renderers rely on (exposure, order, volumes)
-  canonical.ts     canonical JSON + content digests (`spec.files`, `spec.digest`)
-  documents.ts     exported JSON Schema, one artifact per document kind
-  contract-drift.ts structural comparison against contracts/
+  schema/                     Zod definitions, one module per document (incl. identity-profile.ts)
+  schema/platform-roles.ts    the platform role vocabulary and the scope matrix behind it
+  parse.ts                    document seams: parse → typed value | diagnostics
+  crossref.ts                 cross-document validation (references, pins, freshness, gates)
+  topology.ts                 topology invariants the renderers rely on (exposure, order, volumes)
+  canonical.ts                canonical JSON + content digests (`spec.files`, `spec.digest`)
+  documents.ts                exported JSON Schema, one artifact per document kind
+  contract-drift.ts           structural comparison against contracts/
 ```
 
 ## Document seams
@@ -22,6 +23,7 @@ src/
 | `parseRuntimeProfile` / `parseRuntimeCapabilities` | does the profile declare the ten capability groups consistently? |
 | `parseRuntimeTopology` / `parseBundleTopology` | is this one of the two topology documents? |
 | `parseModelProfile` | is the model pinned, and is an embedding profile internally consistent? |
+| `parseIdentityProfile` | is this the Environment's identity source, and does it have the subjects it needs? |
 | `checkSolution` | do the documents agree: references resolve, inputs are pinned, the lock is fresh, gates are safe? |
 | `checkTopology` | can a renderer build this: one exposed runtime app, no dangling references, distinct graph/audit volumes, deployment-derived names? |
 | `digestFiles` / `canonicalJson` | is a rebuild byte-identical? |
@@ -35,14 +37,21 @@ filesystem loading and artifact resolution belong to the CLI (`packages/cli`).
 
 ## Test seams
 
-Tests live at five public seams, nowhere else:
+Tests live at the same public seams, nowhere else:
 
 1. `test/schema.test.ts` — document grammar (unknown fields, step types, roles, memory, tool discriminators).
-2. `test/fixtures.test.ts` — the checked-in artifacts: the Acme example Spec, its lock, the Runtime Profile, the prototype Spec/lock and model profiles.
-3. `test/crossref.test.ts` — cross-document rules, each demonstrated by a real diagnostic.
-4. `test/canonical.test.ts` — digests pinned to values computed outside this codebase (`shasum`, Python `hashlib`).
-5. `test/contract-drift.test.ts` — structural comparison plus the differential corpus that pins the rules a structural comparison cannot see.
-6. `test/topology.test.ts` — the topology invariants the Compose/Helm renderers will rely on.
+2. `test/identity-profile.test.ts` — the `IdentityProfile` grammar (#29): distinct,
+   bounded role/scope lists (the token carries `uniqueItems` and `maxItems: 64`), and
+   `test/platform-roles.test.ts`, which pins the role vocabulary and the scope matrix
+   to the table in `docs/security-and-deployment.md` §4.1. The three refusals that
+   make a profile an authorization document — an unknown platform role, a business
+   role reusing a platform role name, a scope no platform role grants — are the build
+   gate's (`@fde/runtime-generator`), because they are policy, not shape.
+3. `test/fixtures.test.ts` — the checked-in artifacts: the Acme example Spec, its lock, the Runtime Profile and Identity Profile, the prototype Spec/lock and the model profiles.
+4. `test/crossref.test.ts` — cross-document rules, each demonstrated by a real diagnostic.
+5. `test/canonical.test.ts` — digests pinned to values computed outside this codebase (`shasum`, Python `hashlib`).
+6. `test/contract-drift.test.ts` — structural comparison plus the differential corpus that pins the rules a structural comparison cannot see.
+7. `test/topology.test.ts` — the topology invariants the Compose/Helm renderers will rely on.
 
 ## `inspect.rb` port map
 

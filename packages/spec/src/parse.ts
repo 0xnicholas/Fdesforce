@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { BundleTopologySchema, RuntimeTopologySchema, TopologySchema } from './schema/bundle-topology.js';
+import { IdentityProfileSchema } from './schema/identity-profile.js';
 import { ModelProfileSchema } from './schema/model-profile.js';
 import { RuntimeCapabilitiesSchema } from './schema/runtime-capabilities.js';
 import { RuntimeProfileSchema } from './schema/runtime-profile.js';
@@ -96,6 +97,10 @@ export function parseRuntimeCapabilities(input: unknown): ParseResult<z.infer<ty
 
 export function parseModelProfile(input: unknown): ParseResult<z.infer<typeof ModelProfileSchema>> {
   return parseWith(ModelProfileSchema, input, 'model_profile_invalid');
+}
+
+export function parseIdentityProfile(input: unknown): ParseResult<z.infer<typeof IdentityProfileSchema>> {
+  return parseWith(IdentityProfileSchema, input, 'identity_profile_invalid');
 }
 
 export function parseRuntimeTopology(input: unknown): ParseResult<z.infer<typeof RuntimeTopologySchema>> {

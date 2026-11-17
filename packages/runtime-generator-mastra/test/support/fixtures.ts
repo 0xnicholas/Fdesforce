@@ -1,5 +1,12 @@
-import { digestOf, parseModelProfile, parseRuntimeProfile, parseSolutionLock, parseSolutionSpec } from '@fde/spec';
-import type { ModelProfile, ProfileSpec, RuntimeProfile, SolutionLock, SolutionSpec } from '@fde/spec';
+import {
+  digestOf,
+  parseIdentityProfile,
+  parseModelProfile,
+  parseRuntimeProfile,
+  parseSolutionLock,
+  parseSolutionSpec,
+} from '@fde/spec';
+import type { IdentityProfile, ModelProfile, ProfileSpec, RuntimeProfile, SolutionLock, SolutionSpec } from '@fde/spec';
 import type { RuntimeGenerateInput } from '@fde/runtime-generator';
 
 import { paths, readTree, readYaml } from './repo.js';
@@ -34,6 +41,9 @@ export const exampleProfile = (): RuntimeProfile =>
 export const exampleLock = (): SolutionLock => parseOrThrow(parseSolutionLock(readYaml(paths.exampleLock)));
 
 const modelProfile = (path: string): ModelProfile => parseOrThrow(parseModelProfile(readYaml(path)));
+
+/** The `acme-prod` identity source a dev build is given (#29). Not a Bundle artifact. */
+export const exampleIdentity = (): IdentityProfile => parseOrThrow(parseIdentityProfile(readYaml(paths.exampleIdentity)));
 
 /**
  * The Spec's local file set, exactly as `solution.lock.spec.files` describes it:
@@ -77,6 +87,7 @@ export const generateInput = (): RuntimeGenerateInput => ({
       },
     },
   },
+  identity: exampleIdentity(),
   files: exampleSpecFiles(),
   modelProfiles: {
     standard: modelProfile(paths.modelProfile),

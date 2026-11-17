@@ -125,6 +125,7 @@ interface RuntimeValidationInput {
   environment: EnvironmentView;   // 非 secret 值、networkClass、state store 选择
   lock: SolutionLock;
   extensions: ExtensionManifest[];
+  identity?: IdentityProfile;     // 该 Environment 的静态身份源（#29）；缺省表示部署期挂载，只有应用侧校验
 }
 
 interface RuntimeGenerateInput extends RuntimeValidationInput {
@@ -417,6 +418,10 @@ build:
 | `runtime_schema_mismatch` | graph/audit/state store schema 不匹配 | build fail |
 | `runtime_connector_contract_missing` | `connectorRef` 没有 typed operation | build fail |
 | `runtime_grammar_unsupported` | Spec grammar 允许、但当前 generator 版本无法如实生成的结构（`approval` step、副作用 Tool、`memory` 声明、解析不了的引用） | build fail |
+| `runtime_identity_role_unknown` | Environment 的 `IdentityProfile` 声明了平台角色词表之外的角色 | build fail |
+| `runtime_identity_role_collision` | 业务角色与平台角色重名（Customer IdP group 不能冒充平台权威） | build fail |
+| `runtime_identity_scope_escalation` | subject 请求的平台角色未授予的 scope，或业务角色试图携带平台 scope | build fail |
+| `runtime_identity_invalid` | profile 不属于这个 Deployment：Customer/Environment 不符、`defaultSubject` 未声明、subject 重复 | build fail |
 | `runtime_generation_nondeterministic` | 同一输入两次生成 digest 不同 | build fail |
 | `runtime_manifest_invalid` | 生成的 app/topology 不符合 schema | build fail |
 
@@ -426,6 +431,7 @@ build:
 - `should` 的 `degraded / none` 产生 warning，写入 build provenance；不静默。
 - 组级一致性只比较 build 可见的三档（满足 / `degraded` / `none`）：§5.2 中 `native` 与 `adapter` 都"满足"，因此互不比强弱（参考 Profile 的 `durableWorkflow: native` 搭配 `autoResume: adapter` 是合法声明）；组级不得掩盖子项的 `degraded / none`。
 - 两个 warning 码（不阻塞 build）：`runtime_topology_unused_mode`（Profile 声明了 v0 不渲染的 mode，§8.3）、`runtime_connector_operation_untyped`（`connectorRef` 的 typed operation 已声明，但既无 input/output schema、Tool 也未自行 pin schema，GAP-1）。
+- 四个 `runtime_identity_*` 判断的是 Spec + Environment 与身份源是否自洽，不依赖 Profile：Profile 修坏了也要先告诉 build 它即将挂载一个提权的身份源。身份源在部署期挂载，所以生成的应用加载时会再拒绝一次同样的三条（业务角色获 scope 的那条在代码结构上就不成立：scope 只从平台角色派生）。
 - `runtime_grammar_unsupported` 是 generator 侧的错误码：共享的 `validate` 只判断「Profile 能不能提供这项能力」，具体 generator 还要判断「这份 Spec 的语法我能不能如实生成」。当前版本不生成 `approval` step、副作用 Tool、`memory` 声明，也没有 Extension artifact loader；遇到它们必须 build fail 并指明位置，静默丢弃或降级生成会让完整样例看起来可构建（[#27](https://github.com/0xnicholas/Fdesforce/issues/27) 首个实现）。
 - `RuntimeValidationResult.requirements` 记录每条要求的 `capability / level / source`，build provenance 同时记录 Profile digest、generator 版本、解析后的要求和 warnings。
 - 运行时启动再握手一次；build 通过不等于运行时可服务。
@@ -694,10 +700,10 @@ spec:
 |---|---|
 | `capabilities` | 解析 Profile，返回规范化能力；校验 10 组必填。 |
 | `validate` | 推导 durable/HITL/streaming/memory/tools/extensions/offline 要求；检查 `ts-package`、SQLite/Postgres、split、OTel；`should` 产生 warning。 |
-| `generateApp` | 生成 `src/agents`、`src/workflows`、`src/tools`、`src/runtime/{context-client,execution-context,retrieval,wire,errors,ids,canonical,sse,state-store,run-registry,router,run-service,config,identity}.ts`、`index.ts`、`migrate.ts`、`Dockerfile`；Node 22 entrypoint。`record-before-act.ts`、`approvals.ts` 归 #29/Slice 2；`identity.ts` 是 #29 的签发接缝（当前 fail closed）。`/readyz` 与握手在 #30 落地，拓扑的 healthCheck 随之切换。 |
+| `generateApp` | 生成 `src/agents`、`src/workflows`、`src/tools`、`src/runtime/{context-client,execution-context,retrieval,roles,wire,errors,ids,canonical,sse,state-store,run-registry,router,run-service,config,identity}.ts`、`index.ts`、`migrate.ts`、`Dockerfile`；Node 22 entrypoint。`identity.ts` 是 #29 的签发链：挂载的静态身份源 → 平台/业务角色映射 → ES256 `ExecutionContext`；`roles.ts` 是随 Bundle 发布的平台角色词表与 scope 矩阵。`record-before-act.ts`、`approvals.ts` 归 Slice 2。`/readyz` 与握手在 #30 落地，拓扑的 healthCheck 随之切换。 |
 | `generateTopology` | `mastra-app` + `mastra-state` 卷 + `runtime-migrate` 作业；端口 4111 暴露；依赖 context-service；health `/healthz`（`/readyz` 与握手在 #30 落地后切换）。 |
 | `generateMigrations` | libsql/SQLite state store 初始化；不生成 context-service graph/audit 迁移。 |
-| `generateContractTests` | 本切片映射 A2/A5（smoke，`contract-tests/run-api-smoke.mjs` 从 parity fixture 读 capability/操作/事件/错误表）与 A11（static，比较 `sourceDigest`）；A1/A3/A4/A6–A10/A12 随各自切片接线。 |
+| `generateContractTests` | 本切片映射 A2/A5（smoke，`contract-tests/run-api-smoke.mjs` 从 parity fixture 读 capability/操作/事件/错误表）、A8（smoke，`contract-tests/identity-smoke.mjs` 验签并断言 tenant/trace/roles/scopes，context-service 侧的强制归 #32）与 A11（static，比较 `sourceDigest`）；A1/A3/A4/A6/A7/A9/A10/A12 随各自切片接线。 |
 
 ### 12.3 能力与缺口
 

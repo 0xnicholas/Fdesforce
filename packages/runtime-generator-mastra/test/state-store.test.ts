@@ -57,12 +57,22 @@ interface StateStoreModule {
 
 interface ConfigModule {
   DEFAULT_RUN_DEADLINE_MS: number;
+  TENANT_ID: string;
+  SOLUTION_ID: string;
+  ENVIRONMENT_NAME: string;
   loadConfig(env?: Record<string, string | undefined>): {
     tenantId: string;
     port: number;
     stateStorePath: string;
     runDeadlineMs: number;
     heartbeatIntervalMs: number;
+  };
+  loadIdentityEnv(env?: Record<string, string | undefined>): {
+    deploymentId?: string;
+    configPath?: string;
+    configJson?: string;
+    signingKeyPem?: string;
+    signingKeyFile?: string;
   };
 }
 
@@ -268,11 +278,11 @@ describe('the idempotency index', () => {
 });
 
 describe('the deployment configuration', () => {
-  it('defaults the state store path, tenant and Run deadline', async () => {
+  it('defaults the state store path and the Run deadline, and bakes the tenant', async () => {
     const config = await tree.load<ConfigModule>('runtime/config.ts');
 
     expect(config.loadConfig({})).toEqual({
-      tenantId: 'default',
+      tenantId: 'acme',
       port: 4111,
       stateStorePath: './state/mastra.db',
       runDeadlineMs: config.DEFAULT_RUN_DEADLINE_MS,
@@ -280,19 +290,58 @@ describe('the deployment configuration', () => {
     });
   });
 
-  it('takes every deployment value from the environment and ignores a malformed deadline', async () => {
+  it('takes the deployment values from the environment and ignores a malformed deadline', async () => {
     const config = await tree.load<ConfigModule>('runtime/config.ts');
 
     const loaded = config.loadConfig({
-      FDE_TENANT_ID: 'acme',
       FDE_STATE_STORE_PATH: '/app/state/mastra.db',
       FDE_RUN_DEADLINE_MS: '90000',
     });
-    expect(loaded.tenantId).toBe('acme');
     expect(loaded.stateStorePath).toBe('/app/state/mastra.db');
     expect(loaded.runDeadlineMs).toBe(90_000);
     expect(config.loadConfig({ FDE_RUN_DEADLINE_MS: 'soon' }).runDeadlineMs).toBe(config.DEFAULT_RUN_DEADLINE_MS);
     expect(config.loadConfig({ FDE_RUN_DEADLINE_MS: '-5' }).runDeadlineMs).toBe(config.DEFAULT_RUN_DEADLINE_MS);
     expect(config.loadConfig({ FDE_PORT: '8080' }).port).toBe(8080);
+  });
+
+  it('does not let an install change the tenant, because the tenant is the Customer (ADR-0006 §4.5)', async () => {
+    const config = await tree.load<ConfigModule>('runtime/config.ts');
+
+    // One bundle is one Customer: `tenant_id` is the immutable customer id, not a
+    // deployment knob, so an Environment that sets one anyway gets the baked value.
+    expect(config.loadConfig({ FDE_TENANT_ID: 'beta' }).tenantId).toBe('acme');
+    expect(config.TENANT_ID).toBe('acme');
+    expect(config.SOLUTION_ID).toBe('claims-triage');
+    // The Environment is baked for the identity-source check, not for a token claim.
+    expect(config.ENVIRONMENT_NAME).toBe('acme-prod');
+  });
+});
+
+describe('the identity settings', () => {
+  it('reads the injected profile and signing key, and leaves absent settings absent', async () => {
+    const config = await tree.load<ConfigModule>('runtime/config.ts');
+
+    expect(config.loadIdentityEnv({})).toEqual({
+      deploymentId: undefined,
+      configPath: undefined,
+      configJson: undefined,
+      signingKeyPem: undefined,
+      signingKeyFile: undefined,
+    });
+    expect(
+      config.loadIdentityEnv({
+        FDE_DEPLOYMENT_ID: 'dep_01ARZ3NDEKTSV4RRFFQ69G5FAV',
+        FDE_IDENTITY_CONFIG: '/app/identity/identity.json',
+        FDE_IDENTITY_CONFIG_JSON: '{}',
+        FDE_SIGNING_KEY: '-----BEGIN PRIVATE KEY-----',
+        FDE_SIGNING_KEY_FILE: '/run/secrets/mastra-app-key.pem',
+      }),
+    ).toEqual({
+      deploymentId: 'dep_01ARZ3NDEKTSV4RRFFQ69G5FAV',
+      configPath: '/app/identity/identity.json',
+      configJson: '{}',
+      signingKeyPem: '-----BEGIN PRIVATE KEY-----',
+      signingKeyFile: '/run/secrets/mastra-app-key.pem',
+    });
   });
 });

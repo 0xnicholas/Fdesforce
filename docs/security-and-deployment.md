@@ -138,7 +138,7 @@ sequenceDiagram
 | `approver` | `approval:read`、`approval:decide`、`run:read` | 必须命中 Capability 的 `approver_roles`；禁止自审 |
 | `customer_admin` | `identity:manage`、`deployment:approve`、`audit:read`、`retention:manage`、`legal_hold:manage`、`support:grant`、`killswitch:execute` | 不能导出审计；不能修改生成物 |
 | `deployment_operator` | `deployment:execute`、`backup:run`、`restore:run`、`keys:rotate`、`health:read` | 执行部署/备份/恢复/轮换；不读业务数据 |
-| `auditor` | `audit:read`、`audit:export`、`deployment:read` | 只读 + 导出；不参与变更审批 |
+| `auditor` | `audit:read`、`audit:export`、`deployment:read`、`provenance:read` | 只读 + 导出；不参与变更审批 |
 | `service` | `run:create`、`context:retrieve`、`decision:write`、`approval:create`、`approval:consume` | 系统主体；不能 `on_behalf_of` 用户 |
 | `support` | `health:read`、`diagnostics:read` | 默认只读；`support:repair` 需单独审批且限时 |
 | 工作台 `release:approve` | `release:approve`、`release:sign` | 只存在于工作台，不进客户运行时 |
@@ -190,6 +190,25 @@ spec:
 
 - 映射变更写 `identity.role_mapping.changed` 配置 Decision，通知 `auditor`，重启后生效，不需要重建 Bundle。
 - 每个 Environment 独立 IdP client、签名 key、audit store、graph；不跨 Environment 复用 token 或数据。
+
+**v0 静态身份源（Slice 1，已实现）**：真实 OIDC/JWKS/JIT 归 Slice 2.4，Slice 1 用挂载的静态身份源提供同样的角色映射，形状与上面一致但 `source: static`，直接列出固定 subject 及其平台/业务角色与（可选的）收窄 scope：
+
+```yaml
+apiVersion: fde.dev/v0
+kind: IdentityProfile
+metadata: { customer: acme, environment: acme-prod }
+spec:
+  source: static
+  defaultSubject: adjuster-1
+  subjects:
+    - subject: adjuster-1
+      platformRoles: [end_user]          # 授予 scope
+      businessRoles: [claims-adjuster]   # 只用于数据权限
+```
+
+- 参考样例：`examples/identity/acme/acme-prod.yaml`；构建期 `validate` 拒绝未知平台角色、业务角色与平台角色重名、以及任何平台角色未授予的 scope（`runtime_identity_*`），生成的应用在加载挂载文件时再拒绝一次，并额外拒绝不属于本 Customer/本 Environment 的 profile——profile 在部署期挂载，构建不是唯一闸门。
+- 该文件含 subject，因此**不进 Bundle**：和签名私钥一样在部署期注入（profile 走挂载文件 `FDE_IDENTITY_CONFIG` 或 `FDE_IDENTITY_CONFIG_JSON`，私钥走 secret store）；Bundle 只携带平台角色词表与 scope 矩阵（§4.1）。
+- Slice 2.4 替换的是身份源这一环（JWKS/introspection/JIT 产出同样的 claims），角色映射 → ES256 `ExecutionContext` 签发不变。
 
 ### 4.4 授权执行点
 

@@ -25,4 +25,5 @@ export const paths = {
   exampleConnector: 'examples/spec/acme/customer/connectors/claims-db.yaml',
   exampleExtension: 'platform/extensions/acme-claims-connector/1.0.0/extension.yaml',
   exampleRuntimeProfile: 'platform/runtime-profiles/mastra-1.83-node22.yaml',
+  exampleIdentity: 'examples/identity/acme/acme-prod.yaml',
 } as const;

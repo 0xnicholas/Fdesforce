@@ -1,5 +1,5 @@
-import { parseSolutionLock, parseSolutionSpec, parseRuntimeProfile } from '@fde/spec';
-import type { RuntimeProfile, SolutionLock, SolutionSpec } from '@fde/spec';
+import { parseIdentityProfile, parseSolutionLock, parseSolutionSpec, parseRuntimeProfile } from '@fde/spec';
+import type { IdentityProfile, RuntimeProfile, SolutionLock, SolutionSpec } from '@fde/spec';
 
 import type { RuntimeValidationInput } from '../../src/index.js';
 import { paths, readYaml } from './repo.js';
@@ -36,6 +36,23 @@ export const exampleLock = (): SolutionLock => {
   const parsed = parseSolutionLock(readYaml(paths.exampleLock));
   if (!parsed.ok) throw new Error(JSON.stringify(parsed.errors, null, 2));
   return parsed.value;
+};
+
+/** The `acme-prod` identity source the build is given: the reference static profile. */
+export const exampleIdentity = (): IdentityProfile => {
+  const parsed = parseIdentityProfile(readYaml(paths.exampleIdentity));
+  if (!parsed.ok) throw new Error(JSON.stringify(parsed.errors, null, 2));
+  return parsed.value;
+};
+
+/** The one diagnostic with `code`, for tests that assert a specific refusal. */
+export const findDiagnostic = (
+  result: { errors: ReadonlyArray<{ code: string; path?: string; message: string; remediation?: string }> },
+  code: string,
+): { code: string; path?: string; message: string; remediation?: string } => {
+  const found = result.errors.find((error) => error.code === code);
+  if (found === undefined) throw new Error(`no ${code} in:\n${JSON.stringify(result.errors, null, 2)}`);
+  return found;
 };
 
 /**

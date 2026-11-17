@@ -31,6 +31,43 @@ export const CONTEXT_SERVICE_COMPONENT = 'context-service';
 export const PROBE_PATH = '/healthz';
 
 /**
+ * The environment variables the deployment injects for identity (#29). Named here
+ * because two artifacts have to agree on them: the emitted `runtime/config.ts` reads
+ * them, and the emitter's documentation and the A8 case describe them. A wrong name
+ * in either place is a deployment that boots and then refuses every Run.
+ */
+export const IDENTITY_ENV = {
+  /** `fde://<deployment_id>` is the `iss`; the contract schema pins `dep_<ulid>`. */
+  deploymentId: 'FDE_DEPLOYMENT_ID',
+  /** Path to the mounted static identity profile. */
+  configPath: 'FDE_IDENTITY_CONFIG',
+  /** The same profile inline, for a run with no mount. */
+  configJson: 'FDE_IDENTITY_CONFIG_JSON',
+  /** The `mastra-app` issuer key, PKCS#8 PEM, ES256. */
+  signingKeyPem: 'FDE_SIGNING_KEY',
+  /** A mounted PEM; wins over the inline key. */
+  signingKeyFile: 'FDE_SIGNING_KEY_FILE',
+} as const;
+
+/**
+ * Identity settings that must reach the app by injection, never through
+ * `Environment.values`: `runtime/topology.ts` refuses a build that puts one there.
+ *
+ * The reason is §5.4 and the reason for §5.4: an `Environment.values` entry is
+ * rendered into the topology artifact, which is signed and shipped — so a private
+ * key there would be a key in the Bundle, and a subject list there would be deploy
+ * data in a build artifact. It is also the setting `FDE_DEPLOYMENT_ID`, which the
+ * renderer derives from the deployment rather than an author choosing one.
+ */
+export const INJECTED_AT_DEPLOY: ReadonlyArray<string> = [
+  IDENTITY_ENV.deploymentId,
+  IDENTITY_ENV.configPath,
+  IDENTITY_ENV.configJson,
+  IDENTITY_ENV.signingKeyPem,
+  IDENTITY_ENV.signingKeyFile,
+];
+
+/**
  * Environment variables the generated app owns, with the values the topology sets.
  * One table, so the guard against an Environment redefining one of them and the
  * `env` entries the topology emits cannot disagree.

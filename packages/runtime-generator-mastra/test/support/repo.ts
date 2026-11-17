@@ -40,5 +40,6 @@ export const paths = {
   exampleSpecDir: 'examples/spec/acme/claims-triage',
   exampleRuntimeProfile: 'platform/runtime-profiles/mastra-1.83-node22.yaml',
   modelProfile: 'platform/model-profiles/standard.yaml',
+  exampleIdentity: 'examples/identity/acme/acme-prod.yaml',
   fallbackModelProfile: 'platform/model-profiles/standard-fallback.yaml',
 } as const;

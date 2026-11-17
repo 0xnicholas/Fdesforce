@@ -6,6 +6,7 @@ import {
   APP_DIR,
   APP_PORT,
   CONTEXT_SERVICE_COMPONENT,
+  INJECTED_AT_DEPLOY,
   MIGRATE_ENTRYPOINT,
   MIGRATE_JOB,
   PROBE_PATH,
@@ -40,6 +41,11 @@ function appEnvironment(input: RuntimeGenerateInput): Array<{ name: string; valu
     if (Object.hasOwn(RESERVED_ENV, name)) {
       throw new Error(
         `Environment ${input.environment.name} declares ${name}, which the generated app owns: the state store path and NODE_ENV are derived from the topology, not configured`,
+      );
+    }
+    if (INJECTED_AT_DEPLOY.includes(name)) {
+      throw new Error(
+        `Environment ${input.environment.name} declares ${name} in values, but the identity settings are injected at deploy time (§5.4), not rendered into the topology: FDE_SIGNING_KEY/FDE_IDENTITY_CONFIG_JSON would write the key or the subjects into a signed artifact`,
       );
     }
   }

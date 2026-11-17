@@ -1,0 +1,30 @@
+# Environment-scoped identity source for the Acme reference path.
+#
+# The static source is the development stand-in for the customer IdP (ADR-0006,
+# docs/security-and-deployment.md §4.3): fixed subjects, the roles each asserts,
+# and the scopes a credential requests. It names subjects, so it is mounted into
+# the deployment next to the signing key rather than baked into the bundle — but
+# it carries no secret: the `mastra-app` ES256 private key is injected separately
+# and never appears in a document, a bundle, a log or an audit record.
+apiVersion: fde.dev/v0
+kind: IdentityProfile
+metadata:
+  customer: acme
+  environment: acme-prod
+spec:
+  source: static
+  # The subject a Run runs as. Real OIDC claims replace this in Slice 2.4; the
+  # issuance chain behind it does not change.
+  defaultSubject: adjuster-1
+  subjects:
+    - subject: adjuster-1
+      display: Ada Adjuster
+      platformRoles: [end_user]
+      businessRoles: [claims-adjuster]
+    - subject: supervisor-1
+      display: Sam Supervisor
+      platformRoles: [end_user, approver]
+      businessRoles: [claims-supervisor]
+    - subject: svc-fde-eval
+      actorType: service
+      platformRoles: [service]

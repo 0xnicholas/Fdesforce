@@ -32,5 +32,15 @@ export const RUNTIME_DIAGNOSTIC_CODES = [
   'runtime_connector_contract_missing',
   'runtime_connector_operation_untyped',
   'runtime_grammar_unsupported',
+  /**
+   * The static identity profile cannot be honoured (#29): a platform role outside
+   * the fixed vocabulary, a business role reusing a platform role name, or a scope
+   * no platform role grants.
+   */
+  'runtime_identity_role_unknown',
+  'runtime_identity_role_collision',
+  'runtime_identity_scope_escalation',
+  /** The profile itself is not the one this deployment needs (Customer, Environment, subjects). */
+  'runtime_identity_invalid',
 ] as const;
 export type RuntimeDiagnosticCode = (typeof RUNTIME_DIAGNOSTIC_CODES)[number];

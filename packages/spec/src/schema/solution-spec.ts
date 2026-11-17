@@ -7,6 +7,7 @@ import {
   RetentionClassSchema,
   SpecFilePathSchema,
 } from './common.js';
+import { PLATFORM_ROLES } from './platform-roles.js';
 
 /**
  * `SolutionSpec` — the declarative authoring surface of a Solution Revision.
@@ -19,17 +20,6 @@ import {
  * Cross-document rules (does a referenced workflow exist? does the gate cover a
  * side-effecting tool?) live in `checkSolution()`, not here.
  */
-
-/** Roles the platform itself owns; a business role may not reuse the name. */
-export const PLATFORM_ROLES = [
-  'end_user',
-  'approver',
-  'customer_admin',
-  'deployment_operator',
-  'auditor',
-  'service',
-  'support',
-] as const;
 
 export const BusinessRoleSchema = z
   .string()

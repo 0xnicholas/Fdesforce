@@ -180,6 +180,10 @@ _Avoid_: Permission, Group
 客户 IdP group 透传的业务角色，只用于数据权限、row filter 和 `approver_roles`，不授予平台 scope。
 _Avoid_: Platform Role, Permission
 
+**IdentityProfile**:
+Environment 配置的身份来源与角色映射文档：声明平台角色/业务角色如何从身份来源得出，并据此签发 `ExecutionContext`；v0 为静态 subject 列表（Slice 2.4 起为 OIDC + JWKS + JIT），不含 secret 值，不进 Bundle。
+_Avoid_: Auth config, Role config
+
 **Break-glass**:
 客户持有的应急管理访问；限时、需审批、写审计，仅用于 IdP 不可用时的管理面恢复。
 _Avoid_: Backdoor, Emergency admin

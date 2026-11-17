@@ -4,7 +4,14 @@
 // must be a real digest manifest, not placeholder hashes.
 import { describe, expect, it } from 'vitest';
 
-import { digestFiles, parseModelProfile, parseRuntimeProfile, parseSolutionLock, parseSolutionSpec } from '../src/index.js';
+import {
+  digestFiles,
+  parseIdentityProfile,
+  parseModelProfile,
+  parseRuntimeProfile,
+  parseSolutionLock,
+  parseSolutionSpec,
+} from '../src/index.js';
 import { paths, readSpecFiles, readText, readYaml } from './support/repo.js';
 
 const describeErrors = (errors: ReadonlyArray<{ path?: string; message: string }>): string =>
@@ -74,6 +81,14 @@ describe('Platform example artifacts', () => {
       const result = parseModelProfile(readYaml(path));
       expect(result.ok, result.ok ? '' : `${path}\n${describeErrors(result.errors)}`).toBe(true);
     }
+  });
+});
+
+describe('Environment identity source', () => {
+  it('validates the Acme acme-prod static IdentityProfile', () => {
+    const result = parseIdentityProfile(readYaml(paths.exampleIdentityProfile));
+
+    expect(result.ok, result.ok ? '' : describeErrors(result.errors)).toBe(true);
   });
 });
 

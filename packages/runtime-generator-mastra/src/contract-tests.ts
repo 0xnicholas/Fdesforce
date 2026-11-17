@@ -10,11 +10,16 @@ import { ERROR_CODES, RUN_API_OPERATIONS, SLICE_EVENT_TYPES } from './run-api.js
  * The generator maps the A-cases its app can be held to onto a command and the
  * fixtures that command reads; it does not implement a runner (`contracts/conformance/adapter-cases.md`,
  * "Runner and CI"). Only the cases this slice's app can actually satisfy are
- * listed: A2 (Run API parity), A5 (SSE envelope) and A11 (deterministic
- * generation). A3/A4/A6/A7/A9/A10/A12 belong to HITL, record-before-act, restart
- * resume, extension loading, offline install and memory; A1's runtime half and A8
- * belong to the handshake (#30) and identity (#29) slices. A plan that listed them
- * would claim conformance the generated app cannot deliver.
+ * listed: A2 (Run API parity), A5 (SSE envelope), A8 (tenant/trace propagation) and
+ * A11 (deterministic generation). A3/A4/A6/A7/A9/A10/A12 belong to HITL,
+ * record-before-act, restart resume, extension loading, offline install and memory;
+ * A1's runtime half belongs to the handshake (#30). A plan that listed them would
+ * claim conformance the generated app cannot deliver.
+ *
+ * A8 is claimed for the app's half only: the tenant, the trace and the scopes a token
+ * carries, verified against the schema and the signature. The other half — that
+ * context-service enforces them — is the platform's (#32), and the case says so in
+ * its notes rather than pretending the bundle proves it alone.
  */
 
 /** The bundle-relative directory the contract-test assets live in. */
@@ -25,6 +30,12 @@ export const SMOKE_SCRIPT = `${CONTRACT_TEST_DIR}/run-api-smoke.mjs`;
 
 /** The parity fixture: the operations, event types and error table the cases assert. */
 export const PARITY_FIXTURE = `${CONTRACT_TEST_DIR}/fixtures/run-api-parity.json`;
+
+/**
+ * The identity smoke: A8's app half. It imports the app's own issuer, not a copy,
+ * because there is no HTTP surface for a token and no fixture can prove a signature.
+ */
+export const IDENTITY_SMOKE_SCRIPT = `${CONTRACT_TEST_DIR}/identity-smoke.mjs`;
 
 /**
  * The parity fixture is the contract as data: A2 compares the running surface
@@ -301,6 +312,198 @@ function smokeScript(generatorVersion: string): GeneratedFile {
   };
 }
 
+/**
+ * `contract-tests/identity-smoke.mjs` — A8's app half, executed against the bundle.
+ *
+ * A8 is "tenant and trace propagate end to end". The end is context-service (#32);
+ * the start is this app, and what it must not get wrong is the assertion it signs:
+ * this Customer's tenant, the Run's trace, the platform ∪ business role union with
+ * scopes derived from the platform half only, and an ES256 signature the public key
+ * verifies. None of that is observable over HTTP — a client must never see a
+ * bearer token — so the case imports the app's own issuer instead of a copy.
+ *
+ * The key and the profile are generated inside the check: a fixture would be a
+ * committed signing key, which is the one thing §5.4 forbids in a bundle.
+ */
+function identitySmokeScript(generatorVersion: string): GeneratedFile {
+  return {
+    path: IDENTITY_SMOKE_SCRIPT,
+    mode: GENERATED_FILE_MODE,
+    content: [
+      '#!/usr/bin/env node',
+      generatedHeader(generatorVersion, 'contracts/schemas/execution-context.schema.json + docs/runtime-contract.md §5.1, §5.4').trimEnd(),
+      '//',
+      '// A8 — tenant / trace propagation, the half the generated app owns: the assertion it',
+      '// mints, and the assertion its client puts on the wire. The other half',
+      '// (context-service enforcing the tenant and the scopes) is #32.',
+      '//',
+      '//   node --experimental-strip-types contract-tests/identity-smoke.mjs',
+      "import { createHash, generateKeyPairSync, verify } from 'node:crypto';",
+      '',
+      "import { ENVIRONMENT_NAME, SOLUTION_ID, TENANT_ID } from '../mastra-app/src/runtime/config.ts';",
+      "import { IdentityConfigError, createExecutionContextIssuer, loadIdentity } from '../mastra-app/src/runtime/identity.ts';",
+      "import { ContextClient } from '../mastra-app/src/runtime/context-client.ts';",
+      "import { traceparent } from '../mastra-app/src/runtime/ids.ts';",
+      "import { scopesForRoles } from '../mastra-app/src/runtime/roles.ts';",
+      '',
+      "const DEPLOYMENT_ID = 'dep_01ARZ3NDEKTSV4RRFFQ69G5FAV';",
+      "const RUN_ID = 'run_01ARZ3NDEKTSV4RRFFQ69G5FAW';",
+      "const TRACE_ID = '4bf92f3577b34da6a3ce929d0e0e4736';",
+      '',
+      'let failures = 0;',
+      'const check = (label, condition, detail) => {',
+      '  if (condition) {',
+      '    console.log(`ok   ${label}`);',
+      '    return;',
+      '  }',
+      '  failures += 1;',
+      "  console.error(`FAIL ${label}${detail === undefined ? '' : `: ${detail}`}`);",
+      '};',
+      '',
+      'const decode = (token) => {',
+      "  const [header, payload, signature] = token.split('.');",
+      '  return {',
+      "    header: JSON.parse(Buffer.from(header, 'base64url').toString('utf8')),",
+      "    claims: JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')),",
+      '    signingInput: `${header}.${payload}`,',
+      "    signature: Buffer.from(signature, 'base64url'),",
+      '  };',
+      '};',
+      '',
+      '// RFC 7638: the `kid` context-service derives from the public key it is given.',
+      'const thumbprint = (publicKey) => {',
+      "  const jwk = publicKey.export({ format: 'jwk' });",
+      '  const members = JSON.stringify({ crv: jwk.crv, kty: jwk.kty, x: jwk.x, y: jwk.y });',
+      "  return createHash('sha256').update(members).digest('base64url');",
+      '};',
+      '',
+      'const { privateKey, publicKey } = generateKeyPairSync(\'ec\', { namedCurve: \'prime256v1\' });',
+      "const signingKeyPem = privateKey.export({ format: 'pem', type: 'pkcs8' }).toString();",
+      '',
+      'const profile = (platformRoles, businessRoles, scopes) => ({',
+      "  apiVersion: 'fde.dev/v0',",
+      "  kind: 'IdentityProfile',",
+      '  metadata: { customer: TENANT_ID, environment: ENVIRONMENT_NAME },',
+      '  spec: {',
+      "    source: 'static',",
+      "    defaultSubject: 'smoke-subject',",
+      '    subjects: [',
+      '      {',
+      "        subject: 'smoke-subject',",
+      "        actorType: 'user',",
+      '        platformRoles,',
+      '        businessRoles,',
+      '        ...(scopes === undefined ? {} : { scopes }),',
+      '      },',
+      '    ],',
+      '  },',
+      '});',
+      '',
+      'const load = (document) =>',
+      '  loadIdentity({',
+      '    deploymentId: DEPLOYMENT_ID,',
+      '    configJson: JSON.stringify(document),',
+      '    signingKeyPem,',
+      '  });',
+      '',
+      '// --- the assertion a Run carries -------------------------------------------',
+      'const identity = load(profile([\'end_user\'], [\'claims-adjuster\']));',
+      'const issued = createExecutionContextIssuer(identity)({ runId: RUN_ID, traceId: TRACE_ID });',
+      'const { header, claims, signingInput, signature } = decode(issued.token);',
+      '',
+      "check('token: three segments', issued.token.split('.').length === 3);",
+      "check('header: alg ES256', header.alg === 'ES256', String(header.alg));",
+      "check('header: kid', typeof header.kid === 'string' && header.kid.length > 0);",
+      "check('kid: is the public key thumbprint', header.kid === thumbprint(publicKey), header.kid);",
+      "check('signature: verifies with the public key', verify('sha256', Buffer.from(signingInput, 'utf8'), { key: publicKey, dsaEncoding: 'ieee-p1363' }, signature));",
+      '',
+      "check('iss: fde://<deployment_id>', claims.iss === `fde://${DEPLOYMENT_ID}`, String(claims.iss));",
+      "check('aud: context-service', claims.aud === 'context-service', String(claims.aud));",
+      "check('tenant_id: this Customer', claims.tenant_id === TENANT_ID, String(claims.tenant_id));",
+      "check('solution_id: this Solution', claims.solution_id === SOLUTION_ID, String(claims.solution_id));",
+      "check('deployment_id', claims.deployment_id === DEPLOYMENT_ID, String(claims.deployment_id));",
+      "check('trace_id: the Run trace', claims.trace_id === TRACE_ID, String(claims.trace_id));",
+      "check('run_id', claims.run_id === RUN_ID, String(claims.run_id));",
+      "check('sub', claims.sub === 'smoke-subject', String(claims.sub));",
+      "check('actor', claims.actor?.type === 'user' && claims.actor?.id === 'smoke-subject', JSON.stringify(claims.actor));",
+      "check('jti: present and replay-guard sized', typeof claims.jti === 'string' && claims.jti.length >= 16, String(claims.jti));",
+      "check('kid: also a claim', claims.kid === header.kid);",
+      "check('exp: at most five minutes', claims.exp - claims.iat > 0 && claims.exp - claims.iat <= 300, `${claims.exp - claims.iat}s`);",
+      '',
+      "// roles = platform ∪ business; only the platform half grants scopes (§5.1).",
+      'const expectedRoles = [...new Set([...identity.source.subjects[0].platformRoles, ...identity.source.subjects[0].businessRoles])].sort();',
+      "check('roles: platform ∪ business', JSON.stringify(claims.roles) === JSON.stringify(expectedRoles), JSON.stringify(claims.roles));",
+      "check('roles: business role present', claims.roles.includes('claims-adjuster'), JSON.stringify(claims.roles));",
+      "check('scopes: derived from the platform roles only', JSON.stringify(claims.scopes) === JSON.stringify(scopesForRoles(['end_user'])), JSON.stringify(claims.scopes));",
+      "check('scopes: a business role grants nothing', !claims.scopes.includes('claims:approve'));",
+      '',
+      '// --- the token on the wire --------------------------------------------------',
+      '// A8 is propagation, not just composition: the assertion has to be the one the',
+      '// client sends, with a `traceparent` whose trace-id is the same claim. Driving the',
+      "// app's own client against a recording transport is the cheapest honest proof:",
+      '// there is no HTTP surface that would hand a client a bearer token.',
+      'const sent = [];',
+      'const client = new ContextClient({',
+      '  baseUrl: \'http://context-service.invalid\',',
+      '  fetch: async (url, init) => {',
+      '    sent.push({ url: String(url), headers: init.headers });',
+      '    return new Response(JSON.stringify({ items: [], budget_used: {}, policy_evaluations: [] }), {',
+      "      status: 200,",
+      "      headers: { 'content-type': 'application/json' },",
+      '    });',
+      '  },',
+      '});',
+      '',
+      'const wireToken = createExecutionContextIssuer(identity)({ runId: RUN_ID, traceId: TRACE_ID }).token;',
+      'await client.retrieve(',
+      '  {',
+      '    runId: RUN_ID,',
+      '    traceId: TRACE_ID,',
+      '    token: wireToken,',
+      '    traceparent: traceparent(TRACE_ID),',
+      '  },',
+      "  { recipe: 'smoke', subject: {}, budget: {} },",
+      ');',
+      '',
+      "check('wire: one call reached context-service', sent.length === 1, `${sent.length}`);",
+      "check('wire: the call is the retrieve route', String(sent[0]?.url).endsWith('/v1/context/retrieve'), String(sent[0]?.url));",
+      "check('wire: carries the ExecutionContext as a bearer token', sent[0]?.headers.authorization === `Bearer ${wireToken}`, String(sent[0]?.headers.authorization));",
+      'const wireClaims = decode(wireToken).claims;',
+      'check("wire: the sent token is this Run", wireClaims.run_id === RUN_ID && wireClaims.trace_id === TRACE_ID);',
+      "const traceparentHeader = sent[0]?.headers.traceparent ?? '';",
+      "check('wire: traceparent is well formed', /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/.test(traceparentHeader), traceparentHeader);",
+      "check('wire: traceparent trace-id equals the token', traceparentHeader.split('-')[1] === wireClaims.trace_id, traceparentHeader);",
+      '',
+      "// --- what the mounted profile may not encode -------------------------------",
+      'const refuses = (label, document) => {',
+      '  try {',
+      '    load(document);',
+      '  } catch (error) {',
+      '    check(label, error instanceof IdentityConfigError, String(error));',
+      '    check(`${label}: names no key material`, !error.message.includes(signingKeyPem.slice(0, 40)));',
+      '    return;',
+      '  }',
+      '  check(label, false, \'the profile was accepted\');',
+      '};',
+      '',
+      "refuses('refuses an unknown platform role', profile(['superuser'], []));",
+      "refuses('refuses a business role posing as a platform role', profile(['end_user'], ['customer_admin']));",
+      "refuses('refuses a scope no platform role grants', profile([], ['claims-supervisor'], ['audit:export']));",
+      "refuses('refuses a tenant that is not this Customer', {",
+      '  ...profile([\'end_user\'], []),',
+      '  metadata: { customer: \'another-customer\', environment: ENVIRONMENT_NAME },',
+      '});',
+      '',
+      'if (failures > 0) {',
+      '  console.error(`A8: ${failures} check(s) failed`);',
+      '  process.exit(1);',
+      '}',
+      "console.log('A8: ok');",
+      '',
+    ].join('\n'),
+  };
+}
+
 export function generateContractTests(input: RuntimeGenerateInput): TestPlan {
   // The capabilities this build can start, in a stable order: the smoke script reads
   // one of them, so the case is about *this* Solution rather than the reference one.
@@ -326,6 +529,14 @@ export function generateContractTests(input: RuntimeGenerateInput): TestPlan {
         notes: 'SSE envelope: seq monotonic from 1, run_id/trace_id on every event, declared event types only.',
       },
       {
+        caseId: 'A8',
+        tier: 'smoke',
+        command: ['node', '--experimental-strip-types', IDENTITY_SMOKE_SCRIPT],
+        fixtures: [],
+        notes:
+          'Tenant / trace propagation, the app half: the issued ExecutionContext carries this Customer and the Run trace, and the app’s own client sends it as a bearer token with a matching traceparent. The platform half — context-service enforcing the tenant and the scopes — is #32.',
+      },
+      {
         caseId: 'A11',
         tier: 'static',
         command: ['fde', 'verify', '--case', 'A11'],
@@ -336,6 +547,7 @@ export function generateContractTests(input: RuntimeGenerateInput): TestPlan {
     generatedFiles: sortedFiles([
       parityFixture(capabilities),
       smokeScript(input.profile.spec.generator.version),
+      identitySmokeScript(input.profile.spec.generator.version),
     ]),
   };
 }

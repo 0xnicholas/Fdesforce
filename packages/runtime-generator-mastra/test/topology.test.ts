@@ -84,6 +84,22 @@ describe('the runtime app component', () => {
     expect(spec().components[0]?.resources).toEqual({ cpu: '1', memory: '1Gi' });
   });
 
+  it('refuses to render an identity setting from Environment values', () => {
+    // `Environment.values` becomes topology `env`, and the topology is a signed
+    // artifact. A signing key or a subject list there is a key or a subject list in
+    // the Bundle, which §5.4 forbids — so the build stops instead of shipping it.
+    for (const name of ['FDE_SIGNING_KEY', 'FDE_SIGNING_KEY_FILE', 'FDE_IDENTITY_CONFIG', 'FDE_IDENTITY_CONFIG_JSON']) {
+      const input = generateInput();
+      input.environment = { ...input.environment, values: { [name]: 'value' } };
+
+      expect(() => mastraGenerator.generateTopology(input), name).toThrow(/injected at deploy time/);
+    }
+
+    const input = generateInput();
+    input.environment = { ...input.environment, values: { FDE_DEPLOYMENT_ID: 'dep_01ARZ3NDEKTSV4RRFFQ69G5FAV' } };
+    expect(() => mastraGenerator.generateTopology(input)).toThrow(/FDE_DEPLOYMENT_ID/);
+  });
+
   it('bakes the Environment values, sorted, as non-secret configuration', () => {
     const input = generateInput();
     input.environment = { ...input.environment, values: { FDE_LOG_LEVEL: 'info', FDE_REGION: 'eu-west-1' } };
