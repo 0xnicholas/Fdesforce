@@ -28,11 +28,6 @@ import { diagnostic, type Diagnostic } from './types.js';
  * copy of the request.
  */
 
-/** `iss` names a Deployment; the contract fixes the `dep_<ULID>` form. */
-export const DEPLOYMENT_ID_PATTERN = /^dep_[0-9A-HJKMNP-TV-Z]{26}$/;
-/** `solution_id` is the TenantId/SolutionId shape from `contracts/schemas/common.schema.json`. */
-export const SOLUTION_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,62}$/;
-
 const TTL_SECONDS = 300;
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 

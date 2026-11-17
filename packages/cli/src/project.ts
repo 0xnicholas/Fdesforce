@@ -152,7 +152,7 @@ function loadLock(specDir: string): { present: boolean; lock?: SolutionLock; err
   return { present: true, lock: parsed.value, errors };
 }
 
-function loadToolchain(platformRoot: string): { toolchain?: Toolchain; errors: Diagnostic[] } {
+export function loadToolchain(platformRoot: string): { toolchain?: Toolchain; errors: Diagnostic[] } {
   const path = join(platformRoot, 'toolchain.yaml');
   const errors: Diagnostic[] = [];
   if (!isFile(path)) {

@@ -119,6 +119,19 @@ describe('compatibility', () => {
   });
 });
 
+describe('package content', () => {
+  it('warns about a mapping no document declares, because it is digested but never compiled', () => {
+    const input = reference();
+    input.files = [...input.files, 'mappings/claims-db-extra.yaml'].sort();
+    if (input.fileDigests !== undefined) input.fileDigests['mappings/claims-db-extra.yaml'] = `sha256:${'3'.repeat(64)}`;
+
+    const result = report(input);
+
+    expect(codes(result.warnings)).toContain('context_file_unused');
+    expect(messages(result.warnings)).toMatch(/claims-db-extra\.yaml/);
+  });
+});
+
 describe('mappings and sources', () => {
   it('reports a mapping whose source the Semantic Model does not declare', () => {
     const input = reference();
@@ -209,12 +222,12 @@ describe('recipe pipeline', () => {
     const document = recipe(input);
     const structured = document.spec.stages.find((stage) => stage.type === 'structured');
     if (structured === undefined) throw new Error('no structured stage');
-    structured.entities.push('ic:FraudFlag');
+    structured.entities.push('ic:Payment');
 
     const result = report(input);
 
     expect(codes(result.errors)).toContain('context_reference_unknown');
-    expect(messages(result.errors)).toMatch(/ic:FraudFlag/);
+    expect(messages(result.errors)).toMatch(/ic:Payment/);
   });
 
   it('reports a relation the mappings never declare', () => {
@@ -283,7 +296,7 @@ describe('permission baseline', () => {
     const input = reference();
     const permissions = input.documents.permissions;
     if (permissions === undefined) throw new Error('no permissions');
-    permissions.spec.scopes['ic:FraudFlag'] = ['claims:fraud:read'];
+    permissions.spec.scopes['ic:Payment'] = ['claims:payments:read'];
 
     const result = report(input);
 
@@ -328,6 +341,30 @@ describe('eval suites', () => {
 
     expect(codes(result.errors)).toContain('context_reference_unknown');
     expect(messages(result.errors)).toMatch(/claims-context recipe is 1\.0\.0/);
+  });
+
+  it('reports a golden question whose expected entity names a class nothing produces', () => {
+    const input = reference();
+    const question = suite(input).spec.questions[0];
+    if (question === undefined) throw new Error('no question');
+    question.expectedEntities.push('ic:Payment/PAY-1');
+
+    const result = report(input);
+
+    expect(codes(result.errors)).toContain('context_reference_unknown');
+    expect(messages(result.errors)).toMatch(/ic:Payment/);
+  });
+
+  it('reports an expected entity that is not a typed entity id at all', () => {
+    const input = reference();
+    const question = suite(input).spec.questions[1];
+    if (question === undefined) throw new Error('no question');
+    question.expectedEntities.push('refund policy');
+
+    const result = report(input);
+
+    expect(codes(result.errors)).toContain('context_reference_unknown');
+    expect(messages(result.errors)).toMatch(/refund policy is not a class/);
   });
 
   it('reports an input the recipe does not accept', () => {

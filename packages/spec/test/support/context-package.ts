@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 
 import {
+  contextPackageFiles,
   digestFiles,
   parseContextEvalSuite,
   parseContextPackage,
@@ -61,7 +62,9 @@ export function loadPackage(dir: string): LoadedPackage {
 
   const manifest = parse('manifest.yaml', parseContextPackage);
   const documents: ContextPackageDocuments = { contextSources: {}, mappings: {}, recipes: {}, evals: {} };
-  if (manifest === undefined) return { errors, input: { manifest: undefined as never, documents, files } };
+  // Every test starts from a package that loads; a manifest that does not parse is a
+  // broken fixture, not a case under test.
+  if (manifest === undefined) throw new Error(`the package at ${dir} has no readable manifest:\n${JSON.stringify(errors, null, 2)}`);
 
   documents.semanticModel = parse(manifest.spec.semanticModelRef, parseSemanticModel);
   for (const path of manifest.spec.contextSources) {
@@ -83,7 +86,7 @@ export function loadPackage(dir: string): LoadedPackage {
   }
 
   // `revisions/**` records the freeze; the package digest covers everything else.
-  const content = files.filter((path) => !path.startsWith('revisions/'));
+  const content = contextPackageFiles(files);
   const fileSet = digestFiles(content.map((path) => ({ path, content: readText(join(dir, path)) })));
 
   const revisionPath = `revisions/${manifest.metadata.version}.yaml`;

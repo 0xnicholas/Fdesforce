@@ -1,5 +1,5 @@
-import type { Digest } from './canonical.js';
-import type { Diagnostic } from './parse.js';
+import { digestFiles, type Digest, type FileEntry, type FileSetDigest } from './canonical.js';
+import { error, warn, type ValidationReport } from './report.js';
 import type { ContextPackage, ContextPackageRevision } from './schema/context-package.js';
 import type { ContextEvalSuite } from './schema/context-eval-suite.js';
 import { RECIPE_STAGE_ORDER } from './schema/context-recipe.js';
@@ -73,19 +73,30 @@ export interface CheckContextPackageInput {
   compatibility?: { graphSchema: string; auditSchema: string };
 }
 
-export interface ContextPackageReport {
-  errors: Diagnostic[];
-  warnings: Diagnostic[];
+export type ContextPackageReport = ValidationReport;
+
+type Report = ValidationReport;
+
+/**
+ * What a package's content is: every file except the freeze records
+ * (`revisions/**`, which are provenance *about* the content) and hidden
+ * editor/filesystem debris (`.DS_Store`, `.gitignore`) — a digest that moved
+ * because of the second would make a package depend on who checked it out.
+ *
+ * `freeze`, `solution.lock` and the ingest job must agree on this set, so the rule
+ * is here once instead of in every reader.
+ */
+export function contextPackageFiles(paths: ReadonlyArray<string>): string[] {
+  return paths
+    .filter((path) => !path.startsWith('revisions/'))
+    .filter((path) => !path.split('/').some((segment) => segment.startsWith('.')))
+    .sort();
 }
 
-type Report = ContextPackageReport;
-
-function error(report: Report, code: string, path: string, message: string, remediation?: string): void {
-  report.errors.push(remediation === undefined ? { code, path, message } : { code, path, message, remediation });
-}
-
-function warn(report: Report, code: string, path: string, message: string): void {
-  report.warnings.push({ code, path, message });
+/** `digestFiles()` over the package content: the value `freeze` records and the lock pins. */
+export function digestContextPackage(entries: ReadonlyArray<FileEntry>): FileSetDigest {
+  const content = new Set(contextPackageFiles(entries.map((entry) => entry.path)));
+  return digestFiles(entries.filter((entry) => content.has(entry.path)));
 }
 
 /** The terms a package's mappings produce: what a recipe or a baseline may name. */
@@ -369,7 +380,27 @@ export function checkContextPackage(input: CheckContextPackageInput): ContextPac
 
   // ---- eval suites: the recipe, its version, and the inputs it accepts ------
   for (const [path, suite] of Object.entries(documents.evals)) {
-    checkEvalSuite(report, { path, suite, recipes: documents.recipes });
+    checkEvalSuite(report, { path, suite, recipes: documents.recipes, terminology });
+  }
+
+  // ---- every declarative file under a package directory is declared -------
+  // A file the manifest does not name is digested (it is content) but never
+  // compiled, which reads as "this mapping is in force" when it is not.
+  // `ontology/` is exempt: the Customer extension is declared above, while a copy
+  // of a Domain Ontology module is a reference to the vendored template (§3.3).
+  const declared = new Set<string>([
+    modelPath,
+    spec.permissionsRef,
+    ...spec.contextSources,
+    ...spec.recipes,
+    ...spec.evals,
+    ...(semanticModel?.spec.entityMappings.map((entry) => entry.ref) ?? []),
+    ...(semanticModel?.spec.ontology.extensions.map((extension) => extension.path) ?? []),
+  ]);
+  for (const path of files) {
+    if (!/^(context-sources|mappings|recipes|evals)\//.test(path)) continue;
+    if (declared.has(path)) continue;
+    warn(report, 'context_file_unused', path, 'is in the package but no document declares it: it is digested, not compiled');
   }
 
   // ---- a frozen version is immutable --------------------------------------
@@ -535,9 +566,14 @@ function checkPermissions(
 
 function checkEvalSuite(
   report: Report,
-  context: { path: string; suite: ContextEvalSuite; recipes: Record<string, ContextRecipe> },
+  context: {
+    path: string;
+    suite: ContextEvalSuite;
+    recipes: Record<string, ContextRecipe>;
+    terminology: Terminology;
+  },
 ): void {
-  const { path, suite, recipes } = context;
+  const { path, suite, recipes, terminology } = context;
   const at = suite.spec.recipeRef.lastIndexOf('@');
   const name = at < 0 ? suite.spec.recipeRef : suite.spec.recipeRef.slice(0, at);
   const recipe = Object.values(recipes).find((candidate) => candidate.metadata.name === name);
@@ -560,6 +596,24 @@ function checkEvalSuite(
       `eval suite ${suite.metadata.name} evaluates ${suite.spec.recipeRef}, but the package's ${name} recipe is ${recipe.metadata.version}`,
       `write recipeRef: ${name}@${recipe.metadata.version}`,
     );
+  }
+
+  // A golden question's expected entities are `ic:Claim/C-1001` ids: if the class
+  // half names nothing the package produces, the recall threshold can never be met.
+  for (const [index, question] of suite.spec.questions.entries()) {
+    for (const [position, entity] of question.expectedEntities.entries()) {
+      const separator = entity.indexOf('/');
+      const term = separator < 0 ? '' : entity.slice(0, separator);
+      if (term === '' || !terminology.classes.has(term)) {
+        error(
+          report,
+          'context_reference_unknown',
+          `${path} spec.questions[${index}].expectedEntities[${position}]`,
+          `question ${question.id} expects ${entity}, but ${term || entity} is not a class any mapping in this package declares`,
+          'map the class from a source, or fix the expected entity',
+        );
+      }
+    }
   }
 
   // `query`/`filters` are the run-time inputs every recipe accepts; everything

@@ -33,6 +33,7 @@ export type {
 export {
   LicensingSchema,
   ProfileMetadataSchema,
+  RUNTIME_CONTRACT_MAJOR,
   ProfileRefSchema,
   ProfileSpecSchema,
   RuntimeLanguageSchema,
@@ -206,18 +207,13 @@ export {
 } from './parse.js';
 export type { Diagnostic, ParseResult } from './parse.js';
 
-export { checkContextPackage } from './context.js';
+export { checkContextPackage, contextPackageFiles, digestContextPackage } from './context.js';
 export type { CheckContextPackageInput, ContextPackageDocuments, ContextPackageReport } from './context.js';
 
 export { checkSolution, resolveSchemaPath, satisfiesRange } from './crossref.js';
-export type {
-  CheckSolutionInput,
-  ConnectorView,
-  ContextPackageView,
-  EvalSuiteView,
-  PolicyTemplateView,
-  ValidationReport,
-} from './crossref.js';
+export { error, warn } from './report.js';
+export type { ValidationReport } from './report.js';
+export type { CheckSolutionInput, ConnectorView, ContextPackageView, EvalSuiteView, PolicyTemplateView } from './crossref.js';
 
 export { diffContractShape } from './contract-drift.js';
 export type { ContractDiff, ContractShapeInput, DriftReport, StrippedRule } from './contract-drift.js';
@@ -226,6 +222,8 @@ export {
   ArtifactRefSchema,
   CapabilityIdSchema,
   ClassificationSchema,
+  CommitIdSchema,
+  DeploymentIdSchema,
   DigestSchema,
   EntityIdSchema,
   NameSchema,

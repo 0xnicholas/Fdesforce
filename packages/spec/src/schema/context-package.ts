@@ -1,6 +1,14 @@
 import { z } from 'zod';
 
-import { NameSchema, PackageFilePathSchema, SemverSchema, TenantIdSchema } from './common.js';
+import {
+  CommitIdSchema,
+  DigestSchema,
+  NameSchema,
+  PackageFilePathSchema,
+  SchemaVersionSchema,
+  SemverSchema,
+  TenantIdSchema,
+} from './common.js';
 
 /**
  * `manifest.yaml` — the Customer Context Package (CCP): the Customer-level,
@@ -37,8 +45,8 @@ export const ContextPackageSpecSchema = z.strictObject({
   compatibility: z.strictObject({
     specMajor: z.string().regex(/^v[0-9]+$/),
     runtimeContract: z.string().regex(/^fde\.runtime\/v[0-9]+$/),
-    graphSchema: z.union([z.number().int().min(0), z.string().regex(/^[0-9]+(\.[0-9]+)*$/)]),
-    auditSchema: z.union([z.number().int().min(0), z.string().regex(/^[0-9]+(\.[0-9]+)*$/)]),
+    graphSchema: z.union([z.number().int().min(0), SchemaVersionSchema]),
+    auditSchema: z.union([z.number().int().min(0), SchemaVersionSchema]),
   }),
   provenance: z.strictObject({
     createdBy: z.string().min(1).max(200),
@@ -74,12 +82,12 @@ export const ContextPackageSchema = z.strictObject({
  * no-op rather than a re-stamp.
  */
 export const ContextPackageRevisionSpecSchema = z.strictObject({
-  digest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
-  files: z.record(PackageFilePathSchema, z.string().regex(/^sha256:[a-f0-9]{64}$/)),
+  digest: DigestSchema,
+  files: z.record(PackageFilePathSchema, DigestSchema),
   frozenAt: z.iso.datetime(),
   frozenBy: z.string().min(1).max(200),
   /** The commit the frozen content came from, when the caller supplied one. */
-  sourceCommit: z.string().regex(/^[0-9a-f]{7,40}$/).optional(),
+  sourceCommit: CommitIdSchema.optional(),
   /** FDE semantics owner + Customer business owner sign-off (`docs/semantic-modeling.md` §3.4). */
   decisions: z.array(z.string().min(1).max(64)).optional(),
 });

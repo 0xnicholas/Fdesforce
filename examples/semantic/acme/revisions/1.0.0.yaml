@@ -11,22 +11,23 @@ metadata:
   name: acme-claims-context
   version: 1.0.0
 spec:
-  digest: sha256:57449eddff7ed1a690dddeb6203171404ef6efe30562f9e49bb68b100e681886
+  digest: sha256:a8216d62662cf855120f1b3ec4ab9c865a5bc9a9f3ef179f6deb2b7a5ed0eaf5
   files:
     context-sources/claims-db.yaml: sha256:4a8c550ffe5438cddb9e1caf4e8bb5bcaff058897d64b79cc0d7afdcfdfef0de
     context-sources/sharepoint-claims.yaml: sha256:b0fb072661dd295fe4afdb7a40d1c35cd9bfcb80ec8c3bc8baa19762a1e15f71
     evals/claims-context.golden.yaml: sha256:a3b937a00fd874cb11bdaf24f494f19eef27ca858a7c4b96895616108cfb9c68
-    manifest.yaml: sha256:350c814425b7927723ab16608afc41b4acb0ca7a3b9c8f99d84073918aa3bff4
+    manifest.yaml: sha256:71a25686b283b0908fac6ce03ab2058a13f3659f61e33eadac7c7bce6975d0eb
     mappings/claims-db-coverages.yaml: sha256:7ba9a96bdc03016dc3d7f76a888293d580ba09e03bb5de3b2b65f7bbe248ade2
     mappings/claims-db-customers.yaml: sha256:cb304d165dfd7e51572ae882ad22d5f887ca5b68620afa027e9b85517f60d0ab
+    mappings/claims-db-fraud.yaml: sha256:1279bad6cee56f4e9e68f11a935e5ad68ab90220d10cf90a0931233ca79f4f49
     mappings/claims-db-policies.yaml: sha256:dcd60f86928aca41c5c5815f255bc823a66ab08d273f08d7b8b3619fed5f8096
-    mappings/claims-db.yaml: sha256:41ac88fbd9af64ba9d4aebdf947691aa9f5430c474a4eaf3093e90cdcf21a6e5
+    mappings/claims-db.yaml: sha256:075144086233ef0fdb1d91c462f032163621923138963903a85ce8c29a09aad3
     mappings/sharepoint-claims.yaml: sha256:e3e1ec2817da7faae52b5d7ed0c964e40bc6569b98773984df0ce43ba7daf8b2
     ontology/acme-claims-extension.ttl: sha256:c7d8df65f03df7fe2485405afb603f79a229e9817aeb7d4554fad504d67b76c1
     ontology/acme-claims.shacl.ttl: sha256:bc08c2e0495a95b11a12fa058a51842bb784a34ef3c1a6911c50fd7dcff68c46
     ontology/insurance-claims.ttl: sha256:e1b591793e18180ad4fb949e36a5a2f19607adb9ad3ee29d17e5e89507677779
-    permissions.yaml: sha256:b4fd4a751fe13783b55dc6bd3db883edf01798d54e3064b480f518921b748b81
-    recipes/claims-context.yaml: sha256:daa5166c644422269aa8bfb5e28fb04e84cc32f15f2d85c87f70425d15b2ce0d
-    semantic-model.yaml: sha256:61ea13beea4cfd7bbff78bcb86143c55bebbbde26de429298619d48bcfe80d06
-  frozenAt: 2026-11-17T11:06:15.290Z
+    permissions.yaml: sha256:991d599cfbd031c6e8dcc3c63ab415aeea732f5f4c1e31fe1746fa3b38d41d41
+    recipes/claims-context.yaml: sha256:df3843bb96c015159ebc059777c974a9cb845f966c373b1035265c5f5e0a2d47
+    semantic-model.yaml: sha256:add6de4bf23bd203064cc2717b05339cfeac23e2b235ec3d3552c1240cc1b195
+  frozenAt: 2026-11-17T11:19:15.764Z
   frozenBy: fde://acme/fde-lead

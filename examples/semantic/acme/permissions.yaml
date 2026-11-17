@@ -13,6 +13,7 @@ spec:
     "ic:Customer": {classification: restricted, pii: contact}
     "ic:Coverage": {classification: confidential}
     "ic:ClaimDocument": {classification: confidential, pii: sensitive}
+    "ic:FraudFlag": {classification: confidential}
   properties:
     "ic:claimId": {classification: confidential}
     "ic:customerName": {classification: restricted, pii: contact, columnMask: redact}

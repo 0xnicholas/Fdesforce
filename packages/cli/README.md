@@ -87,7 +87,15 @@ of the document parsers, so the same check serves this command and `fde build`.
 | `context_package_modified` | the frozen revision and the content on disk disagree |
 | `context_package_not_frozen` | `status: frozen` with no revision, or an ingest of an unfrozen package |
 | `context_package_not_validated` | `freeze` on a manifest still marked `draft` |
+| `context_package_missing` | `--package` is not a directory |
+| `context_package_revision_invalid` | the freeze record itself is malformed |
+| `context_file_invalid` | a symlink inside the package: content may not depend on a path outside it |
 | `context_eval_missing` | warning: no Context Eval question, so a freeze would ship semantics nothing measured |
+| `context_permissions_unclassified` | warning: a mapped class has no classification and falls back to `restricted` |
+| `context_file_unused` | warning: a file under `mappings/`/`recipes/`/`evals/`/`context-sources/` that no document declares — digested, not compiled |
+| `context_ingest_failed` | the job endpoint refused the job, the job failed, or context-service was unreachable |
+| `context_ingest_degraded` | warning: the job finished with at least one degraded source |
+| `context_jobs_key_invalid` / `context_jobs_key_missing` | the `--jobs-key` PEM is unreadable, not ES256, or has no usable id |
 
 Two rules are worth spelling out because they are about *exposure*, not tidiness:
 
@@ -134,9 +142,13 @@ generated `mastra-app` never calls it, it is not routed through the ingress, and
 the customer application surface stays `mastra-app` alone.
 
 The credential is the second issuer: `iss = fde://<deployment_id>/jobs`,
-`aud = context-service`, `actor.type = service`, `iss`-matching `sub`, and the
-maintenance scopes only (`context:ingest` — no `context:retrieve`, no
-`approval:decide`). The key is mounted, never generated here; the `kid` is its
+`aud = context-service`, `actor.type = service`, `iss`-matching `sub`, the
+platform role `service` (as §3.1's participant table names it), and a scope set
+narrowed to the maintenance vocabulary — `scopes: [context:ingest]`, which is
+*not* `scopesForRoles(['service'])`: the maintenance scopes are disjoint from the
+platform scopes on purpose, so a verifier that enforces the `scopes` claim (as
+§5.1 requires) cannot retrieve context or decide an approval with this token.
+The key is mounted, never generated here; the `kid` is its
 RFC 7638 thumbprint unless `--kid` names the id context-service was configured
 with, so a `kid` that disagrees with its key cannot be written by hand.
 `--deployment` and `--solution` supply what a job token asserts; the tenant is the
@@ -148,6 +160,11 @@ digest, so the runtime can refuse anything that is not the frozen artifact
 synchronous in this slice — the response is the finished job — and `degraded` is a
 reported outcome (exit 0, warning) because `retrieve` then answers with
 `degraded=true` until it is re-run.
+
+The command makes one attempt and does not retry, so it does not mint an
+`Idempotency-Key`: replay safety lives in the job itself (`mode` + watermark for
+`incremental`, stable `entity_id` upserts for `backfill`/`rebuild`), which is what
+§5.5 asks of ingest. A retry is an operator decision with a visible second job.
 
 ## Why `validate` and `lock --check` are separate
 

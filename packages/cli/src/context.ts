@@ -1,8 +1,10 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 import {
+  RUNTIME_CONTRACT_MAJOR,
   checkContextPackage,
+  contextPackageFiles,
   digestFiles,
   parseContextEvalSuite,
   parseContextPackage,
@@ -20,10 +22,11 @@ import {
   type ParseResult,
   type SemanticModel,
 } from '@fde/spec';
-import { parse as parseYaml, parseDocument, stringify as stringifyYaml } from 'yaml';
+import { parseDocument, stringify as stringifyYaml } from 'yaml';
 
 import { buildCatalogues, type Catalogues } from './artifacts.js';
-import { isContentPath, isFile, readDocument, readText, walkTree } from './fsutil.js';
+import { loadToolchain } from './project.js';
+import { isFile, readDocument, readText, walkTree } from './fsutil.js';
 import { parseRef } from './refs.js';
 import { dedupe, diagnostic, type Diagnostic, type Report } from './types.js';
 import type { Workspace } from './workspace.js';
@@ -60,7 +63,6 @@ export interface ContextPackageProject {
 }
 
 const MANIFEST = 'manifest.yaml';
-const REVISIONS = 'revisions/';
 
 export function loadContextPackage(input: { dir: string; workspace: Workspace }): ContextPackageProject {
   const dir = resolve(input.dir);
@@ -77,7 +79,7 @@ export function loadContextPackage(input: { dir: string; workspace: Workspace })
     );
   }
   // `revisions/**` records freezes; it is provenance about the content, not content.
-  const files = tree.files.filter((path) => !path.startsWith(REVISIONS) && isContentPath(path));
+  const files = contextPackageFiles(tree.files);
   const contents: Record<string, string> = {};
   for (const path of files) contents[path] = readText(join(dir, path));
 
@@ -146,7 +148,7 @@ export function loadContextPackage(input: { dir: string; workspace: Workspace })
     ...(revision === undefined ? {} : { revision }),
     ontologyModules: resolveOntologyModules(catalogues, documents.semanticModel, errors),
     connectors: catalogues.connectors.all().map((connector) => connector.name),
-    compatibility: compatibilityInput(input.workspace.platformRoot),
+    ...compatibilityOf(input.workspace.platformRoot),
     catalogProblems: catalogues.problems,
     errors,
   };
@@ -203,12 +205,6 @@ function resolveOntologyModules(
     modules[module.ref] = resolved.value.digest;
   }
   return modules;
-}
-
-/** The pinned graph/audit schema versions a package declares compatibility with. */
-function compatibilityInput(platformRoot: string): { graphSchema: string; auditSchema: string } {
-  const pinned = compatibilityOf(platformRoot);
-  return { graphSchema: String(pinned.graph), auditSchema: String(pinned.audit) };
 }
 
 /** Everything the reference rules need, assembled once. */
@@ -507,24 +503,27 @@ function render(document: unknown): string {
 }
 
 /**
- * What a new package declares as compatible: the pinned toolchain's graph/audit
- * schema versions and the contract's major line. A scaffold that guessed would
- * produce a package that fails the handshake later for a reason nobody wrote down.
+ * What a package declares as compatible, read from the pinned toolchain through the
+ * same loader the Spec path uses (so a missing or malformed toolchain is a
+ * diagnostic here too, not a silent default).
  */
-export function compatibilityOf(platformRoot: string): {
+export function toolchainCompatibility(platformRoot: string): {
   graph: number | string;
   audit: number | string;
   contractMajor: string;
+  errors: Diagnostic[];
 } {
-  const toolchainPath = join(platformRoot, 'toolchain.yaml');
-  let schemas: { graph?: number | string; audit?: number | string } = {};
-  if (isFile(toolchainPath)) {
-    const document = parseYaml(readFileSync(toolchainPath, 'utf8')) as { spec?: { schemas?: typeof schemas } };
-    schemas = document.spec?.schemas ?? {};
-  }
+  const loaded = loadToolchain(platformRoot);
   return {
-    graph: schemas.graph ?? 1,
-    audit: schemas.audit ?? 1,
-    contractMajor: 'fde.runtime/v1',
+    graph: loaded.toolchain?.schemas.graph ?? 0,
+    audit: loaded.toolchain?.schemas.audit ?? 0,
+    contractMajor: RUNTIME_CONTRACT_MAJOR,
+    errors: loaded.errors,
   };
+}
+
+/** The compatibility *input* `checkContextPackage` compares the manifest's claim with. */
+function compatibilityOf(platformRoot: string): { compatibility: { graphSchema: string; auditSchema: string } } {
+  const pinned = toolchainCompatibility(platformRoot);
+  return { compatibility: { graphSchema: String(pinned.graph), auditSchema: String(pinned.audit) } };
 }

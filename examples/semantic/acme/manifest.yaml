@@ -23,5 +23,7 @@ spec:
   provenance:
     createdBy: fde://acme
     createdAt: 2026-11-15T08:00:00Z
-    decisions:
-      - dec_01ARZ3NDEKTSV4RRFFQ69G5FAV
+    # No Decisions yet: writing one needs context-service's audit store, so the
+    # sign-off Decision lands with the eval/audit slice rather than as a
+    # placeholder id here.
+    decisions: []

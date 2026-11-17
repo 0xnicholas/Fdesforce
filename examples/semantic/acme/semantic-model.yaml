@@ -25,6 +25,7 @@ spec:
     - ref: mappings/claims-db-policies.yaml
     - ref: mappings/claims-db-coverages.yaml
     - ref: mappings/claims-db-customers.yaml
+    - ref: mappings/claims-db-fraud.yaml
     - ref: mappings/sharepoint-claims.yaml
   resolution:
     keys:

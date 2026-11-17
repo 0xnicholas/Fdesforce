@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CapabilityIdSchema,
   ClassificationSchema,
+  DeploymentIdSchema,
   DigestSchema,
   diffContractShape,
   documentSchemas,
@@ -137,6 +138,7 @@ describe('shared scalars match common.schema.json', () => {
   const scalars: Record<string, Parameters<typeof emitJsonSchema>[0]> = {
     Ulid: UlidSchema,
     RunId: RunIdSchema,
+    DeploymentId: DeploymentIdSchema,
     TenantId: TenantIdSchema,
     SolutionId: SolutionIdSchema,
     CapabilityId: CapabilityIdSchema,

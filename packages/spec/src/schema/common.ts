@@ -14,6 +14,10 @@ export const CapabilityIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}$/);
 export const EntityIdSchema = z.string().regex(/^fde:[A-Za-z0-9._~:-]{1,200}$/);
 export const TraceIdSchema = z.string().regex(/^[0-9a-f]{32}$/);
 export const DigestSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+/** `dep_<ULID>` — a Deployment's stable id (`contracts/schemas/common.schema.json`). */
+export const DeploymentIdSchema = z.string().regex(/^dep_[0-9A-HJKMNP-TV-Z]{26}$/);
+/** A git commit id: short or full, lowercase hex. */
+export const CommitIdSchema = z.string().regex(/^[0-9a-f]{7,40}$/);
 export const SemverSchema = z.string().regex(/^[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9.-]+)?$/);
 export const SchemaVersionSchema = z.string().regex(/^[0-9]+(\.[0-9]+)*$/);
 

@@ -1,0 +1,23 @@
+# Acme claims-db fraud flags: the historical markers the triage question asks about.
+#
+# `ic:hasFraudFlag` (claim → flag) lives in `claims-db.yaml`; this mapping makes
+# `ic:FraudFlag` a class the package actually produces, so the `claims-context`
+# recipe can expand to it and the third golden question has something to retrieve.
+apiVersion: fde.dev/v0
+kind: EntityMapping
+metadata:
+  customer: acme
+  source: claims-db
+spec:
+  connectorRef: claims-db
+  dataset: public.fraud_flags
+  entity: "ic:FraudFlag"
+  key: [flag_id]
+  properties:
+    is_fraud: {property: "ic:fraudFlag", type: boolean}
+  relations: []
+  watermark:
+    column: updated_at
+    mode: updated_at
+  filters:
+    - "tenant_id = :tenant_id"

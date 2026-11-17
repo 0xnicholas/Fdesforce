@@ -11,6 +11,13 @@ import { RuntimeCapabilitiesSchema } from './runtime-capabilities.js';
 
 export const RuntimeLanguageSchema = z.enum(['typescript', 'python']);
 
+/**
+ * The contract's **major line** — the only thing a document may name (ADR-0011's
+ * version convention): additive minors are compatible, so a pin like
+ * `fde.runtime/v1` does not invalidate a frozen artifact when the minor moves.
+ */
+export const RUNTIME_CONTRACT_MAJOR = 'fde.runtime/v1';
+
 export const ProfileMetadataSchema = z.strictObject({
   name: ProfileNameSchema,
   version: SemverSchema,

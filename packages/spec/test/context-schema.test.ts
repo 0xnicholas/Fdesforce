@@ -35,6 +35,7 @@ describe('the Acme CCP documents', () => {
     expect(Object.keys(input.documents.mappings).sort()).toEqual([
       'mappings/claims-db-coverages.yaml',
       'mappings/claims-db-customers.yaml',
+      'mappings/claims-db-fraud.yaml',
       'mappings/claims-db-policies.yaml',
       'mappings/claims-db.yaml',
       'mappings/sharepoint-claims.yaml',

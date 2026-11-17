@@ -354,6 +354,11 @@ paths:
         A package digest that is not the package's frozen revision is refused
         with `409 conflict` and `error.details.reason = package_not_frozen`: the
         runtime only ever materializes semantics that were frozen.
+
+        The job carries no `Idempotency-Key`: replay safety comes from the job
+        itself (`mode` plus source watermark for `incremental`, stable `entity_id`
+        upserts for `backfill`/`rebuild`), so a re-run refreshes rather than
+        duplicates (docs/runtime-contract.md §5.5).
       parameters:
         - $ref: '#/components/parameters/TraceParent'
       requestBody:

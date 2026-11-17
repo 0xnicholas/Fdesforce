@@ -1,8 +1,8 @@
 import { basename, dirname, join } from 'node:path';
 
-import { digestFiles, normalizeText, sha256, type Digest } from '@fde/spec';
+import { contextPackageFiles, digestFiles, normalizeText, sha256, type Digest } from '@fde/spec';
 
-import { asArray, asRecord, asString, isContentPath, isDirectory, isFile, listDir, readDocument, readText, walkFiles } from './fsutil.js';
+import { asArray, asRecord, asString, isDirectory, isFile, listDir, readDocument, readText, walkFiles } from './fsutil.js';
 import { highestSatisfying, parseRef } from './refs.js';
 import type { Diagnostic } from './types.js';
 
@@ -400,7 +400,7 @@ export class ContextPackageCatalog {
         this.problems.push({ ...revision.error, code: 'artifact_invalid' });
       }
 
-      const files = walkFiles(dir).filter((file) => !file.startsWith('revisions/') && isContentPath(file));
+      const files = contextPackageFiles(walkFiles(dir));
       const digest = digestFiles(files.map((file) => ({ path: file, content: readText(join(dir, file)) }))).digest;
 
       this.entries.set(`${name}@${version}`, {

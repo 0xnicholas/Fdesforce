@@ -1,19 +1,19 @@
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
+import { CommitIdSchema, DeploymentIdSchema, SolutionIdSchema } from '@fde/spec';
+
 import { buildCatalogues } from './artifacts.js';
 import {
-  compatibilityOf,
   freezeContextPackage,
   loadContextPackage,
   scaffoldContextPackage,
+  toolchainCompatibility,
   validateContextPackage,
   type ContextPackageProject,
 } from './context.js';
 import { isDirectory, isFile } from './fsutil.js';
 import {
-  DEPLOYMENT_ID_PATTERN,
-  SOLUTION_ID_PATTERN,
   loadJobsKey,
   newTraceId,
   readJobsKeyFile,
@@ -375,7 +375,10 @@ function contextInit(args: string[], io: Sink): number {
   const version = stringFlag(flags, 'version') ?? '0.1.0';
   if (!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(version)) return usageError(io, `--version must be x.y.z (got "${version}")`);
 
-  const compatibility = compatibilityOf(workspace.platformRoot);
+  const compatibility = toolchainCompatibility(workspace.platformRoot);
+  if (compatibility.errors.length > 0) {
+    return emitDiagnostics('context init', { errors: compatibility.errors, warnings: [] }, io, json);
+  }
   const files = scaffoldContextPackage({
     customer,
     name,
@@ -433,7 +436,7 @@ function contextFreeze(args: string[], io: Sink): number {
   const actor = stringFlag(flags, 'actor');
   if (actor === undefined) return usageError(io, 'missing required flag --actor');
   const sourceCommit = stringFlag(flags, 'source-commit');
-  if (sourceCommit !== undefined && !/^[0-9a-f]{7,40}$/.test(sourceCommit)) {
+  if (sourceCommit !== undefined && !CommitIdSchema.safeParse(sourceCommit).success) {
     return usageError(io, `--source-commit must be a commit id (got "${sourceCommit}")`);
   }
 
@@ -496,8 +499,12 @@ async function contextIngest(args: string[], io: Sink): Promise<number> {
   if (deploymentId === undefined) return usageError(io, 'missing required flag --deployment');
   if (solutionId === undefined) return usageError(io, 'missing required flag --solution');
   if (jobsKeyPath === undefined) return usageError(io, 'missing required flag --jobs-key');
-  if (!DEPLOYMENT_ID_PATTERN.test(deploymentId)) return usageError(io, `--deployment must be dep_<ULID> (got "${deploymentId}")`);
-  if (!SOLUTION_ID_PATTERN.test(solutionId)) return usageError(io, `--solution must be a Solution id (got "${solutionId}")`);
+  if (!DeploymentIdSchema.safeParse(deploymentId).success) {
+    return usageError(io, `--deployment must be dep_<ULID> (got "${deploymentId}")`);
+  }
+  if (!SolutionIdSchema.safeParse(solutionId).success) {
+    return usageError(io, `--solution must be a Solution id (got "${solutionId}")`);
+  }
 
   const modeArg = stringFlag(flags, 'mode') ?? 'incremental';
   const mode = INGEST_MODES.find((candidate) => candidate === modeArg);

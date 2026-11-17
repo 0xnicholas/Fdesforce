@@ -26,6 +26,7 @@ spec:
         - "ic:hasCoverage"
         - "ic:forCustomer"
         - "ic:documentsPolicy"
+        - "ic:hasFraudFlag"
       maxHops: 2
     - type: lexical
       source: sharepoint-claims

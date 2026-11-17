@@ -33,6 +33,12 @@ spec:
       join:
         table: public.customers
         on: policies.customer_id = customers.customer_id
+    - property: "ic:hasFraudFlag"
+      targetEntity: "ic:FraudFlag"
+      targetKey: claim_id
+      join:
+        table: public.fraud_flags
+        on: claims.claim_id = fraud_flags.claim_id
   watermark:
     column: updated_at
     mode: updated_at

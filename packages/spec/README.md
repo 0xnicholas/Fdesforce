@@ -5,12 +5,19 @@ derived from `docs/` and `contracts/`; nothing is a second copy of a decision.
 
 ```text
 src/
-  schema/                     Zod definitions, one module per document (incl. identity-profile.ts)
-  schema/platform-roles.ts    the platform role vocabulary and the scope matrix behind it
+  schema/                     Zod definitions, one module per document (spec, lock, profiles,
+                              and the Customer Context Package family: context-package.ts,
+                              semantic-model.ts, context-source.ts, entity-mapping.ts,
+                              context-recipe.ts, permission-profile.ts, context-eval-suite.ts)
+  schema/platform-roles.ts    the platform role vocabulary, its scope matrix, and the fde-jobs
+                              maintenance scopes
   parse.ts                    document seams: parse → typed value | diagnostics
   crossref.ts                 cross-document validation (references, pins, freshness, gates)
+  context.ts                  Context Package reference rules (terms, pipeline, digests,
+                              frozen revisions) + `digestContextPackage`
   topology.ts                 topology invariants the renderers rely on (exposure, order, volumes)
   canonical.ts                canonical JSON + content digests (`spec.files`, `spec.digest`)
+  report.ts                   the errors/warnings report shape both checkers append to
   documents.ts                exported JSON Schema, one artifact per document kind
   contract-drift.ts           structural comparison against contracts/
 ```
@@ -24,7 +31,10 @@ src/
 | `parseRuntimeTopology` / `parseBundleTopology` | is this one of the two topology documents? |
 | `parseModelProfile` | is the model pinned, and is an embedding profile internally consistent? |
 | `parseIdentityProfile` | is this the Environment's identity source, and does it have the subjects it needs? |
+| `parseContextPackage` / `parseSemanticModel` / `parseContextSource` / `parseMapping` / `parseContextRecipe` / `parsePermissionProfile` / `parseContextEvalSuite` / `parseContextPackageRevision` | is this Context Package document shaped correctly? |
 | `checkSolution` | do the documents agree: references resolve, inputs are pinned, the lock is fresh, gates are safe? |
+| `checkContextPackage` | does the package agree with itself: files exist, terms/sources/recipes resolve, the recipe pipeline is ordered and masked, the baseline annotates real terms, the revision still describes the content? |
+| `digestContextPackage` | what is a package's content: every file but `revisions/**` and hidden debris? |
 | `checkTopology` | can a renderer build this: one exposed runtime app, no dangling references, distinct graph/audit volumes, deployment-derived names? |
 | `digestFiles` / `canonicalJson` | is a rebuild byte-identical? |
 | `diffContractShape` | do `@fde/spec` and `contracts/` still describe the same document? |
@@ -52,6 +62,10 @@ Tests live at the same public seams, nowhere else:
 5. `test/canonical.test.ts` — digests pinned to values computed outside this codebase (`shasum`, Python `hashlib`).
 6. `test/contract-drift.test.ts` — structural comparison plus the differential corpus that pins the rules a structural comparison cannot see.
 7. `test/topology.test.ts` — the topology invariants the Compose/Helm renderers will rely on.
+8. `test/context-schema.test.ts` — the Context Package grammar: strictness, the fail-closed
+   permission default, prefixed terms, bounded graph hops, candidate-only extraction.
+9. `test/context-package.test.ts` — `checkContextPackage`: one case per reference rule, the
+   frozen-revision comparison, and the warnings that say "this is digested, not compiled".
 
 ## `inspect.rb` port map
 
@@ -70,7 +84,7 @@ one lives now:
 | workflow steps: refs resolve, approval gate blocks the next side-effecting tool, durable, business roles, duration, predicate pinned + bound + declared by its Policy, args upstream, `evidenceFrom` upstream context/tool, `summaryFrom` resolves to a string | Zod (`solution-spec.ts`) + `checkSolution` (`approval_gate_invalid`, `predicate_unknown`, `workflow_step_duplicate`) |
 | connector exists, operation allowed, `builtin` warning, schema files exist and are pinned | `checkSolution` (`connector_operation_not_allowed`, `builtin_tool_field`, `spec_file_missing`) |
 | governance / overlay / extension refs pinned | `checkSolution` (`lock_pin_missing`, `lock_pin_unpinned`) |
-| Context Package + recipe bindings resolve and versions match | `checkSolution` (`context_package_invalid`, `unresolved_reference`) |
+| Context Package + recipe bindings resolve and versions match | `checkSolution` (`context_package_invalid`, `context_package_unfrozen`, `unresolved_reference`) |
 | Eval Suite ↔ dataset digest ↔ lock `evalDatasets` | `checkSolution` (`lock_pin_mismatch`) |
 | Compose services/volumes/ports/`depends_on`/startup order, ingress exposure | now a topology invariant in `checkTopology` (`topology.test.ts`) — the renderer consumes `BundleTopology`, so the rules live where all three renderers inherit them |
 | generated tree: `GENERATED.yaml` sources, Mastra version pin | **deferred**: `GENERATED.yaml` is still a proposed artifact (`prototype/11-solution-spec/GAPS.md`); emitting it is build provenance (#33) |

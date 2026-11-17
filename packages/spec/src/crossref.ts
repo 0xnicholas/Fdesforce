@@ -1,5 +1,5 @@
 import { digestFiles, digestOf } from './canonical.js';
-import type { Diagnostic } from './parse.js';
+import { error, warn, type ValidationReport } from './report.js';
 import type { ModelProfile } from './schema/model-profile.js';
 import type { RuntimeProfile } from './schema/runtime-profile.js';
 import type { SolutionLock } from './schema/solution-lock.js';
@@ -72,22 +72,11 @@ export interface CheckSolutionInput {
   contextPackage?: ContextPackageView;
 }
 
-export interface ValidationReport {
-  errors: Diagnostic[];
-  warnings: Diagnostic[];
-}
+export type { ValidationReport } from './report.js';
 
 interface Context {
   input: CheckSolutionInput;
   report: ValidationReport;
-}
-
-function error(report: ValidationReport, code: string, path: string, message: string, remediation?: string): void {
-  report.errors.push(remediation ? { code, path, message, remediation } : { code, path, message });
-}
-
-function warn(report: ValidationReport, code: string, path: string, message: string): void {
-  report.warnings.push({ code, path, message });
 }
 
 /** `name@^1.2.3` → `{ name, range }`. */
