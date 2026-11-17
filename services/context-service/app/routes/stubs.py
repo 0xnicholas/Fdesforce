@@ -25,8 +25,6 @@ from app.errors import FdeError
 #: `operationId` → the ticket that replaces this handler.
 STUBS: dict[str, str] = {
     "retrieveContext": "#39",
-    "recordDecision": "#37",
-    "getProvenance": "#37",
     "createApproval": "#40",
     "listApprovals": "#40",
     "decideApproval": "#40",
@@ -35,7 +33,9 @@ STUBS: dict[str, str] = {
 }
 
 #: The operations this slice really serves.
-IMPLEMENTED: frozenset[str] = frozenset({"healthz", "readyz", "getRuntimeInfo"})
+IMPLEMENTED: frozenset[str] = frozenset(
+    {"healthz", "readyz", "getRuntimeInfo", "recordDecision", "getProvenance"}
+)
 
 
 def unimplemented(request: Request) -> NoReturn:

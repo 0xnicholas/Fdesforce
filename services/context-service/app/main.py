@@ -9,6 +9,12 @@ so configuration is read when the process starts (and a missing key stops it
 there) instead of when the module is imported. A test can therefore import this
 module without a deployment's environment.
 
+The lifespan is where the audit volume becomes real: `AuditStore.open()`
+migrates or verifies the schema before the first request, and a background
+`ChainVerifier` records one `verify_chain` pass at startup and then periodically.
+An unopenable or foreign-schema audit store stops the process — a context service
+that cannot keep evidence must not accept a Decision it will then fail to write.
+
 The request edge is a stack of three middlewares, outermost first:
 
 1. `TraceMiddleware` establishes the trace id every envelope and log line
@@ -24,8 +30,14 @@ the contract does not describe is a surface the conformance runner cannot check.
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
+
 from fastapi import FastAPI
 
+from app.audit import AuditStore
+from app.audit_verifier import ChainVerifier
 from app.clock import isoformat_z, utc_now
 from app.errors import install_error_handlers
 from app.idempotency import IdempotencyMiddleware, IdempotencyStore
@@ -43,9 +55,31 @@ def create_app(
     readiness: Readiness | None = None,
     verifier: JwtVerifier | None = None,
     idempotency: IdempotencyStore | None = None,
+    audit: AuditStore | None = None,
 ) -> FastAPI:
     """Build the service. Missing required configuration fails here, at startup."""
     service_settings = settings if settings is not None else Settings.from_env()
+    audit_store = audit if audit is not None else AuditStore(service_settings.audit_path)
+
+    @asynccontextmanager
+    async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+        """Open the audit volume, start the chain verifier, and close both on shutdown.
+
+        Opening here rather than in `create_app` keeps app construction side-effect
+        free (a test can inspect the routes without a data volume), while a real
+        process still fails closed: an unreadable or unmigrated audit store stops
+        uvicorn before it serves a request that would need one.
+        """
+        audit_store.open()
+        chain_verifier = ChainVerifier(audit_store)
+        task = asyncio.create_task(chain_verifier.run())
+        try:
+            yield
+        finally:
+            await chain_verifier.stop()
+            with suppress(asyncio.CancelledError):
+                await task
+            audit_store.close()
 
     application = FastAPI(
         title="FDE Context Service",
@@ -54,10 +88,12 @@ def create_app(
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
+        lifespan=lifespan,
     )
     application.state.settings = service_settings
     application.state.readiness = readiness if readiness is not None else Readiness()
     application.state.started_at = isoformat_z(utc_now())
+    application.state.audit = audit_store
 
     # `add_middleware` prepends, so this order is the *reverse* of the call order:
     # the last one added is the outermost.

@@ -17,10 +17,13 @@ What is remembered, and for how long:
 - **"being handled now"**, until the response is written: two concurrent copies
   of one write are a conflict, not two writes.
 
-The store is keyed in memory: context-service is a single writer by contract
-(`docs/runtime-contract.md` §4.3), and the retention window only has to outlive a
-client's retry, not a restart. The `IdempotencyStore` seam is what #37 replaces
-with the audit store's table when the Decision write lands beside it.
+The store is keyed in memory. That is enough because the Decision write's durable
+identity is `decision_id` in the audit store (`app.audit`): a restart forgets the
+key, the retry reaches the handler, and the handler returns the entry the id
+already names instead of appending a second one. This store is therefore a fast
+path that replays the original HTTP response byte for byte — it is not the
+mechanism a restart could undo. When the approval store lands (#40) it gets the
+same two layers.
 
 A replay answers `200` with the original body (§3.5). When the operation's
 response schema declares `idempotent_replay`, the flag is flipped to `true` in the
@@ -44,6 +47,7 @@ from typing import Any, Literal
 from starlette.requests import Request
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from app.canonical import canonical_json
 from app.contract import OPERATION_INDEX, OperationIndex
 from app.errors import FdeError, send_error
 from app.expiry import ExpiringRecords
@@ -162,14 +166,14 @@ def fingerprint(body: bytes) -> str:
 
     Key order and whitespace are transport, not meaning: the same decision
     written with reordered keys is the same decision, and a retry must replay it
-    rather than conflict.
+    rather than conflict. The canonical form is shared with the audit chain
+    (`app.canonical`), so "same payload" means the same thing at both seams.
     """
     try:
         parsed = json.loads(body)
     except (json.JSONDecodeError, UnicodeDecodeError):
         return hashlib.sha256(body).hexdigest()
-    canonical = json.dumps(parsed, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return hashlib.sha256(canonical_json(parsed).encode("utf-8")).hexdigest()
 
 
 def declares_replay_flag(operation: Operation) -> bool:

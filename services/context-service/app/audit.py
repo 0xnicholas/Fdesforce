@@ -1,0 +1,541 @@
+"""The append-only audit store (§6.4, C13/C14): evidence that cannot grow a second copy.
+
+The audit volume is separate from the graph because the two have different
+lifetimes: the graph is rebuilt from the Context Package, the audit trail is not.
+This module is the only writer. Every entry is a link in a SHA-256 chain:
+
+```text
+payload        = canonical_json({seq, provenance_id, tenant_id, created_at, decision})
+payload_digest = SHA-256(payload)
+hash           = SHA-256(prev_hash || payload)
+```
+
+`prev_hash` is the previous entry's `hash`, and the first entry links to
+`GENESIS_HASH`. Verification walks the chain and recomputes both digests, so a
+rewritten payload, a broken link or a missing entry is a disagreement rather than
+a silent edit.
+
+What is *not* here:
+
+- **No `verify_chain()` on the read path.** `verification()` reports the last
+  recorded result in O(1) (plus one anchored hash lookup); `verify_chain()` walks
+  the chain and is called by the background verifier (`app.audit_verifier`).
+- **No raw prompt or output.** The field is the caller's `DecisionRequest`, whose
+  schema carries digests and references rather than content (§6.5); there is no
+  column that could hold anything else.
+
+Two limits are deliberate and documented rather than papered over:
+
+- append-only is enforced by triggers, so a privileged process could drop them.
+  Verification then detects the rewrite, but a rewrite that recomputes every later
+  link needs an external anchor to disprove — §6.4's "chain_head recorded on the
+  Deployment Revision" is that anchor, and this slice does not yet have a
+  deployment-revision store.
+- the store is single-writer by contract (§4.3), so the write path serializes on a
+  process lock and `BEGIN IMMEDIATE` rather than attempting multi-writer liveness.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import sqlite3
+import threading
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Literal
+from urllib.parse import quote
+
+from app.canonical import canonical_json, sha256_digest
+from app.clock import isoformat_z, utc_now
+from app.generated.versions import AUDIT_SCHEMA_VERSION
+from app.ids import new_provenance_id
+
+logger = logging.getLogger("fde.context_service.audit")
+
+#: The first link's `prev_hash`: a well-formed digest that no entry can produce.
+GENESIS_HASH = "sha256:" + "0" * 64
+
+#: `PRAGMA application_id`, so the store refuses a SQLite file that is not this store.
+APPLICATION_ID = 0x46444541  # "FDEA"
+
+#: One message for every `decision_id` collision, including a cross-tenant one:
+#: whether the id belongs to another tenant is not the caller's business (C3).
+DUPLICATE_DECISION = (
+    "this decision_id is already recorded; one decision_id is one Decision, "
+    "so a different write needs a different id"
+)
+
+VerificationStatus = Literal["valid", "pending", "stale", "invalid"]
+ChainStatus = Literal["valid", "invalid"]
+
+
+class AuditStoreError(RuntimeError):
+    """The audit store cannot be the evidence the deployment needs."""
+
+
+class AuditSchemaMismatch(AuditStoreError):
+    """The file on the audit volume is not this schema version."""
+
+
+class DecisionConflict(Exception):
+    """This `decision_id` already names a different Decision (or another tenant's)."""
+
+
+@dataclass(frozen=True)
+class AuditEntry:
+    """One link of the chain, as a reader sees it.
+
+    `document` is exactly the payload that was hashed — `seq`, `provenance_id`,
+    `tenant_id`, `created_at` and the original Decision — so an auditor can
+    recompute the digests without reconstructing the store's ordering.
+    """
+
+    seq: int
+    provenance_id: str
+    decision_id: str
+    tenant_id: str
+    created_at: str
+    document: Mapping[str, Any]
+    payload_digest: str
+    prev_hash: str
+    hash: str
+
+    @property
+    def decision(self) -> Mapping[str, Any]:
+        return self.document["decision"]
+
+
+@dataclass(frozen=True)
+class AppendResult:
+    """`created=False` means the write was a replay: same id, same payload, same entry."""
+
+    entry: AuditEntry
+    created: bool
+
+
+@dataclass(frozen=True)
+class VerificationState:
+    """What the read path reports: the last background verification, and the chain head.
+
+    `chain_head` is the head the verification covered, not the current head. When
+    the chain has grown since, the status is `stale` and the digest still names
+    what was checked.
+    """
+
+    status: VerificationStatus
+    checked_at: str | None = None
+    chain_head: str | None = None
+    detail: str | None = None
+
+
+@dataclass(frozen=True)
+class ChainReport:
+    """One full pass over the chain, recorded by `verify_chain()`."""
+
+    status: ChainStatus
+    verified_through_seq: int
+    chain_head: str
+    checked_at: str
+    detail: str | None
+
+
+class AuditStore:
+    """`AUDIT_PATH` → an append-only, hash-chained SQLite store."""
+
+    def __init__(self, path: str | Path, *, now: Callable[[], datetime] | None = None) -> None:
+        self.path = Path(path)
+        self._now = now if now is not None else utc_now
+        self._connection: sqlite3.Connection | None = None
+        # One connection, one writer, one process (§4.3). The lock is what makes
+        # `BEGIN IMMEDIATE` a formality rather than a busy-retry loop.
+        self._lock = threading.RLock()
+
+    # -- lifecycle --------------------------------------------------------
+
+    def open(self) -> AuditStore:
+        """Open, migrate, or fail startup with what the audit volume actually is."""
+        with self._lock:
+            if self._connection is not None:
+                return self
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                connection = sqlite3.connect(
+                    self.path,
+                    timeout=10.0,
+                    isolation_level=None,  # explicit transactions; see `_transaction`
+                    check_same_thread=False,
+                )
+            except sqlite3.DatabaseError as error:
+                raise AuditStoreError(f"cannot open the audit store at {self.path}: {error}") from error
+            connection.row_factory = sqlite3.Row
+            try:
+                self._prepare(connection)
+            except Exception:
+                connection.close()
+                raise
+            self._connection = connection
+            return self
+
+    def close(self) -> None:
+        with self._lock:
+            if self._connection is not None:
+                self._connection.close()
+                self._connection = None
+
+    def __enter__(self) -> AuditStore:
+        return self.open()
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    def _prepare(self, connection: sqlite3.Connection) -> None:
+        """Set the durability pragmas and establish (or verify) the schema version."""
+        connection.execute("PRAGMA journal_mode = WAL")
+        connection.execute("PRAGMA synchronous = FULL")
+        try:
+            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            application_id = int(connection.execute("PRAGMA application_id").fetchone()[0])
+        except sqlite3.DatabaseError as error:
+            raise AuditStoreError(f"{self.path} is not a readable SQLite database: {error}") from error
+
+        expected = int(AUDIT_SCHEMA_VERSION)
+        if version == 0 and application_id == 0:
+            self._migrate(connection, expected)
+            return
+        if version != expected:
+            raise AuditSchemaMismatch(
+                f"the audit store at {self.path} is schema version {version}, "
+                f"and this build writes version {expected}; the audit volume is not migrated by the service"
+            )
+        if application_id != APPLICATION_ID:
+            raise AuditSchemaMismatch(f"{self.path} is not an FDE audit store (application_id {application_id})")
+
+    def _migrate(self, connection: sqlite3.Connection, expected: int) -> None:
+        # `executescript` commits before it runs, so this is deliberately not inside
+        # `_transaction`: DDL is idempotent (`IF NOT EXISTS`) and the version stamp is
+        # the last statement, so a crash before it leaves a store that re-migrates.
+        connection.executescript(_SCHEMA)
+        connection.execute(f"PRAGMA user_version = {expected}")
+        connection.execute(f"PRAGMA application_id = {APPLICATION_ID}")
+
+    @contextmanager
+    def _transaction(self, connection: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            yield connection
+        except BaseException:
+            connection.execute("ROLLBACK")
+            raise
+        else:
+            connection.execute("COMMIT")
+
+    def _connected(self) -> sqlite3.Connection:
+        if self._connection is None:
+            raise AuditStoreError(f"the audit store at {self.path} is not open; call open() first")
+        return self._connection
+
+    # -- write ------------------------------------------------------------
+
+    def append_decision(self, decision: Mapping[str, Any]) -> AppendResult:
+        """Append one Decision, or replay the entry its `decision_id` already names.
+
+        `decision_id` is the write's idempotency key (§4.2): a repeat with the same
+        payload is the same write and must not append a second link (C13); a
+        repeat with a different payload — or from another tenant — is a conflict,
+        not a guess.
+        """
+        decision_id = str(decision["decision_id"])
+        tenant_id = str(decision["tenant_id"])
+        payload = canonical_json(decision)
+
+        with self._lock:
+            connection = self._connected()
+            with self._transaction(connection):
+                existing = connection.execute(
+                    "SELECT * FROM audit_entry WHERE decision_id = ?", (decision_id,)
+                ).fetchone()
+                if existing is not None:
+                    return self._replay(existing, tenant_id, payload)
+
+                head = connection.execute("SELECT seq, hash FROM audit_entry ORDER BY seq DESC LIMIT 1").fetchone()
+                seq = 1 if head is None else int(head["seq"]) + 1
+                prev_hash = GENESIS_HASH if head is None else str(head["hash"])
+                entry = self._build(seq, prev_hash, tenant_id, decision)
+                connection.execute(
+                    """
+                    INSERT INTO audit_entry
+                      (seq, provenance_id, decision_id, tenant_id, created_at, payload, payload_digest, prev_hash, hash)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        entry.seq,
+                        entry.provenance_id,
+                        entry.decision_id,
+                        entry.tenant_id,
+                        entry.created_at,
+                        canonical_json(entry.document),
+                        entry.payload_digest,
+                        entry.prev_hash,
+                        entry.hash,
+                    ),
+                )
+                return AppendResult(entry=entry, created=True)
+
+    def _replay(self, row: sqlite3.Row, tenant_id: str, payload: str) -> AppendResult:
+        """The entry `decision_id` already names — or a refusal to pretend it is one."""
+        if str(row["tenant_id"]) != tenant_id:
+            raise DecisionConflict(DUPLICATE_DECISION)
+        stored = json.loads(str(row["payload"]))
+        if canonical_json(stored["decision"]) != payload:
+            raise DecisionConflict(DUPLICATE_DECISION)
+        return AppendResult(entry=_entry(row), created=False)
+
+    def _build(self, seq: int, prev_hash: str, tenant_id: str, decision: Mapping[str, Any]) -> AuditEntry:
+        document = {
+            "seq": seq,
+            "provenance_id": new_provenance_id(),
+            "tenant_id": tenant_id,
+            "created_at": isoformat_z(self._now()),
+            "decision": dict(decision),
+        }
+        payload = canonical_json(document)
+        return AuditEntry(
+            seq=seq,
+            provenance_id=str(document["provenance_id"]),
+            decision_id=str(decision["decision_id"]),
+            tenant_id=tenant_id,
+            created_at=str(document["created_at"]),
+            document=document,
+            payload_digest=sha256_digest(payload),
+            prev_hash=prev_hash,
+            hash=sha256_digest(prev_hash, payload),
+        )
+
+    # -- read -------------------------------------------------------------
+
+    def decision(self, decision_id: str, *, tenant_id: str) -> AuditEntry | None:
+        """The entry for `decision_id` in `tenant_id`, or nothing.
+
+        The tenant filter is the read's authorization, not a hint: an id that
+        belongs to another tenant is indistinguishable from an unknown id (C3).
+        """
+        with self._lock:
+            row = self._connected().execute(
+                "SELECT * FROM audit_entry WHERE decision_id = ? AND tenant_id = ?",
+                (decision_id, tenant_id),
+            ).fetchone()
+        return None if row is None else _entry(row)
+
+    def head(self) -> tuple[int, str]:
+        """`(seq, hash)` of the newest entry, or `(0, GENESIS_HASH)` when empty."""
+        with self._lock:
+            row = self._connected().execute("SELECT seq, hash FROM audit_entry ORDER BY seq DESC LIMIT 1").fetchone()
+        return (0, GENESIS_HASH) if row is None else (int(row["seq"]), str(row["hash"]))
+
+    def __len__(self) -> int:
+        with self._lock:
+            return int(self._connected().execute("SELECT COUNT(*) FROM audit_entry").fetchone()[0])
+
+    def verification(self) -> VerificationState:
+        """The last recorded verification, related to the current head in O(1).
+
+        This is the read path's whole contribution to C13: it never walks the
+        chain. The recorded head is looked up directly, so a chain that shrank
+        below what was verified reads `invalid` immediately.
+        """
+        with self._lock:
+            connection = self._connected()
+            record = connection.execute("SELECT * FROM chain_verification WHERE id = 1").fetchone()
+            head_seq, _ = self.head()
+            if record is None:
+                return VerificationState(status="pending")
+
+            checked_at = str(record["checked_at"])
+            recorded_head = str(record["chain_head"])
+            through = int(record["verified_through_seq"])
+            if str(record["status"]) == "invalid":
+                return VerificationState("invalid", checked_at, recorded_head, _detail_of(record))
+
+            anchored = connection.execute("SELECT hash FROM audit_entry WHERE seq = ?", (through,)).fetchone()
+            if through == 0:
+                anchor_hash: str | None = GENESIS_HASH
+            elif anchored is None:
+                anchor_hash = None
+            else:
+                anchor_hash = str(anchored["hash"])
+            if anchor_hash != recorded_head or through > head_seq:
+                return VerificationState(
+                    "invalid",
+                    checked_at,
+                    recorded_head,
+                    f"the chain no longer contains the verified head at seq {through}",
+                )
+            if through < head_seq:
+                return VerificationState("stale", checked_at, recorded_head)
+            return VerificationState("valid", checked_at, recorded_head)
+
+    # -- verification -----------------------------------------------------
+
+    def verify_chain(self) -> ChainReport:
+        """Walk the chain, recompute every link, and record the result (§6.4).
+
+        Off the read path by construction: a separate read-only connection takes a
+        consistent snapshot without holding the write lock, and the result is a
+        single row the read path can look up. The cost is linear, which is why it
+        is a background pass and not a request.
+        """
+        connection = self._read_only()
+        try:
+            rows = connection.execute("SELECT * FROM audit_entry ORDER BY seq").fetchall()
+        finally:
+            connection.close()
+
+        prev_hash = GENESIS_HASH
+        verified_through = 0
+        detail: str | None = None
+        for row in rows:
+            failure = _chain_failure(row, expected_seq=verified_through + 1, prev_hash=prev_hash)
+            if failure is not None:
+                detail = failure
+                break
+            prev_hash = str(row["hash"])
+            verified_through += 1
+
+        report = ChainReport(
+            status="invalid" if detail is not None else "valid",
+            verified_through_seq=verified_through,
+            chain_head=prev_hash,
+            checked_at=isoformat_z(self._now()),
+            detail=detail,
+        )
+        self._record(report)
+        if detail is not None:
+            logger.warning("audit chain verification failed at seq %s: %s", verified_through + 1, detail)
+        return report
+
+    def _read_only(self) -> sqlite3.Connection:
+        uri = f"file:{quote(str(self.path.resolve()), safe='/')}?mode=ro"
+        connection = sqlite3.connect(uri, uri=True, timeout=10.0)
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    def _record(self, report: ChainReport) -> None:
+        with self._lock, self._transaction(self._connected()) as connection:
+            connection.execute(
+                """
+                INSERT INTO chain_verification
+                  (id, status, verified_through_seq, chain_head, checked_at, detail)
+                VALUES (1, ?, ?, ?, ?, ?)
+                ON CONFLICT (id) DO UPDATE SET
+                  status = excluded.status,
+                  verified_through_seq = excluded.verified_through_seq,
+                  chain_head = excluded.chain_head,
+                  checked_at = excluded.checked_at,
+                  detail = excluded.detail
+                """,
+                (report.status, report.verified_through_seq, report.chain_head, report.checked_at, report.detail),
+            )
+
+
+def _entry(row: sqlite3.Row) -> AuditEntry:
+    document = json.loads(str(row["payload"]))
+    return AuditEntry(
+        seq=int(row["seq"]),
+        provenance_id=str(row["provenance_id"]),
+        decision_id=str(row["decision_id"]),
+        tenant_id=str(row["tenant_id"]),
+        created_at=str(row["created_at"]),
+        document=document,
+        payload_digest=str(row["payload_digest"]),
+        prev_hash=str(row["prev_hash"]),
+        hash=str(row["hash"]),
+    )
+
+
+def _chain_failure(row: sqlite3.Row, *, expected_seq: int, prev_hash: str) -> str | None:
+    """Why this link does not follow from the previous one, or None.
+
+    Every column is checked against the payload it claims to summarise: a store
+    that rewrote the `decision_id` index but not the payload would otherwise serve
+    one Decision under another's id.
+    """
+    seq = int(row["seq"])
+    label = f"seq {seq}"
+    if seq != expected_seq:
+        return f"{label}: expected seq {expected_seq}; the chain has a gap"
+    payload = str(row["payload"])
+    try:
+        document = json.loads(payload)
+    except json.JSONDecodeError:
+        return f"{label}: the payload is not JSON"
+    if not isinstance(document, dict):
+        return f"{label}: the payload is not a JSON object"
+    if canonical_json(document) != payload:
+        return f"{label}: the payload is not canonical JSON"
+    if str(row["payload_digest"]) != sha256_digest(payload):
+        return f"{label}: payload_digest does not match the payload"
+    if str(row["prev_hash"]) != prev_hash:
+        return f"{label}: prev_hash does not link to the previous entry"
+    if str(row["hash"]) != sha256_digest(prev_hash, payload):
+        return f"{label}: hash does not cover prev_hash and the payload"
+    decision = document.get("decision")
+    if not isinstance(decision, dict):
+        return f"{label}: the payload carries no Decision object"
+    for column, asserted in (
+        ("seq", document.get("seq")),
+        ("provenance_id", document.get("provenance_id")),
+        ("tenant_id", document.get("tenant_id")),
+        ("created_at", document.get("created_at")),
+        ("decision_id", decision.get("decision_id")),
+    ):
+        if str(row[column]) != str(asserted):
+            return f"{label}: the {column} column disagrees with the payload"
+    return None
+
+
+def _detail_of(record: sqlite3.Row) -> str | None:
+    return None if record["detail"] is None else str(record["detail"])
+
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS audit_entry (
+  seq            INTEGER PRIMARY KEY,
+  provenance_id  TEXT NOT NULL UNIQUE,
+  decision_id    TEXT NOT NULL UNIQUE,
+  tenant_id      TEXT NOT NULL,
+  created_at     TEXT NOT NULL,
+  payload        TEXT NOT NULL,
+  payload_digest TEXT NOT NULL,
+  prev_hash      TEXT NOT NULL,
+  hash           TEXT NOT NULL UNIQUE
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS audit_entry_tenant ON audit_entry (tenant_id, decision_id);
+
+CREATE TRIGGER IF NOT EXISTS audit_entry_append_only_update
+BEFORE UPDATE ON audit_entry
+BEGIN
+  SELECT RAISE(ABORT, 'audit_entry is append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS audit_entry_append_only_delete
+BEFORE DELETE ON audit_entry
+BEGIN
+  SELECT RAISE(ABORT, 'audit_entry is append-only');
+END;
+
+-- Derived state, not evidence: the last verification pass. One row, overwritten
+-- in place; it is what the read path reports (§6.4) and it anchors the tail.
+CREATE TABLE IF NOT EXISTS chain_verification (
+  id                   INTEGER PRIMARY KEY CHECK (id = 1),
+  status               TEXT NOT NULL CHECK (status IN ('valid', 'invalid')),
+  verified_through_seq INTEGER NOT NULL,
+  chain_head           TEXT NOT NULL,
+  checked_at           TEXT NOT NULL,
+  detail               TEXT
+) STRICT;
+"""

@@ -2,9 +2,10 @@
 
 The table in that document is the suite; this module is the runner's
 implementation of it. The cases that are real this slice — C1 (contract
-examples), C2/C3/C6 (identity, tenant, trace), C5 (idempotency conflict) and C10
-(422 normalization) — are run; the rest are declared with the ticket that fills
-them. They are *declared*, not omitted: a runner that silently ran six of fifteen
+examples), C2/C3/C6 (identity, tenant, trace), C4 (Decision replay), C5
+(idempotency conflict), C10 (422 normalization), C13 (audit append-only) and C14
+(provenance) — are run; the rest are declared with the ticket that fills them.
+They are *declared*, not omitted: a runner that silently ran eight of fifteen
 cases would report a conformance level nobody has.
 
 The identity cases read what the contract says about an operation (its
@@ -19,10 +20,13 @@ just "ok".
 from __future__ import annotations
 
 import copy
+import json
 import re
 import secrets
+import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -407,6 +411,22 @@ def trace_of(response: Any) -> str | None:
     return body.get("trace_id")
 
 
+#: Crockford base32, the alphabet of a `dec_<ULID>` (§4.2).
+_ULID_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+
+
+def new_decision_id() -> str:
+    """A fresh caller-owned `decision_id`.
+
+    The docs' `DecisionRequest` example carries one literal id. Two cases that
+    wrote that literal with different bodies would be two Decisions under one
+    stable id — a conflict the service is right to refuse, and not what the case
+    meant to test. Each call mints an id the way the runtime does (§4.2); the
+    caller owns it, so the runner must too.
+    """
+    return "dec_" + "".join(secrets.choice(_ULID_ALPHABET) for _ in range(26))
+
+
 def body_and_headers(
     service: ServiceProcess,
     documents: ContractDocuments,
@@ -416,7 +436,10 @@ def body_and_headers(
     """A contract-valid body plus a token it agrees with.
 
     The `ExecutionContext` is signed; a body that disagrees with it is refused
-    (§5.3), so a case that wants to test something *else* must agree first.
+    (§5.3), so a case that wants to test something *else* must agree first. A
+    `DecisionRequest` gets a fresh `decision_id`, because the id is the write's
+    idempotency key and one example id reused across cases is one id with many
+    payloads.
     """
     body = sample_body(documents, definition)
     authorized.setdefault("trace_id", secrets.token_hex(16))
@@ -431,6 +454,8 @@ def body_and_headers(
         body["actor"] = claims["actor"]
     if "requested_by" in body:
         body["requested_by"] = claims["actor"]
+    if "decision_id" in body:
+        body["decision_id"] = new_decision_id()
     return body, headers
 
 
@@ -632,6 +657,93 @@ def run_c3(context: CaseContext) -> tuple[str, ...]:
 
 
 # ---------------------------------------------------------------------------
+# C4 — one logical Decision write, one audit entry
+# ---------------------------------------------------------------------------
+
+DECISION_RESPONSE = "decision.schema.json#/$defs/DecisionResponse"
+PROVENANCE_RESPONSE = "decision.schema.json#/$defs/ProvenanceResponse"
+
+#: Names a provenance document must never contain (C14): how the store keeps the
+#: Decision, not what the Decision is. `verification.chain_head` is deliberately
+#: not on this list — the contract declares it, and it is the digest of the audit
+#: chain, not a backend-internal id.
+PROVENANCE_INTERNALS = ("sqlite", "rowid", "prev_hash", "payload_digest", '"seq"')
+
+
+def _decision_response_failures(documents: ContractDocuments, body: Any, label: str) -> list[str]:
+    return [f"{label}: {problem}" for problem in documents.problems(body, DECISION_RESPONSE)]
+
+
+def run_c4(context: CaseContext) -> tuple[str, ...]:
+    service = context.require_service()
+    documents = context.documents
+    failures: list[str] = []
+
+    trace_id = secrets.token_hex(16)
+    decision, headers = body_and_headers(service, documents, "DecisionRequest", trace_id=trace_id)
+    key = secrets.token_hex(16)
+
+    first = service.post("/v1/decisions", json=decision, headers={**headers, "Idempotency-Key": key})
+    if first.status_code != 201:
+        raise CaseFailure([f"the first write answered {first.status_code}, expected 201: {first.text[:300]}"])
+    original = first.json()
+    failures.extend(_decision_response_failures(documents, original, "the first write"))
+    if original.get("decision_id") != decision["decision_id"]:
+        failures.append("the response does not name the Decision that was written")
+    if original.get("idempotent_replay") is not False:
+        failures.append("a first write reported idempotent_replay=true")
+    if original.get("trace_id") != trace_id:
+        failures.append("the response's trace_id is not the caller's trace")
+
+    replay = service.post(
+        "/v1/decisions",
+        json=decision,
+        headers={
+            **service.authorized(trace_id=trace_id, run_id=decision["run_id"]),
+            "Idempotency-Key": key,
+        },
+    )
+    if replay.status_code != 200:
+        failures.append(f"the same key and payload answered {replay.status_code}, expected the 200 replay")
+    else:
+        body = replay.json()
+        failures.extend(_decision_response_failures(documents, body, "the replay"))
+        for field in ("decision_id", "provenance_id", "created_at", "chain_head"):
+            if body.get(field) != original.get(field):
+                failures.append(f"the replay changed {field}: {body.get(field)!r} != {original.get(field)!r}")
+        if body.get("idempotent_replay") is not True:
+            failures.append("the replay did not set idempotent_replay=true")
+
+    # `decision_id` is the durable idempotency key (§4.2): a retry with a *new*
+    # `Idempotency-Key` is still the same write, or a restart would duplicate it.
+    durable = service.post(
+        "/v1/decisions",
+        json=decision,
+        headers={
+            **service.authorized(trace_id=trace_id, run_id=decision["run_id"]),
+            "Idempotency-Key": secrets.token_hex(16),
+        },
+    )
+    if durable.status_code != 200:
+        failures.append(f"a new key for the same decision_id answered {durable.status_code}, expected the 200 replay")
+    else:
+        body = durable.json()
+        failures.extend(_decision_response_failures(documents, body, "the replay under a new key"))
+        if body.get("provenance_id") != original.get("provenance_id"):
+            failures.append("a new Idempotency-Key appended a second audit entry for one decision_id")
+        if body.get("idempotent_replay") is not True:
+            failures.append("a replay under a new key did not set idempotent_replay=true")
+
+    if failures:
+        raise CaseFailure(failures)
+    return (
+        "a Decision write is 201 with its decision_id and provenance_id",
+        "the same key and payload is the 200 replay, naming the original entry",
+        "decision_id is the durable key: a new Idempotency-Key does not append a second entry",
+    )
+
+
+# ---------------------------------------------------------------------------
 # C5 — one key, one payload
 # ---------------------------------------------------------------------------
 
@@ -649,17 +761,28 @@ def run_c5(context: CaseContext) -> tuple[str, ...]:
     key = secrets.token_hex(16)
 
     original = service.post("/v1/decisions", json=decision, headers={**first, "Idempotency-Key": key})
-    if original.status_code in (409, 400):
-        failures.append(f"the first write with a fresh key answered {original.status_code}: {original.text[:200]}")
+    if original.status_code != 201:
+        failures.append(
+            f"the first write with a fresh key answered {original.status_code}, expected 201: {original.text[:200]}"
+        )
+        first_body: dict[str, Any] = {}
+    else:
+        first_body = original.json()
 
     repeat = service.post("/v1/decisions", json=decision, headers={**retry, "Idempotency-Key": key})
     if repeat.status_code == 409:
         failures.append("the same key with the same payload was refused as a conflict")
-    elif repeat.status_code != original.status_code:
-        failures.append(
-            f"the same key and payload answered {repeat.status_code} after {original.status_code}; "
-            "one logical write has one outcome"
-        )
+    elif repeat.status_code != 200:
+        # §3.5: the replay answers the operation's 200, with the original ids.
+        failures.append(f"the same key and payload answered {repeat.status_code}, expected the 200 replay")
+    else:
+        replay = repeat.json()
+        if replay.get("decision_id") != first_body.get("decision_id"):
+            failures.append("the replay named a different decision_id")
+        if replay.get("provenance_id") != first_body.get("provenance_id"):
+            failures.append("the replay named a different provenance_id")
+        if replay.get("idempotent_replay") is not True:
+            failures.append("the replay did not set idempotent_replay=true")
 
     # A retry is the same *trace*: the body's `trace_id` is bound to the token's,
     # so a write cannot be moved onto another call — which is why a replayed body
@@ -692,10 +815,13 @@ def run_c5(context: CaseContext) -> tuple[str, ...]:
         if error["retryable"] is not False:
             failures.append("an idempotency conflict must not be retryable")
 
-    # A different key is a different write: the same body is not a conflict.
+    # A different key is a different write. A different write also needs its own
+    # `decision_id`: the id is the Decision's stable identity, so keeping it while
+    # changing the payload is the conflict the previous check just proved.
+    other_write = {**changed, "decision_id": new_decision_id()}
     other_key = service.post(
         "/v1/decisions",
-        json=changed,
+        json=other_write,
         headers={
             **service.authorized(trace_id=trace_id, run_id=decision["run_id"]),
             "Idempotency-Key": secrets.token_hex(16),
@@ -763,9 +889,9 @@ def run_c6(context: CaseContext) -> tuple[str, ...]:
         failures.append(f"an authenticated request with no traceparent answered {response.status_code}, expected 400")
 
     # And a matching trace is carried into the response, on every surface the case
-    # names. Those are 500 stub envelopes today (the handlers are #37/#39), so
-    # what this proves now is the propagation seam; the same assertion reads the
-    # success body once a handler answers one.
+    # names. These are error envelopes (the bodies are deliberately invalid), which
+    # is the path a failing call takes; C4 and C14 assert the same trace on the
+    # success bodies of the decision and provenance operations.
     for method, template, body in (
         ("post", "/v1/context/retrieve", {}),
         ("post", "/v1/decisions", {}),
@@ -785,7 +911,176 @@ def run_c6(context: CaseContext) -> tuple[str, ...]:
     return (
         "JWT trace_id must equal the traceparent trace-id",
         "traceparent is required on authenticated operations",
-        "retrieve, decision and provenance responses carry the caller's trace (envelopes today)",
+        "retrieve, decision and provenance responses carry the caller's trace "
+        "(error envelopes here; C4/C14 read the success bodies)",
+    )
+
+
+# ---------------------------------------------------------------------------
+# C13 — the audit trail survives the process
+# ---------------------------------------------------------------------------
+
+#: How long a restarted process gets to record its first `verify_chain` pass.
+RESTART_VERIFY_TIMEOUT_SECONDS = 20.0
+
+
+def _verified_after_restart(
+    service: ServiceProcess, decision_id: str, *, not_before: datetime
+) -> tuple[dict[str, Any] | None, str]:
+    """Poll provenance until a pass *this process* ran has verified the inherited chain.
+
+    `not_before` is when the restart began. The verification record is in the same
+    SQLite file, so a `valid` carrying an older `checked_at` is the previous
+    process's pass and proves nothing about the restart.
+    """
+    deadline = time.monotonic() + RESTART_VERIFY_TIMEOUT_SECONDS
+    last = "no response"
+    while time.monotonic() < deadline:
+        response = service.get(f"/v1/provenance/{decision_id}", headers=service.authorized())
+        last = f"{response.status_code}: {response.text[:200]}"
+        if response.status_code == 200:
+            body = response.json()
+            if body["verification"]["status"] == "valid":
+                raw = body["verification"].get("checked_at")
+                if raw and datetime.fromisoformat(raw.replace("Z", "+00:00")) > not_before:
+                    return body, last
+        time.sleep(0.1)
+    return None, last
+
+
+def run_c13(context: CaseContext) -> tuple[str, ...]:
+    """Replaying a write never appends a second entry, and a restart verifies what it inherits.
+
+    This case owns its process: the proof is a restart on the same audit volume,
+    which the shared conformance service must survive for the other cases.
+    """
+    documents = context.documents
+    failures: list[str] = []
+
+    with ServiceProcess.start() as first:
+        decision, headers = body_and_headers(first, documents, "DecisionRequest")
+        original_response = first.post(
+            "/v1/decisions", json=decision, headers={**headers, "Idempotency-Key": secrets.token_hex(16)}
+        )
+        if original_response.status_code != 201:
+            raise CaseFailure(
+                [
+                    f"the first write answered {original_response.status_code}, expected 201: "
+                    f"{original_response.text[:300]}"
+                ]
+            )
+        original = original_response.json()
+
+        replay = first.post(
+            "/v1/decisions",
+            json=decision,
+            headers={
+                **first.authorized(trace_id=headers["traceparent"].split("-")[1], run_id=decision["run_id"]),
+                "Idempotency-Key": secrets.token_hex(16),
+            },
+        )
+        if replay.status_code != 200:
+            failures.append(f"the replayed write answered {replay.status_code}, expected 200")
+        else:
+            replayed = replay.json()
+            if replayed.get("provenance_id") != original.get("provenance_id"):
+                failures.append("the replay created a second audit entry (a new provenance_id)")
+            if replayed.get("chain_head") != original.get("chain_head"):
+                failures.append("the replay moved the chain head; a replay must not append")
+        data_dir = first.data_dir
+
+    # The verification record lives in the same SQLite file, so a `valid` read
+    # could be the *pre-restart* pass. A fresh pass must have stamped `checked_at`
+    # after this point, or the case would prove nothing about the restart.
+    restart_started = datetime.now(UTC)
+    with ServiceProcess.start(data_dir=data_dir) as restarted:
+        body, last = _verified_after_restart(restarted, decision["decision_id"], not_before=restart_started)
+        if body is None:
+            failures.append(f"the restarted service never verified the inherited chain (last: {last})")
+        else:
+            if body.get("provenance_id") != original.get("provenance_id"):
+                failures.append("the restarted service read a different audit entry")
+            if body.get("decision") != decision:
+                failures.append("the restarted service returned a different Decision")
+            if body["verification"].get("chain_head") != original.get("chain_head"):
+                failures.append("the verified chain head is not the head the write produced")
+            checked_at_raw = body["verification"].get("checked_at")
+            if not checked_at_raw:
+                failures.append("the verification carries no checked_at, so the restart cannot be dated")
+            else:
+                checked_at = datetime.fromisoformat(checked_at_raw.replace("Z", "+00:00"))
+                if checked_at <= restart_started:
+                    failures.append(
+                        "the restarted service reported the pre-restart verification, not a pass of its own"
+                    )
+
+    if failures:
+        raise CaseFailure(failures)
+    return (
+        "a replayed Decision write appends no second audit entry",
+        "the chain on the audit volume verifies after a restart",
+        "the verified head is the head the original write produced",
+    )
+
+
+# ---------------------------------------------------------------------------
+# C14 — provenance returns the Decision, and only stable ids
+# ---------------------------------------------------------------------------
+
+
+def run_c14(context: CaseContext) -> tuple[str, ...]:
+    service = context.require_service()
+    documents = context.documents
+    failures: list[str] = []
+
+    decision, headers = body_and_headers(service, documents, "DecisionRequest")
+    write = service.post("/v1/decisions", json=decision, headers={**headers, "Idempotency-Key": secrets.token_hex(16)})
+    if write.status_code != 201:
+        raise CaseFailure([f"the write answered {write.status_code}, expected 201: {write.text[:300]}"])
+    recorded = write.json()
+
+    read_trace = secrets.token_hex(16)
+    response = service.get(
+        f"/v1/provenance/{decision['decision_id']}", headers=service.authorized(trace_id=read_trace)
+    )
+    if response.status_code != 200:
+        raise CaseFailure([f"provenance answered {response.status_code}, expected 200: {response.text[:300]}"])
+    body = response.json()
+    failures.extend(
+        f"the provenance document: {problem}" for problem in documents.problems(body, PROVENANCE_RESPONSE)
+    )
+    if body.get("decision_id") != decision["decision_id"]:
+        failures.append("the document names a different Decision")
+    if body.get("provenance_id") != recorded.get("provenance_id"):
+        failures.append("the document names a provenance_id the write did not return")
+    if body.get("decision") != decision:
+        failures.append("the document does not return the original Decision")
+    if body.get("trace_id") != read_trace:
+        failures.append("the document's trace_id is not the reader's trace (C6)")
+
+    relationships = {(link.get("type"), link.get("relationship")) for link in body.get("lineage") or []}
+    for expected in (("run", "wasGeneratedBy"), ("actor", "wasAttributedTo")):
+        if expected not in relationships:
+            failures.append(f"the lineage does not carry {expected[0]} {expected[1]}")
+    if "@context" not in (body.get("prov_o") or {}):
+        failures.append("prov_o is not a JSON-LD document")
+
+    serialized = json.dumps(body)
+    for internal in PROVENANCE_INTERNALS:
+        if internal in serialized:
+            failures.append(f"the provenance document leaks the backend-internal name {internal!r} (C14)")
+
+    unknown = service.get(f"/v1/provenance/{new_decision_id()}", headers=service.authorized())
+    if unknown.status_code != 404:
+        failures.append(f"an unknown decision_id answered {unknown.status_code}, expected 404")
+
+    if failures:
+        raise CaseFailure(failures)
+    return (
+        "the document returns the original Decision and the write's provenance_id",
+        "the lineage names the Run and the actor in PROV-O terms",
+        "the answer carries stable ids only, never a backend-internal one",
+        "an unknown Decision is a 404",
     )
 
 
@@ -797,7 +1092,7 @@ CASES: tuple[Case, ...] = (
     Case("C1", "Schema validation", run_c1),
     Case("C2", "Missing ExecutionContext", run_c2, needs_service=True),
     Case("C3", "Wrong tenant", run_c3, needs_service=True),
-    Case("C4", "Decision idempotent replay", None, needs_service=True, owner="#37"),
+    Case("C4", "Decision idempotent replay", run_c4, needs_service=True),
     Case("C5", "Idempotency conflict", run_c5, needs_service=True),
     Case("C6", "Trace propagation", run_c6, needs_service=True),
     Case("C7", "Record-before-act", None, needs_service=True, owner="#40"),
@@ -806,8 +1101,8 @@ CASES: tuple[Case, ...] = (
     Case("C10", "422 normalization", run_c10, needs_service=True),
     Case("C11", "SSE event envelope", None, needs_service=True, owner="#42"),
     Case("C12", "Cancellation", None, needs_service=True, owner="#42"),
-    Case("C13", "Audit append-only", None, needs_service=True, owner="#37"),
-    Case("C14", "Provenance returns Decision", None, needs_service=True, owner="#37"),
+    Case("C13", "Audit append-only", run_c13),
+    Case("C14", "Provenance returns Decision", run_c14, needs_service=True),
     Case("C15", "Ready/degraded", None, needs_service=True, owner="#39"),
 )
 

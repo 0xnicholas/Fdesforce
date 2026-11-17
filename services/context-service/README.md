@@ -9,8 +9,10 @@ Context Package and environment configuration, never as source
 This directory holds the wire surface, the error envelope, the probes, the
 contract-derived models, the C1–C15 runner — and, since #36, the **identity
 boundary**: ES256 `ExecutionContext` verification, server-side tenant/scope
-enforcement and write idempotency. Retrieval, the audit store and approvals land
-in #37–#40; the table below says exactly which handler is whose.
+enforcement and write idempotency. Since #37 it also holds the **audit store**: an
+append-only, hash-chained SQLite ledger on its own volume, the idempotent Decision
+write, and the provenance read. Retrieval and approvals land in #38–#40; the table
+below says exactly which handler is whose.
 
 ## Layout
 
@@ -24,6 +26,11 @@ app/
   identity.py        ES256 ExecutionContext verification, issuer keys, jti replay (§5.1, §5.4)
   identity_edge.py   the middleware that requires a token and enforces tenant/scope (§5.3)
   idempotency.py     Idempotency-Key: scope, payload fingerprint, replay, conflict (§3.5)
+  canonical.py       canonical JSON + SHA-256, shared by the chain and the fingerprint
+  ids.py             the service-minted stable ids (`prov_<ULID>`)
+  audit.py           the append-only, hash-chained SQLite audit store (§6.4)
+  audit_verifier.py  the background verify_chain pass (startup + periodic)
+  provenance.py      Decision → PROV-O JSON-LD + lineage summary (§6.3, C14)
   contract.py        the request seam: JSON Schema validation + body↔token identity binding
   schema_registry.py JSON Schema registry + validation helpers
   tracing.py         traceparent → trace_id for every envelope (C6)
@@ -63,7 +70,7 @@ uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -e '.[dev]'
 
 python -m pytest             # unit + real-process HTTP tests
-python -m conformance        # C1–C15 runner (C1–C3, C5, C6, C10 implemented in this slice)
+python -m conformance        # C1–C15 runner (C1–C6, C10, C13, C14 implemented in this slice)
 python -m conformance --list # what runs, what is pending, and which ticket owns it
 python scripts/generate.py --check
 ruff check app conformance scripts tests
@@ -174,6 +181,48 @@ is bound to the `traceparent`, so a replay cannot be moved onto another call —
 the replayed body therefore already carries the caller's trace (C6 holds for
 replays, not just first attempts).
 
+A different key is a different write, and a different write needs its own
+`decision_id`: the id is the Decision's stable identity (§4.2), so reusing it with
+a new payload is the same `409 idempotency_conflict` the audit store returns —
+even after a restart, when the in-memory key records are gone.
+
+### C4, C13, C14: one Decision write, one audit entry
+
+`POST /v1/decisions` appends the caller's Decision to the audit chain and answers
+`201` with `decision_id`, `provenance_id`, `created_at` and `chain_head` (the hash
+of the entry it just appended). The same key and payload answers `200` with
+`idempotent_replay: true` and the original ids; a new `Idempotency-Key` for the
+same `decision_id` is still the same write, because the store's uniqueness on
+`decision_id` — not the in-memory key record — is what makes the write idempotent.
+
+The chain is `payload_digest = SHA-256(canonical_json(payload))` and
+`hash = SHA-256(prev_hash || canonical_json(payload))`, with the first entry
+linking to a fixed genesis digest. The `audit_entry` table has triggers that refuse
+`UPDATE` and `DELETE`, so append-only is enforced by the schema as well as by the
+module. `GET /v1/provenance/{decision_id}` returns the original Decision, a
+PROV-O JSON-LD document and a flat `lineage` summary, scoped to the token's
+tenant (another tenant's id is a `404`, indistinguishable from an unknown one).
+No `seq`, `rowid`, `prev_hash` or `payload_digest` reaches the wire; the
+contract's `verification.chain_head` is the *verified* chain digest, not a
+backend-internal id, and the deployment smoke's internal-name list knows the
+difference.
+
+`verify_chain()` is **not** on the read path. `app/audit_verifier.py` runs one
+pass at startup and then every five minutes; the pass walks the chain, recomputes
+every link and records the result in `chain_verification`. A provenance read
+reports that recorded result (`valid` / `stale` / `pending` / `invalid`) plus one
+anchored hash lookup, so it costs the same at ten entries and at a hundred
+thousand. C13 restarts a real process on the same audit volume and waits for the
+startup pass to say `valid` over the inherited chain.
+
+Two limits are deliberate: append-only triggers can be dropped by a privileged
+process (verification then detects a rewrite, but a rewrite that recomputes every
+later link needs an external anchor to disprove — §6.4's `chain_head` recorded on
+the Deployment Revision, which this slice does not yet have a store for); and the
+verifier starts a full linear pass rather than resuming from the last verified
+sequence, which is fine at v0's scale and is the first thing to change if the
+audit volume grows.
+
 ## What is real in this slice
 
 | Surface | Status |
@@ -184,10 +233,11 @@ replays, not just first attempts).
 | Request-body validation against `contracts/` | served |
 | `POST /v1/context/retrieve` | route + validation; handler is #39 |
 | `POST /internal/v1/jobs/ingest` | route + validation; handler is #39 |
-| `POST /v1/decisions`, `GET /v1/provenance/{decision_id}` | routes + validation; handlers are #37 |
+| `POST /v1/decisions`, `GET /v1/provenance/{decision_id}` | served (`app/routes/decisions.py`); C4/C13/C14 green |
+| Audit store: append-only hash chain, idempotent write, background verify | served (`app/audit.py`, `app/audit_verifier.py`); opened at startup, fail closed |
 | `POST/GET /v1/approvals`, `…/decisions`, `…/consume` | routes + validation; handlers are #40 |
 | Identity: ES256 verification, scope/issuer/tenant, trace binding | served (`app/identity.py`, `app/identity_edge.py`); C2/C3/C6 green |
-| Write idempotency: key scope, fingerprint, conflict, replay | served (`app/idempotency.py`); C5 green, replay end-to-end with #37 |
+| Write idempotency: key scope, fingerprint, conflict, replay | served (`app/idempotency.py`); C5 green; `decision_id` makes the write durable |
 | Graph store, migrations, lexical retrieval | #38 |
 
 An unimplemented handler answers `500 internal` with
@@ -208,7 +258,7 @@ service reads nothing else.
 | --- | --- |
 | `GRAPH_BACKEND` | `embedded` in v0; another declared backend fails startup |
 | `GRAPH_PATH` | embedded graph snapshot path (`/data/graph` volume) |
-| `AUDIT_PATH` | SQLite audit store path (`/data/audit` volume) |
+| `AUDIT_PATH` | SQLite audit store path (`/data/audit` volume); opened at startup, and an unopenable or foreign-schema file stops the process |
 | `AUDIT_BACKEND` | `sqlite` in v0 |
 | `EXECUTION_CONTEXT_PUBLIC_KEY` | PEM public key of the `mastra-app` issuer; **required** |
 | `FDE_JOBS_PUBLIC_KEY` | PEM public key of the `fde-jobs` issuer; **required** |
@@ -222,12 +272,16 @@ Two things are in memory, by design in this slice:
 
 - the `jti` replay records, kept until the token would have expired anyway (the
   service is a single writer by contract, §4.3);
-- the idempotency records, kept for 24 hours behind the `IdempotencyStore` seam
-  that #37 replaces with the audit store's table when the Decision write lands.
+- the `Idempotency-Key` records, kept for 24 hours. They are a fast path for
+  replaying the original HTTP response, not the correctness mechanism: the
+  Decision write's durable identity is `decision_id` in the audit store, so a
+  restart forgets the key and the retry still returns the original entry rather
+  than a second one.
 
-A restart therefore forgets both. That is a retry-window problem, not a
-correctness one for the audit chain: the Decision write itself stays idempotent on
-`decision_id`, which the caller owns (§4.2).
+The audit store is the opposite: it is opened from `AUDIT_PATH` in the lifespan,
+migrated to the contract's schema version, and closed with the process. A restart
+re-reads the same chain. What a restart does **not** preserve is the short-lived
+memory above, which §4.3's single-writer contract makes acceptable.
 
 One thing this slice does **not** do is key rotation overlap. §5.4 accepts the old
 and new public key until the old tokens expire, but the topology binds exactly one
