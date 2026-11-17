@@ -9,12 +9,28 @@ pnpm test       # vitest
 pnpm generate   # regenerate packages/contracts-client/src/generated from contracts/
 ```
 
+The Python service (`services/context-service`, ticket #35 onward) has its own
+commands; CI runs both jobs.
+
+```bash
+cd services/context-service
+uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e '.[dev]'
+python -m pytest                 # unit + real-process HTTP tests
+python -m conformance            # C1–C15 runner
+python scripts/generate.py --check   # contracts/ → app/generated/**
+ruff check app conformance scripts tests
+```
+
 - `packages/contracts-client/src/generated/**` is generated from `contracts/`. Never
   hand-edit it: change the contract, then run `pnpm generate`.
+- `services/context-service/app/generated/**` is generated from `contracts/` and
+  `platform/toolchain.yaml` by `services/context-service/scripts/generate.py`. Never
+  hand-edit it: change the contract, then run the generator.
 - `contracts/` is the wire source of truth; `packages/spec` is the definition source
   for Solution Spec, lock, Runtime Profile, Capabilities, Bundle Topology, Model
   Profile and Identity Profile. `contract-drift.test.ts` fails when the two disagree.
-- Package layout and seams: `packages/spec/README.md`, `README.md`.
+- Package layout and seams: `packages/spec/README.md`, `services/context-service/README.md`,
+  `README.md`.
 
 ## Agent skills
 

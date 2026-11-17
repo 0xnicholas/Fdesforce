@@ -37,3 +37,8 @@ Metric Catalog, Eval Suite, Eval Dataset, Evaluation, and Acceptance Report are 
 
 - JSON Schema files are JSON: `python3 -m json.tool contracts/schemas/<file>.json`.
 - OpenAPI files are YAML 1.2; parse them with any YAML 1.2 parser before merging.
+- A fenced JSON example in `docs/runtime-contract.md` or `contracts/**/*.md` must
+  be preceded by `<!-- schema: contracts/schemas/<file>#<pointer> -->` naming the
+  schema it satisfies. The C1 conformance case fails on an unmarked example, a
+  marker that does not resolve, or an example that does not validate
+  (`services/context-service/conformance/cases.py`).

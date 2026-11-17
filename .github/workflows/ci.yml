@@ -23,3 +23,30 @@ jobs:
       # Typecheck (sources + tests), then fail if contracts/ and the generated
       # client disagree, then run the suite (schema drift, digests, crossref).
       - run: pnpm verify
+
+  context-service:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/context-service
+    steps:
+      - uses: actions/checkout@v4
+
+      # The interpreter the platform pins in `platform/toolchain.yaml`
+      # (`versions.python`); the service image uses the same tag.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.2'
+          cache: pip
+          cache-dependency-path: services/context-service/pyproject.toml
+
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e '.[dev]'
+
+      # contracts/ → app/generated/** must be fresh, like the TypeScript client.
+      - run: python scripts/generate.py --check
+      - run: ruff check app conformance scripts tests
+      # The real-process tests and the C1–C15 runner. C1 and C10 have runners in
+      # this slice; the rest are reported as pending with their owning ticket.
+      - run: python -m pytest
+      - run: python -m conformance

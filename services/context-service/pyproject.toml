@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fde-context-service"
+# The deployment's context-service version is pinned by `platform/toolchain.yaml`
+# (`versions.contextService`); `scripts/generate.py` copies it into the generated
+# module the service reports. This one is the Python distribution's own version.
+version = "0.1.0"
+description = "FDE context-service — the internal Context API, owned by the platform"
+requires-python = ">=3.12"
+# Exact pins: the service image and CI install the same bytes, and a floating
+# dependency would make two builds of the same slice different artifacts.
+dependencies = [
+  "fastapi==0.163.1",
+  "jsonschema==4.26.0",
+  "pydantic==2.12.5",
+  "uvicorn[standard]==0.54.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "cryptography==50.0.2",
+  "httpx==0.28.1",
+  "pyjwt[crypto]==2.15.1",
+  "pytest==9.2.0",
+  "pyyaml==6.0.3",
+  "ruff==0.17.5",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+# `app` and `conformance` are importable from the service root, so tests exercise
+# the same modules the container runs.
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+# Generated modules are the generator's output; linting them would mean the
+# freshness check and the linter fight over the same bytes.
+extend-exclude = ["app/generated"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

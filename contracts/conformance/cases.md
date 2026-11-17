@@ -91,6 +91,6 @@ retention/purge/export, explicit-write, and upgrade gating.
 | C47 | Explicit write only | A conversation without any `remember` call produces no long-term records |
 | C48 | Upgrade continuity | A new Release on the same runtime reuses the namespace and keeps memory; `fde_memory.schemaVersion` mismatch fails startup closed |
 
-The runner lands with the first `context-service` implementation. Until then, this table is the contract's test plan; examples and schemas in `docs/runtime-contract.md` and `contracts/schemas/` are the fixtures. The first generator slice must wire C16–C40 into the same runner.
+The runner lands with the first `context-service` implementation: [`services/context-service/conformance`](../../services/context-service/conformance) is the C1–C15 runner for this suite, with C1/C10 implemented in the skeleton (#35) and the rest declared with the ticket that owns them. Examples and schemas in `docs/runtime-contract.md` and `contracts/schemas/` are the fixtures. The first generator slice must wire C16–C40 into the same runner.
 
 Adapter-level cases (A1–A11) live in [`adapter-cases.md`](./adapter-cases.md); they are owned by the runtime generator and must not be merged into this context-service suite.

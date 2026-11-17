@@ -3,6 +3,9 @@
 > 状态：决策稿，对应 ticket「运行时与集成契约」。
 > 范围：v0 单客户 bundle；Mastra + 薄 context-service + Semantica；不做多租户、UI、首客场景。
 > 契约版本：`fde.runtime/v1.4.0`。机器可读接口与 schema 见 [`contracts/`](../contracts/)。
+> 示例：本文与 `contracts/**` 中每个 fenced JSON 示例前都有一行
+> `<!-- schema: contracts/schemas/... -->` 标明它必须满足的 schema；
+> `services/context-service` 的 C1 用例要求每个 JSON 示例都有此标记，缺标记或校验失败即红。
 > 术语：见 [`GLOSSARY.md`](../GLOSSARY.md)。
 
 ## 1. 结论摘要
@@ -94,6 +97,7 @@ Admin 端点只对 `customer_admin` 开放，客户应用不调用；`halt` 语�
 
 `POST /v1/runs` 请求：
 
+<!-- schema: contracts/schemas/run.schema.json#/$defs/RunCreateRequest -->
 ```json
 {
   "capability_id": "document-triage",
@@ -105,6 +109,7 @@ Admin 端点只对 `customer_admin` 开放，客户应用不调用；`halt` 语�
 
 响应：
 
+<!-- schema: contracts/schemas/run.schema.json#/$defs/RunCreateResponse -->
 ```json
 {
   "run_id": "run_01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -130,6 +135,7 @@ Admin 端点只对 `customer_admin` 开放，客户应用不调用；`halt` 语�
 
 `POST /v1/context/retrieve` 请求：
 
+<!-- schema: contracts/schemas/retrieval.schema.json#/$defs/RetrieveRequest -->
 ```json
 {
   "recipe_id": "claims-context",
@@ -141,6 +147,7 @@ Admin 端点只对 `customer_admin` 开放，客户应用不调用；`halt` 语�
 
 响应：
 
+<!-- schema: contracts/schemas/retrieval.schema.json#/$defs/RetrieveResponse -->
 ```json
 {
   "retrieval_id": "ret_01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -168,6 +175,7 @@ Admin 端点只对 `customer_admin` 开放，客户应用不调用；`halt` 语�
 
 所有非 2xx 响应统一为：
 
+<!-- schema: contracts/schemas/error.schema.json -->
 ```json
 {
   "error": {
@@ -349,6 +357,7 @@ sequenceDiagram
 
 `POST /v1/decisions` 的最小 payload（v1.1；intent/outcome 新增 `invocation_id`、`action`、`status`）：
 
+<!-- schema: contracts/schemas/decision.schema.json#/$defs/DecisionRequest -->
 ```json
 {
   "decision_id": "dec_01ARZ3NDEKTSV4RRFFQ69G5FAV",

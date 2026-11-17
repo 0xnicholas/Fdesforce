@@ -23,6 +23,7 @@ crosses a process boundary.
 | `packages/bundle` | `@fde/bundle` — the platform side of a bundle: the `ContextServiceTopology` fragment, `composeTopology` (fragment + fragment → the single `BundleTopology`), deployment-instance naming/ports and the v0 Compose renderer. |
 | `packages/cli` | `@fde/cli` — the `fde` command: `spec init`, `spec validate`, `spec lock`, `spec lock --check`, the `context init / validate / freeze / ingest` chain over a Customer Context Package, `build`, and the customer side of a delivery: `install verify` and `install keys`. |
 | `packages/contracts-client` | `@fde/contracts-client` — TypeScript wire types and clients generated from `contracts/`. Nothing in `src/generated/` is hand-written. |
+| `services/context-service` | The platform-owned Python 3.12 Context API service (`contracts/context-service-v1.openapi.yaml`). Wire models, embedded schemas, the operation table and platform pins are generated from `contracts/`; the C1–C15 conformance runner lives here. Nothing in `app/generated/` is hand-written. |
 
 ## Commands
 
@@ -51,6 +52,18 @@ Package — including its frozen `revisions/<version>.yaml` — in
 [`examples/semantic/README.md`](examples/semantic/README.md). `packages/contracts-client/src/generated/**` is
 generated: change `contracts/`, then run `pnpm generate`.
 
+The context-service has its own toolchain and CI job:
+
+```bash
+cd services/context-service
+uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e '.[dev]'
+python -m pytest                 # unit + real-process HTTP tests
+python -m conformance            # C1–C15 conformance runner
+python scripts/generate.py --check   # contracts/ → app/generated/**
+```
+
+See [`services/context-service/README.md`](services/context-service/README.md).
+
 ## Implementation status
 
 Slice 1「配置 → 部署 → 只读闭环」is in progress (`docs/architecture-synthesis.md`
@@ -71,5 +84,8 @@ deployment-derived naming and the v0 Compose renderer (#32), `fde build` with th
 license gate, the SBOM and build provenance (#33), and the customer side of a
 delivery: `fde install verify` (pinned Bundle/Release signatures, the re-rendered
 Compose file, the license boundary and secret hygiene), `fde install keys` (the two
-ES256 issuer key pairs) and the bundle's `deploy/smoke.mjs` (#34). The
-context-service implementation is separate tickets (#35–#40).
+ES256 issuer key pairs) and the bundle's `deploy/smoke.mjs` (#34), and the
+context-service skeleton: the FastAPI app, contract-derived Python models, the
+unified error envelope with 422 normalization, `/healthz` vs `/readyz`,
+`/v1/runtime-info`, and the C1–C15 runner with C1/C10 green (#35). The remaining
+context-service behaviour is #36–#40; the deployment smoke is #41–#43.
