@@ -48,7 +48,9 @@ def path(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def store(path: Path) -> Iterator[AuditStore]:
-    with AuditStore(path) as opened:
+    # The schema is the migrate job's product (§9.2); a store is *opened* only after
+    # it exists, which is exactly what a deployment's `dependsOn: [migrate]` buys.
+    with AuditStore(path).migrate() as opened:
         yield opened
 
 
@@ -167,7 +169,7 @@ def test_verify_chain_passes_on_a_valid_chain(store: AuditStore) -> None:
 
 def test_verify_chain_passes_after_a_reopen(path: Path) -> None:
     """C13: the chain is on the audit volume, so a restart verifies the same bytes."""
-    with AuditStore(path) as first:
+    with AuditStore(path).migrate() as first:
         first.append_decision(decision("dec_01ARZ3NDEKTSV4RRFFQ69G5FAV"))
         first.append_decision(decision("dec_01ARZ3NDEKTSV4RRFFQ69G5FB0"))
 
@@ -180,7 +182,7 @@ def test_verify_chain_passes_after_a_reopen(path: Path) -> None:
 
 def test_a_replay_survives_a_reopen(path: Path) -> None:
     """The `decision_id` uniqueness is on disk, so a restart cannot turn one write into two."""
-    with AuditStore(path) as first:
+    with AuditStore(path).migrate() as first:
         original = first.append_decision(decision())
 
     with AuditStore(path) as reopened:
@@ -285,15 +287,27 @@ def test_a_database_with_our_version_but_not_our_id_is_refused(path: Path) -> No
 
 
 def test_a_migration_interrupted_before_the_version_stamp_is_resumed(path: Path) -> None:
-    """The application id is written first, so a crash before `user_version` re-migrates."""
+    """The application id is written first, so a crash before `user_version` resumes on migrate."""
     path.parent.mkdir(parents=True)
     with raw(path) as connection:
         connection.execute(f"PRAGMA application_id = {APPLICATION_ID}")
 
-    with AuditStore(path) as resumed:
+    with AuditStore(path).migrate() as resumed:
         resumed.append_decision(decision())
         assert len(resumed) == 1
         assert resumed.verify_chain().status == "valid"
+
+
+def test_an_unmigrated_volume_is_refused_with_the_job_that_establishes_it(path: Path) -> None:
+    """The service verifies the schema; it never invents one (§9.2).
+
+    A service that migrated its own volume would make `migrate`'s exit code
+    decorative: `docker compose up` could reach a serving process on a volume no
+    job had prepared, and the startup order the topology fixes would be a claim
+    nothing checks.
+    """
+    with pytest.raises(AuditSchemaMismatch, match="app.migrate"):
+        AuditStore(path).open()
 
 
 def test_the_document_is_the_hashed_payload(store: AuditStore) -> None:

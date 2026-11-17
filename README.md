@@ -59,7 +59,9 @@ cd services/context-service
 uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e '.[dev]'
 python -m pytest                 # unit + real-process HTTP tests
 python -m conformance            # C1–C15 conformance runner
-python scripts/generate.py --check   # contracts/ → app/generated/**
+python scripts/generate.py --check          # contracts/ → app/generated/**
+python scripts/semantica_surface.py          # imports vs the pinned 0.7.x wheel
+python -m app.migrate            # establish the graph/audit schema (the deploy's first step)
 ```
 
 See [`services/context-service/README.md`](services/context-service/README.md).
@@ -87,5 +89,12 @@ Compose file, the license boundary and secret hygiene), `fde install keys` (the 
 ES256 issuer key pairs) and the bundle's `deploy/smoke.mjs` (#34), and the
 context-service skeleton: the FastAPI app, contract-derived Python models, the
 unified error envelope with 422 normalization, `/healthz` vs `/readyz`,
-`/v1/runtime-info`, and the C1–C15 runner with C1/C10 green (#35). The remaining
-context-service behaviour is #36–#40; the deployment smoke is #41–#43.
+`/v1/runtime-info`, and the C1–C15 runner with C1/C10 green (#35), then the identity
+boundary: ES256 verification, server-side tenant/scope enforcement and write
+idempotency (#36), the append-only, hash-chained audit store with the idempotent
+Decision write and the provenance read (#37), and the embedded Context Graph: the
+`GraphStore` port with its stable `entity_id` rules, the Semantica 0.7.0 pin whose
+import surface CI (and the image build) verifies against the wheel, the `migrate` job
+that establishes the graph and audit schema before anything else starts, and lexical
+retrieval with 2-hop expansion into an immutable Retrieval Snapshot (#38). The
+remaining context-service behaviour is #39–#40; the deployment smoke is #41–#43.

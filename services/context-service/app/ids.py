@@ -1,8 +1,9 @@
 """The stable IDs the service mints (§4.2).
 
-`provenance_id` is the only ID here the service owns: `decision_id` is the
-caller's (it is the Decision write's idempotency key), and `run_id`,
-`retrieval_id` and `approval_id` arrive from elsewhere. The format is a ULID —
+The service mints three of §4.2's ids: `provenance_id` (one audit entry),
+`retrieval_id` (one Retrieval Snapshot) and, from #40, `approval_id`. `decision_id`
+is the caller's — it is the Decision write's idempotency key — and `run_id` is the
+runtime app's. The format is a ULID —
 48-bit millisecond timestamp followed by 80 bits of randomness, in Crockford
 base32 — because it is a 26-character opaque string the contract can validate
 without the service ever handing out a counter.

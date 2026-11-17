@@ -11,7 +11,11 @@ contract-derived models, the C1–C15 runner — and, since #36, the **identity
 boundary**: ES256 `ExecutionContext` verification, server-side tenant/scope
 enforcement and write idempotency. Since #37 it also holds the **audit store**: an
 append-only, hash-chained SQLite ledger on its own volume, the idempotent Decision
-write, and the provenance read. Retrieval and approvals land in #38–#40; the table
+write, and the provenance read. Since #38 it holds the **graph**: a `GraphStore`
+port with one embedded implementation (Semantica's `ContextGraph` over a JSON
+snapshot on the graph volume), the `migrate` job that establishes both volumes, and
+`POST /v1/context/retrieve` — lexical search plus 2-hop expansion, answered with an
+immutable Retrieval Snapshot. Approvals land in #40 and ingest in #39; the table
 below says exactly which handler is whose.
 
 ## Layout
@@ -27,18 +31,30 @@ app/
   identity_edge.py   the middleware that requires a token and enforces tenant/scope (§5.3)
   idempotency.py     Idempotency-Key: scope, payload fingerprint, replay, conflict (§3.5)
   canonical.py       canonical JSON + SHA-256, shared by the chain and the fingerprint
-  ids.py             the service-minted stable ids (`prov_<ULID>`)
-  audit.py           the append-only, hash-chained SQLite audit store (§6.4)
+  ids.py             the service-minted stable ids (`prov_<ULID>`, `ret_<ULID>`)
+  audit.py           the append-only, hash-chained SQLite audit store (§6.4) + Retrieval Snapshots (§4.1)
   audit_verifier.py  the background verify_chain pass (startup + periodic)
   provenance.py      Decision → PROV-O JSON-LD + lineage summary (§6.3, C14)
+  migrate.py         `python -m app.migrate`: the job that establishes both schemas (§9.2)
+  retrieval.py       the v0 pipeline: lexical → 2-hop → merge → rank → budget → snapshot
+  limits.py          the published envelope (§7.2, §4.3) the pipeline enforces
+  graph/
+    port.py          the GraphStore port: methods, stable-ID rules, error semantics (§4.3)
+    entity_id.py     `fde:<tenant>:<type>:<key>` — parse, render, tenant attribution (§4.2)
+    embedded.py      the v0 implementation, over Semantica's ContextGraph
+    semantica_graph.py  the ONE module that imports semantica (see the pin, below)
+    snapshot.py      the graph volume's envelope: schema stamp + the engine's payload
+    probes.py        what /readyz says about the graph (loaded? over the ceiling?)
   contract.py        the request seam: JSON Schema validation + body↔token identity binding
   schema_registry.py JSON Schema registry + validation helpers
   tracing.py         traceparent → trace_id for every envelope (C6)
   wire.py            the generated models' base class and the Operation table types
   routes/            one module per OpenAPI tag: ops, context, decisions, approvals, jobs
   generated/         GENERATED from contracts/ — never hand-edited
-conformance/         the C1–C15 runner and its real-process, ES256 key harness
+conformance/         the C1–C15 runner, its real-process ES256 key harness, and the graph-volume fixture
 scripts/generate.py  contracts/ → app/generated/**; `--check` runs in CI
+scripts/semantica_surface.py   every semantica import vs the pinned wheel; runs in CI and in the image build
+semantica-surface.json         the reviewed surface: modules, names, class members, and the one adapter
 tests/               pytest, against a spawned process for the HTTP surface
 ```
 
@@ -62,6 +78,128 @@ that serves it.
 `app/generated/**` is fresh or CI fails (`python scripts/generate.py --check`),
 and `tests/test_generated.py` also asserts it byte-for-byte.
 
+## The migrate job, and why the service refuses to start without it
+
+`platform/context-service/1.0.0/topology.yaml` runs `python -m app.migrate` before
+`context-service` and makes the service wait on its exit (`dependsOn: [migrate]`).
+§9.2 says which side owns what, and the split is enforced in both directions:
+
+| Who | Does |
+| --- | --- |
+| `python -m app.migrate` | creates or converges the audit schema and the graph snapshot |
+| `context-service` | **verifies** both, and stops the process if a volume was not prepared |
+
+A service that created its own schema would make the topology's order decorative: a
+volume nothing had migrated could still reach a serving process, and the exit code
+the deployment waits for would gate nothing. So `AuditStore.open()` compares the
+version stamp, the store identity and the tables/triggers, and
+`EmbeddedGraphStore.open()` reads the snapshot's schema stamp; either refusal names
+the job that fixes it.
+
+The job is idempotent — it runs on every `docker compose up` — additive (a missing
+table or trigger is created; an interrupted migration resumes), and it will not
+touch a file it does not recognise: a newer audit schema or a foreign snapshot is a
+non-zero exit and a message, never an overwrite. It takes the stores' paths only
+(`Settings.storage_from_env`): the maintenance surface holds no `ExecutionContext`
+and the topology gives it no issuer keys (§5.4).
+
+## The graph: a port, one adapter, one snapshot
+
+§4.3 fixes the arrangement. `GraphStore` (`app/graph/port.py`) is the service's
+internal port — method set, stable `entity_id` rules, and three error classes a
+caller can act on — and v0 ships exactly one implementation, `embedded`: Semantica's
+`ContextGraph` in process, over a JSON snapshot on the graph volume. The production
+answer is Postgres + pgvector (`docs/research/retrieval-index-selection.md` §5.1);
+swapping it replaces the implementation, not the port, the `entity_id`s or the
+Context API.
+
+Three rules the engine does not give us, and the store therefore does:
+
+- **Attributable or refused.** An entity's id must parse as
+  `fde:<tenant>:<type>:<key>`, its tenant must be the write's tenant, its declared
+  type must match the id's type segment, and it must carry `source_ref` and
+  `version` — `RetrievalItem` requires both, so an entity without them could only
+  ever be served as a citation with no source.
+- **An edge never invents an entity.** Semantica's `add_edge` silently creates a
+  placeholder node for an unknown id. The store checks both ends first: a
+  relationship is an assertion about two things the graph holds, not a way to
+  introduce them.
+- **Writes are durable when they return.** The snapshot is rewritten atomically after
+  each accepted batch. The volume is ingest's output; a crash between accepting a
+  batch and saving it would hand the next retrieval a graph that never existed.
+
+The volume file is an envelope around the engine's own payload — `fde_schema`
+(`kind`, `version`), `graph_id`, `written_at`, `nodes`, `edges` — because the
+platform needs to know which graph schema wrote it and whether it was written at
+all. Semantica ignores the keys it does not know, so `ContextGraph.load_from_file`
+can still read it, and `graph_id` is minted once by `migrate` and preserved, so a
+backup has a stable name.
+
+## Retrieval, and the snapshot a Decision cites
+
+`POST /v1/context/retrieve` runs the v0 half of the Recipe
+(`docs/semantic-modeling.md` §6.2–6.4): lexical search for anchors,
+`max_hops`-deep expansion from the top few of them, merge by `entity_id`, rank by
+score then `entity_id` (a total order — the digest depends on it), and truncate to
+the request's budget. Expansion scores are `anchor × 0.5^hop × edge weight`, so an
+exact match outranks its neighbourhood, which is the priority §6.3 asks for. The
+result reports:
+
+- `items[]` with `entity_id`, `type`, `content`, `score`, `source_ref`, `version`,
+  `classification`/`source_kind`/`provenance_id` when the entity carries them, and
+  `trust: untrusted` always (C33: retrieved content is data, never instructions);
+- `index` — `graph` when the walk contributed an item, `lexical` when it did not;
+- `degraded` + `reason`: `empty` when nothing matched, `scale_limit` when the graph
+  is past the embedded ceiling (10k nodes / 50k edges, §4.3) — in which case the
+  walk is skipped rather than attempted slowly. `/readyz` reports the same fact
+  through the `graph` probe, so an operator sees it before a caller does;
+- `budget_used`: nodes, an estimated token count (`chars / 4`, deterministic and
+  documented rather than a tokenizer dependency), and the deepest hop kept.
+
+**The Retrieval Snapshot** (§4.1) is what makes the answer evidence rather than
+prose. `retrieval_id` names it; the audit store keeps its *manifest* — the request's
+digest, item references with a content digest each, the budget, the degradation —
+and `snapshot_digest` is the SHA-256 of that manifest. Two consequences worth
+knowing:
+
+- content stays in the graph. The audit store keeps references and digests, not a
+  second copy of the customer's text (§6.5), and the query is represented by its
+  digest too;
+- identical retrievals carry the identical digest, while each is still its own
+  snapshot (its `retrieval_id`, trace and time are the row's identity, outside the
+  hash). So "the same question got the same evidence" is checkable, and so is "this
+  snapshot has not been edited" — the table's triggers refuse `UPDATE`/`DELETE`,
+  and the digest is re-checked on append, so a row whose digest does not cover its
+  manifest cannot exist.
+
+A failed append fails the request (`503 unavailable`, retryable) instead of handing
+out a `retrieval_id` that names nothing: a Decision citing it would be a dead
+reference.
+
+## The Semantica pin: asserted, then verified
+
+The prototype asserted a Semantica version and never checked it. `semantica==0.7.0`
+is pinned in `pyproject.toml` and in `platform/toolchain.yaml`
+(`spec.versions.semantica`, compiled into `app/generated/versions.py`), and
+`scripts/semantica_surface.py` runs in CI **and inside the image build**:
+
+1. the installed distribution's version must equal the pin;
+2. every `semantica` import in the service's sources must resolve on that wheel —
+   module present, and each imported name present (or a submodule);
+3. `semantica-surface.json` is the reviewed list of what the service depends on: an
+   import that is not listed fails (so widening the dependency is a deliberate diff
+   via `--write`), and every listed name — and declared class member — must still
+   exist (so a patch release that removes something is caught even when no source
+   changed);
+4. inside `app/` — the half the image ships — Semantica may only be imported by
+   `app/graph/semantica_graph.py`. One adapter, per
+   `docs/research/semantic-layer-selection.md` §5.4, so an engine upgrade is one
+   file's diff.
+
+The wheel is not pinned by hash: there is no Python lockfile in this slice, and a
+hash lock belongs to the toolchain (#33). What is pinned is the exact version, and
+what is verified is the export surface this service actually uses.
+
 ## Running it
 
 ```bash
@@ -73,12 +211,18 @@ python -m pytest             # unit + real-process HTTP tests
 python -m conformance        # C1–C15 runner (C1–C6, C10, C13, C14 implemented in this slice)
 python -m conformance --list # what runs, what is pending, and which ticket owns it
 python scripts/generate.py --check
+python scripts/semantica_surface.py           # imports vs the pinned wheel
 ruff check app conformance scripts tests
 ```
 
-To serve it by hand:
+To serve it by hand, prepare the volumes first — the service verifies them, it does
+not create them:
 
 ```bash
+GRAPH_PATH=./data/graph/graph.json \
+AUDIT_PATH=./data/audit/audit.sqlite \
+python -m app.migrate
+
 GRAPH_BACKEND=embedded \
 GRAPH_PATH=./data/graph/graph.json \
 AUDIT_PATH=./data/audit/audit.sqlite \
@@ -231,14 +375,17 @@ audit volume grows.
 | `GET /v1/runtime-info` | served, reports only context-service |
 | Error envelope, 422 normalization | served; C10 green |
 | Request-body validation against `contracts/` | served |
-| `POST /v1/context/retrieve` | route + validation; handler is #39 |
+| `POST /v1/context/retrieve` | served (`app/routes/context.py`, `app/retrieval.py`); lexical + 2-hop, `retrieval_id` + `snapshot_digest` |
 | `POST /internal/v1/jobs/ingest` | route + validation; handler is #39 |
+| Graph: `GraphStore` port, embedded backend, snapshot envelope | served (`app/graph/`); the store is loaded at startup and stops the process if the volume is not migrated |
+| `migrate` job: graph + audit schema, exit 0 gates startup | served (`app/migrate.py`); the service verifies and refuses, it never creates |
+| Semantica pin + import-surface check | `semantica==0.7.0`; `scripts/semantica_surface.py` runs in CI and in the image build |
 | `POST /v1/decisions`, `GET /v1/provenance/{decision_id}` | served (`app/routes/decisions.py`); C4/C13/C14 green |
 | Audit store: append-only hash chain, idempotent write, background verify | served (`app/audit.py`, `app/audit_verifier.py`); opened at startup, fail closed |
 | `POST/GET /v1/approvals`, `…/decisions`, `…/consume` | routes + validation; handlers are #40 |
 | Identity: ES256 verification, scope/issuer/tenant, trace binding | served (`app/identity.py`, `app/identity_edge.py`); C2/C3/C6 green |
 | Write idempotency: key scope, fingerprint, conflict, replay | served (`app/idempotency.py`); C5 green; `decision_id` makes the write durable |
-| Graph store, migrations, lexical retrieval | #38 |
+| Retrieval Snapshot: append-only manifest, content-addressed digest | served (`app/audit.py` → `retrieval_snapshot`); triggers refuse `UPDATE`/`DELETE`, the digest is re-checked on append |
 
 An unimplemented handler answers `500 internal` with
 `details.reason = "not_implemented"` and `details.ticket` naming the owner. The
@@ -257,7 +404,7 @@ service reads nothing else.
 | Variable | Meaning |
 | --- | --- |
 | `GRAPH_BACKEND` | `embedded` in v0; another declared backend fails startup |
-| `GRAPH_PATH` | embedded graph snapshot path (`/data/graph` volume) |
+| `GRAPH_PATH` | embedded graph snapshot path (`/data/graph` volume); verified at startup, and a missing, unreadable or foreign-schema snapshot stops the process |
 | `AUDIT_PATH` | SQLite audit store path (`/data/audit` volume); opened at startup, and an unopenable or foreign-schema file stops the process |
 | `AUDIT_BACKEND` | `sqlite` in v0 |
 | `EXECUTION_CONTEXT_PUBLIC_KEY` | PEM public key of the `mastra-app` issuer; **required** |
@@ -278,10 +425,14 @@ Two things are in memory, by design in this slice:
   restart forgets the key and the retry still returns the original entry rather
   than a second one.
 
-The audit store is the opposite: it is opened from `AUDIT_PATH` in the lifespan,
-migrated to the contract's schema version, and closed with the process. A restart
-re-reads the same chain. What a restart does **not** preserve is the short-lived
-memory above, which §4.3's single-writer contract makes acceptable.
+The audit store and the graph are the opposite: both are opened in the lifespan,
+verified against the schema the `migrate` job established, and closed with the
+process. A restart re-reads the same chain and the same snapshot. What a restart does
+**not** preserve is the short-lived memory above, which §4.3's single-writer contract
+makes acceptable.
+
+`python -m app.migrate` reads `GRAPH_PATH` and `AUDIT_PATH` and nothing else: it is
+the maintenance surface, so it does not require the issuer keys.
 
 One thing this slice does **not** do is key rotation overlap. §5.4 accepts the old
 and new public key until the old tokens expire, but the topology binds exactly one

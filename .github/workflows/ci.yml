@@ -45,6 +45,11 @@ jobs:
 
       # contracts/ → app/generated/** must be fresh, like the TypeScript client.
       - run: python scripts/generate.py --check
+      # Every Semantica import must resolve on the *pinned* wheel (#38). The pin is
+      # `platform/toolchain.yaml` → `spec.versions.semantica` (compiled into
+      # `app/generated/versions.py`); this closes the prototype's "asserted, not
+      # pinned" gap, and the same script runs inside the image build.
+      - run: python scripts/semantica_surface.py
       - run: ruff check app conformance scripts tests
       # The real-process tests and the C1–C15 runner. C1 and C10 have runners in
       # this slice; the rest are reported as pending with their owning ticket.

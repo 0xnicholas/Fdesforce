@@ -170,8 +170,16 @@ class ServiceProcess:
         data_dir: Path | None = None,
         env: dict[str, str] | None = None,
         cwd: Path | None = None,
+        migrate: bool = True,
     ) -> ServiceProcess:
-        """Spawn the service and wait until it is alive.
+        """Migrate the volumes, spawn the service, and wait until it is alive.
+
+        `migrate=True` is the deployment's order (§9.2): `python -m app.migrate`
+        exits 0, and only then does the service start. The harness runs the job for
+        the same reason it spawns uvicorn rather than importing the app — the
+        sequence being tested is the one a deployment performs. `migrate=False`
+        exists for the case that asserts the gate itself: a service started on an
+        unprepared volume must refuse to serve.
 
         A process that dies before `/healthz` is a *startup* failure; the error
         carries the log tail, because "connection refused" alone would hide the
@@ -200,6 +208,9 @@ class ServiceProcess:
             "FDE_JOBS_PUBLIC_KEY": issuers["fde-jobs"].public_pem,
             **(env or {}),
         }
+
+        if migrate:
+            run_migrate(child_env, cwd=cwd or SERVICE_ROOT)
 
         proc = subprocess.Popen(
             [
@@ -252,3 +263,26 @@ def new_traceparent(trace_id: str | None = None) -> str:
     trace = trace_id or os.urandom(16).hex()
     span = os.urandom(8).hex()
     return f"00-{trace}-{span}-01"
+
+
+def run_migrate(env: dict[str, str], *, cwd: Path) -> None:
+    """Run the migrate job as the topology does, and fail loudly if it does not exit 0.
+
+    The deployment waits on this exit code (`dependsOn: [migrate]`), so a harness
+    that started the service without it would be testing a sequence no environment
+    performs — and the volumes would be migrated by the service itself.
+    """
+    completed = subprocess.run(
+        [sys.executable, "-m", "app.migrate"],
+        cwd=str(cwd),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"migrate exited with {completed.returncode}; the service is not started on an "
+            f"unmigrated volume\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+        )

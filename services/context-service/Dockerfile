@@ -23,6 +23,15 @@ COPY pyproject.toml ./
 COPY app ./app
 RUN pip install --no-cache-dir -e .
 
+# The packaged artifact checks itself (#38). `app/` is the code this image ships and
+# `pyproject.toml` pins the engine, so this fails the build when the installed wheel
+# does not provide every Semantica name the shipped modules import — the surface the
+# prototype only asserted. `semantica-surface.json` is that reviewed surface; CI runs
+# the same script over the sources (`python scripts/semantica_surface.py`).
+COPY semantica-surface.json ./
+COPY scripts/semantica_surface.py ./scripts/semantica_surface.py
+RUN python scripts/semantica_surface.py --root /srv
+
 # 8011 is the in-bundle port (§9.1). The service is never published to the host;
 # the Compose renderer attaches no ingress network to it.
 EXPOSE 8011

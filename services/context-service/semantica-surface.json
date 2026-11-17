@@ -1,0 +1,31 @@
+{
+  "$comment": "The Semantica surface this service depends on. Checked by `python scripts/semantica_surface.py`; rewrite it with `--write` when the pin or the imports change, and review the diff \u2014 that review is the upgrade decision.",
+  "distribution": "semantica",
+  "pin": "0.7.0",
+  "adapters": [
+    "app/graph/semantica_graph.py"
+  ],
+  "modules": {
+    "semantica.context": {
+      "kind": "module",
+      "names": {
+        "ContextGraph": {
+          "kind": "class",
+          "members": [
+            "add_edge",
+            "add_edges",
+            "add_node",
+            "add_nodes",
+            "get_neighbors",
+            "graph_id",
+            "has_node",
+            "nodes",
+            "query",
+            "stats",
+            "to_dict"
+          ]
+        }
+      }
+    }
+  }
+}

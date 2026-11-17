@@ -9,11 +9,13 @@ so configuration is read when the process starts (and a missing key stops it
 there) instead of when the module is imported. A test can therefore import this
 module without a deployment's environment.
 
-The lifespan is where the audit volume becomes real: `AuditStore.open()`
-migrates or verifies the schema before the first request, and a background
+The lifespan is where the volumes become real: `AuditStore.open()` and
+`EmbeddedGraphStore.open()` **verify** the schemas `python -m app.migrate`
+established (§9.2 — the job migrates, the service refuses), and a background
 `ChainVerifier` records one `verify_chain` pass at startup and then periodically.
-An unopenable or foreign-schema audit store stops the process — a context service
-that cannot keep evidence must not accept a Decision it will then fail to write.
+An unopenable, unmigrated or foreign-schema volume stops the process — a context
+service that cannot keep evidence, or cannot see the graph, must not accept a
+request it will then answer wrongly.
 
 The request edge is a stack of three middlewares, outermost first:
 
@@ -40,6 +42,9 @@ from app.audit import AuditStore
 from app.audit_verifier import ChainVerifier
 from app.clock import isoformat_z, utc_now
 from app.errors import install_error_handlers
+from app.graph.embedded import EmbeddedGraphStore
+from app.graph.port import GraphStore
+from app.graph.probes import GraphProbe
 from app.idempotency import IdempotencyMiddleware, IdempotencyStore
 from app.identity import JwtVerifier
 from app.identity_edge import IdentityMiddleware
@@ -56,21 +61,26 @@ def create_app(
     verifier: JwtVerifier | None = None,
     idempotency: IdempotencyStore | None = None,
     audit: AuditStore | None = None,
+    graph: GraphStore | None = None,
 ) -> FastAPI:
     """Build the service. Missing required configuration fails here, at startup."""
     service_settings = settings if settings is not None else Settings.from_env()
     audit_store = audit if audit is not None else AuditStore(service_settings.audit_path)
+    graph_store = graph if graph is not None else EmbeddedGraphStore(service_settings.graph_path)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-        """Open the audit volume, start the chain verifier, and close both on shutdown.
+        """Open both volumes, start the chain verifier, and close them on shutdown.
 
         Opening here rather than in `create_app` keeps app construction side-effect
         free (a test can inspect the routes without a data volume), while a real
-        process still fails closed: an unreadable or unmigrated audit store stops
-        uvicorn before it serves a request that would need one.
+        process still fails closed: an unreadable or unmigrated volume stops uvicorn
+        before it serves a request that would need one. Both volumes are opened
+        before the first request, and both refusals are fatal — a service that kept
+        evidence but had no graph (or the reverse) would answer half a question.
         """
         audit_store.open()
+        graph_store.open()
         chain_verifier = ChainVerifier(audit_store)
         task = asyncio.create_task(chain_verifier.run())
         try:
@@ -79,6 +89,7 @@ def create_app(
             await chain_verifier.stop()
             with suppress(asyncio.CancelledError):
                 await task
+            graph_store.close()
             audit_store.close()
 
     application = FastAPI(
@@ -91,9 +102,12 @@ def create_app(
         lifespan=lifespan,
     )
     application.state.settings = service_settings
-    application.state.readiness = readiness if readiness is not None else Readiness()
+    application.state.readiness = (
+        readiness if readiness is not None else Readiness([GraphProbe(graph_store)])
+    )
     application.state.started_at = isoformat_z(utc_now())
     application.state.audit = audit_store
+    application.state.graph = graph_store
 
     # `add_middleware` prepends, so this order is the *reverse* of the call order:
     # the last one added is the outermost.

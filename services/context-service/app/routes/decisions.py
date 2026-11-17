@@ -28,25 +28,16 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
 
-from app.audit import AuditStore, DecisionConflict
+from app.audit import DecisionConflict
 from app.contract import read_json_body
 from app.errors import FdeError
 from app.generated.models import DecisionResponse, ProvenanceResponse, ProvenanceResponseVerification
 from app.identity import identity_of
 from app.provenance import lineage, prov_o
+from app.routes import audit_store
 from app.tracing import trace_id_of
 
 router = APIRouter(tags=["decisions"])
-
-
-def audit_store(request: Request) -> AuditStore:
-    """The store `create_app` opened for this process."""
-    store = getattr(request.app.state, "audit", None)
-    if not isinstance(store, AuditStore):
-        raise RuntimeError(
-            "this process has no audit store; `create_app` attaches one and opens it in the lifespan"
-        )
-    return store
 
 
 @router.post("/v1/decisions", response_model=None)

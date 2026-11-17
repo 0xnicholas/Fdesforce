@@ -2,8 +2,13 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.ruff_cache/
 *.egg-info/
 data/
 tests/
 conformance/
 scripts/
+# The image runs the Semantica surface check over its own `app/` (#38), so the
+# script and the surface manifest it reads travel with it; everything else under
+# `scripts/` stays out of the image.
+!scripts/semantica_surface.py

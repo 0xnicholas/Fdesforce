@@ -52,6 +52,19 @@ class Settings:
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> Settings:
+        """The service's configuration: the stores *and* both issuer keys."""
+        return cls.storage_from_env(environ).validated()
+
+    @classmethod
+    def storage_from_env(cls, environ: Mapping[str, str] | None = None) -> Settings:
+        """The stores only, for a maintenance job (`python -m app.migrate`).
+
+        The migrate job holds no identity surface: the topology gives it the graph
+        and audit paths and no issuer keys (`platform/context-service/1.0.0/
+        topology.yaml` → `jobs.migrate`). Building the service's settings there
+        would make a job that only writes schema demand the keys of a caller it
+        never authenticates.
+        """
         source = os.environ if environ is None else environ
 
         graph_backend = source.get("GRAPH_BACKEND", "embedded")
@@ -84,7 +97,7 @@ class Settings:
             audit_path=source.get("AUDIT_PATH", cls.audit_path),
             execution_context_public_key=source.get("EXECUTION_CONTEXT_PUBLIC_KEY"),
             fde_jobs_public_key=source.get("FDE_JOBS_PUBLIC_KEY"),
-        ).validated()
+        )
 
     def validated(self) -> Settings:
         """This configuration, or a startup failure naming what is missing."""

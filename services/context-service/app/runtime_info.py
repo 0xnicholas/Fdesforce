@@ -30,6 +30,7 @@ from app.generated.versions import (
     RUNTIME_CONTRACT_VERSION,
     SERVICE_VERSION,
 )
+from app.limits import LIMITS
 from app.readiness import Readiness, ReadinessStatus
 from app.settings import Settings
 
@@ -37,15 +38,6 @@ from app.settings import Settings
 #: same three names (`contract-tests.ts`), so the peer it tests against and the
 #: peer it meets in a deployment agree.
 CAPABILITIES: tuple[str, ...] = ("shared-graph", "semantic-ingest", "audit-append")
-
-#: §7.2's ceilings and the embedded graph envelope (§4.3): 10k nodes / 50k edges,
-#: a 30s context call, a 30-minute Run.
-LIMITS: dict[str, int] = {
-    "max_nodes": 10_000,
-    "max_edges": 50_000,
-    "max_request_timeout_ms": 30_000,
-    "max_run_deadline_ms": 1_800_000,
-}
 
 _COMPONENT_STATUS = {
     "ready": "ready",

@@ -17,12 +17,22 @@ requires-python = ">=3.12"
 # `ExecutionContext`s on every authenticated request, so a deployment without it
 # would boot and then refuse every call. `cryptography` is pinned beside it because
 # the ES256 half is the only curve this service accepts.
+#
+# `semantica` is the v0 embedded graph engine (`docs/runtime-contract.md` §4.3).
+# The pin must equal `platform/toolchain.yaml` → `versions.semantica`, and
+# `scripts/semantica_surface.py` fails CI when the imports the service makes are not
+# on this wheel's export surface — an upgrade has to be a decision, not a drift.
+#
+# `pydantic` sits at 2.13.4 because that is semantica 0.7.0's floor (`>=2.13.4`);
+# it was 2.12.5 before this service had an engine dependency. Still an exact pin:
+# two installs of this slice must resolve to the same bytes.
 dependencies = [
   "cryptography==50.0.2",
   "fastapi==0.163.1",
   "jsonschema==4.26.0",
-  "pydantic==2.12.5",
+  "pydantic==2.13.4",
   "pyjwt[crypto]==2.15.1",
+  "semantica==0.7.0",
   "uvicorn[standard]==0.54.0",
 ]
 

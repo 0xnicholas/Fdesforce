@@ -2,7 +2,14 @@
 
 The audit volume is separate from the graph because the two have different
 lifetimes: the graph is rebuilt from the Context Package, the audit trail is not.
-This module is the only writer. Every entry is a link in a SHA-256 chain:
+This module is the only writer of *entries*. Schema is a separate act: `migrate()`
+creates or converges the tables and triggers (the `python -m app.migrate` job, #38)
+and `open()` only verifies what it finds — §9.2's order, enforced from both ends.
+The store also holds the Retrieval Snapshots (§4.1) in their own append-only table,
+because a Decision's evidence and the answer it was drawn from belong to the same
+lifetime.
+
+Every Decision entry is a link in a SHA-256 chain:
 
 ```text
 payload        = canonical_json({seq, provenance_id, tenant_id, created_at, decision})
@@ -73,6 +80,20 @@ VerificationStatus = Literal["valid", "pending", "stale", "invalid"]
 ChainStatus = Literal["valid", "invalid"]
 
 
+#: The tables and triggers the evidence depends on. `migrate` creates them; `open`
+#: refuses a store missing any of them, because "the version matches" and "the
+#: append-only triggers are there" are different claims (§6.4).
+REQUIRED_OBJECTS: tuple[str, ...] = (
+    "audit_entry",
+    "chain_verification",
+    "retrieval_snapshot",
+    "audit_entry_append_only_update",
+    "audit_entry_append_only_delete",
+    "retrieval_snapshot_append_only_update",
+    "retrieval_snapshot_append_only_delete",
+)
+
+
 class AuditStoreError(RuntimeError):
     """The audit store cannot be the evidence the deployment needs."""
 
@@ -83,6 +104,10 @@ class AuditSchemaMismatch(AuditStoreError):
 
 class DecisionConflict(Exception):
     """This `decision_id` already names a different Decision (or another tenant's)."""
+
+
+class RetrievalSnapshotConflict(Exception):
+    """This `retrieval_id` already names a different Retrieval Snapshot (or another tenant's)."""
 
 
 @dataclass(frozen=True)
@@ -107,6 +132,22 @@ class AuditEntry:
     @property
     def decision(self) -> Mapping[str, Any]:
         return self.document["decision"]
+
+
+@dataclass(frozen=True)
+class StoredSnapshot:
+    """A Retrieval Snapshot as the audit volume holds it (§4.1).
+
+    `manifest` is the hashed evidence; the rest is the identity of the call that
+    produced it, kept so an auditor can tie the evidence to a trace and a time.
+    """
+
+    retrieval_id: str
+    tenant_id: str
+    trace_id: str
+    created_at: str
+    digest: str
+    manifest: Mapping[str, Any]
 
 
 @dataclass(frozen=True)
@@ -157,28 +198,65 @@ class AuditStore:
     # -- lifecycle --------------------------------------------------------
 
     def open(self) -> AuditStore:
-        """Open, migrate, or fail startup with what the audit volume actually is."""
+        """Open and **verify** the schema the migrate job established (§9.2).
+
+        The service never writes schema: `python -m app.migrate` runs first (the
+        topology's `dependsOn: [migrate]`), and a service that migrated its own
+        volume would make that job's exit code decorative. Verification is the
+        whole opening move — version stamp, store identity, and the tables and
+        triggers the evidence depends on.
+        """
         with self._lock:
             if self._connection is not None:
                 return self
-            self.path.parent.mkdir(parents=True, exist_ok=True)
+            connection = self._connect()
             try:
-                connection = sqlite3.connect(
-                    self.path,
-                    timeout=10.0,
-                    isolation_level=None,  # explicit transactions; see `_transaction`
-                    check_same_thread=False,
-                )
-            except sqlite3.DatabaseError as error:
-                raise AuditStoreError(f"cannot open the audit store at {self.path}: {error}") from error
-            connection.row_factory = sqlite3.Row
-            try:
-                self._prepare(connection)
+                self._verify(connection)
             except Exception:
                 connection.close()
                 raise
             self._connection = connection
             return self
+
+    def migrate(self) -> AuditStore:
+        """Establish or converge the schema. The migrate job's half of this module.
+
+        Idempotent DDL: a missing table or trigger is created, an interrupted
+        migration resumes, and a store already at this version with every object
+        present is left alone. A *newer* store and another application's file are
+        refusals, because neither is something a migration may guess at.
+        """
+        with self._lock:
+            if self._connection is not None:
+                return self
+            connection = self._connect()
+            try:
+                self._establish(connection)
+            except Exception:
+                connection.close()
+                raise
+            self._connection = connection
+            return self
+
+    def _connect(self) -> sqlite3.Connection:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            connection = sqlite3.connect(
+                self.path,
+                timeout=10.0,
+                isolation_level=None,  # explicit transactions; see `_transaction`
+                check_same_thread=False,
+            )
+        except sqlite3.DatabaseError as error:
+            raise AuditStoreError(f"cannot open the audit store at {self.path}: {error}") from error
+        connection.row_factory = sqlite3.Row
+        try:
+            connection.execute("PRAGMA journal_mode = WAL")
+            connection.execute("PRAGMA synchronous = FULL")
+        except sqlite3.DatabaseError as error:
+            connection.close()
+            raise AuditStoreError(f"cannot open the audit store at {self.path}: {error}") from error
+        return connection
 
     def close(self) -> None:
         with self._lock:
@@ -192,38 +270,63 @@ class AuditStore:
     def __exit__(self, *exc: object) -> None:
         self.close()
 
-    def _prepare(self, connection: sqlite3.Connection) -> None:
-        """Set the durability pragmas and establish (or verify) the schema version."""
-        connection.execute("PRAGMA journal_mode = WAL")
-        connection.execute("PRAGMA synchronous = FULL")
+    def _stamps(self, connection: sqlite3.Connection) -> tuple[int, int]:
+        """`(user_version, application_id)`, or a startup failure naming the file."""
         try:
             version = int(connection.execute("PRAGMA user_version").fetchone()[0])
             application_id = int(connection.execute("PRAGMA application_id").fetchone()[0])
         except sqlite3.DatabaseError as error:
             raise AuditStoreError(f"{self.path} is not a readable SQLite database: {error}") from error
+        return version, application_id
 
+    def _verify(self, connection: sqlite3.Connection) -> None:
+        """The store on the audit volume is exactly the schema this build writes."""
         expected = int(AUDIT_SCHEMA_VERSION)
-        # A store with no version stamp is either brand new or one whose migration
-        # was interrupted after the application id was written (that id goes first,
-        # below). Both are safe to migrate: every statement is `IF NOT EXISTS`.
-        if version == 0 and application_id in (0, APPLICATION_ID):
-            self._migrate(connection, expected)
-            return
+        version, application_id = self._stamps(connection)
+        if application_id != APPLICATION_ID:
+            raise AuditSchemaMismatch(
+                f"{self.path} is not an FDE audit store (application_id {application_id}); "
+                "`python -m app.migrate` creates the schema and refuses to overwrite a foreign file"
+            )
         if version != expected:
             raise AuditSchemaMismatch(
-                f"the audit store at {self.path} is schema version {version}, "
-                f"and this build writes version {expected}; the audit volume is not migrated by the service"
+                f"the audit store at {self.path} is schema version {version}, and this build "
+                f"writes version {expected}; run `python -m app.migrate` on the audit volume first "
+                "(§9.2: the service verifies the schema, the job establishes it)"
             )
-        if application_id != APPLICATION_ID:
-            raise AuditSchemaMismatch(f"{self.path} is not an FDE audit store (application_id {application_id})")
+        present = _objects(connection)
+        missing = sorted(set(REQUIRED_OBJECTS) - present)
+        if missing:
+            raise AuditSchemaMismatch(
+                f"the audit store at {self.path} is missing {', '.join(missing)}; "
+                "run `python -m app.migrate` to converge it"
+            )
 
-    def _migrate(self, connection: sqlite3.Connection, expected: int) -> None:
-        # `executescript` commits before it runs, so this is deliberately not inside
-        # `_transaction`: DDL is idempotent (`IF NOT EXISTS`). The application id is
-        # written before the version stamp on purpose — a crash between the two then
-        # leaves `version 0 + our id`, which `_prepare` resumes. The reverse order
-        # would leave `our version + no id`, which is indistinguishable from a
-        # foreign file and would refuse a store we created.
+    def _establish(self, connection: sqlite3.Connection) -> None:
+        """Create or converge the schema (the migrate job).
+
+        `executescript` commits before it runs, so this is deliberately not inside
+        `_transaction`: DDL is idempotent (`IF NOT EXISTS`). The application id is
+        written before the version stamp on purpose — a crash between the two then
+        leaves `version 0 + our id`, which the next run resumes. The reverse order
+        would leave `our version + no id`, which is indistinguishable from a
+        foreign file and would refuse a store we created.
+        """
+        expected = int(AUDIT_SCHEMA_VERSION)
+        version, application_id = self._stamps(connection)
+        # A fresh file is `version 0 + no id`; an interrupted migration of ours is
+        # `version 0 + our id` (the id is written first, below). Anything stamped
+        # but not ours belongs to another store, and a migration may not write into it.
+        if application_id != APPLICATION_ID and not (application_id == 0 and version == 0):
+            raise AuditSchemaMismatch(
+                f"{self.path} is not an FDE audit store (application_id {application_id}, "
+                f"user_version {version}); migrate will not write schema into a file it does not recognise"
+            )
+        if version > expected:
+            raise AuditSchemaMismatch(
+                f"the audit store at {self.path} is schema version {version}, newer than this "
+                f"build's {expected}; a newer deployment wrote it, so this one must not downgrade it"
+            )
         connection.executescript(_SCHEMA)
         connection.execute(f"PRAGMA application_id = {APPLICATION_ID}")
         connection.execute(f"PRAGMA user_version = {expected}")
@@ -319,6 +422,84 @@ class AuditStore:
             payload_digest=sha256_digest(payload),
             prev_hash=prev_hash,
             hash=sha256_digest(prev_hash, payload),
+        )
+
+    # -- retrieval snapshots ----------------------------------------------
+
+    def append_retrieval_snapshot(self, record: StoredSnapshot) -> bool:
+        """Append one Retrieval Snapshot. `False` means this exact one was already there.
+
+        §4.1 puts the snapshot in the audit store, and a Decision cites it by
+        `retrieval_id`, so the row has to be as immutable as the Decision it will
+        support: the table's triggers refuse `UPDATE` and `DELETE`, and a second
+        append under the same id is either the same bytes (a retry, not a second
+        snapshot) or a conflict.
+
+        The row is split in two on purpose. Its *identity* — `retrieval_id`, trace,
+        time — is per call and lives in columns; its *evidence* is `manifest`, and
+        `digest` covers exactly that. So two identical retrievals carry the same
+        digest ("the same evidence"), while each is still its own snapshot ("this
+        call's evidence").
+
+        `digest` is checked against the manifest rather than trusted: it is the value
+        the caller was given, and a row whose digest did not cover its manifest would
+        be evidence nobody could re-verify.
+        """
+        payload = canonical_json(record.manifest)
+        if sha256_digest(payload) != record.digest:
+            raise ValueError(
+                "the snapshot digest does not cover the manifest it names; "
+                "a Decision citing this snapshot could never be re-verified"
+            )
+        if str(record.manifest.get("tenant_id")) != record.tenant_id:
+            raise ValueError(
+                "the snapshot manifest names a different tenant than the row; "
+                "the filter column and the evidence it filters must agree"
+            )
+
+        with self._lock, self._transaction(self._connected()) as connection:
+            existing = connection.execute(
+                "SELECT * FROM retrieval_snapshot WHERE retrieval_id = ?", (record.retrieval_id,)
+            ).fetchone()
+            if existing is not None:
+                if str(existing["digest"]) != record.digest or str(existing["tenant_id"]) != record.tenant_id:
+                    raise RetrievalSnapshotConflict(
+                        "this retrieval_id is already recorded with a different manifest; "
+                        "one retrieval_id is one Retrieval Snapshot"
+                    )
+                return False
+            connection.execute(
+                """
+                INSERT INTO retrieval_snapshot (retrieval_id, tenant_id, trace_id, created_at, digest, manifest)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.retrieval_id,
+                    record.tenant_id,
+                    record.trace_id,
+                    record.created_at,
+                    record.digest,
+                    payload,
+                ),
+            )
+            return True
+
+    def retrieval_snapshot(self, retrieval_id: str, *, tenant_id: str) -> StoredSnapshot | None:
+        """The snapshot `retrieval_id` names in `tenant_id`, or nothing (§5.3)."""
+        with self._lock:
+            row = self._connected().execute(
+                "SELECT * FROM retrieval_snapshot WHERE retrieval_id = ? AND tenant_id = ?",
+                (retrieval_id, tenant_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return StoredSnapshot(
+            retrieval_id=str(row["retrieval_id"]),
+            tenant_id=str(row["tenant_id"]),
+            trace_id=str(row["trace_id"]),
+            created_at=str(row["created_at"]),
+            digest=str(row["digest"]),
+            manifest=json.loads(str(row["manifest"])),
         )
 
     # -- read -------------------------------------------------------------
@@ -507,6 +688,12 @@ def _detail_of(record: sqlite3.Row) -> str | None:
     return None if record["detail"] is None else str(record["detail"])
 
 
+def _objects(connection: sqlite3.Connection) -> set[str]:
+    """Every table and trigger name in the file."""
+    rows = connection.execute("SELECT name FROM sqlite_master WHERE type IN ('table', 'trigger')").fetchall()
+    return {str(row["name"]) for row in rows}
+
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS audit_entry (
   seq            INTEGER PRIMARY KEY,
@@ -544,4 +731,30 @@ CREATE TABLE IF NOT EXISTS chain_verification (
   checked_at           TEXT NOT NULL,
   detail               TEXT
 ) STRICT;
+
+-- The Retrieval Snapshot manifest (§4.1): what a retrieval returned, by reference.
+-- `manifest` is canonical JSON with one hash covering it; the content itself stays in
+-- the graph, where it can be rebuilt (§6.5 keeps the audit store from holding a copy).
+CREATE TABLE IF NOT EXISTS retrieval_snapshot (
+  retrieval_id TEXT PRIMARY KEY,
+  tenant_id    TEXT NOT NULL,
+  trace_id     TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  digest       TEXT NOT NULL,
+  manifest     TEXT NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS retrieval_snapshot_tenant ON retrieval_snapshot (tenant_id, retrieval_id);
+
+CREATE TRIGGER IF NOT EXISTS retrieval_snapshot_append_only_update
+BEFORE UPDATE ON retrieval_snapshot
+BEGIN
+  SELECT RAISE(ABORT, 'retrieval_snapshot is append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS retrieval_snapshot_append_only_delete
+BEFORE DELETE ON retrieval_snapshot
+BEGIN
+  SELECT RAISE(ABORT, 'retrieval_snapshot is append-only');
+END;
 """

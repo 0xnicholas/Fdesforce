@@ -24,7 +24,6 @@ from app.errors import FdeError
 
 #: `operationId` → the ticket that replaces this handler.
 STUBS: dict[str, str] = {
-    "retrieveContext": "#39",
     "createApproval": "#40",
     "listApprovals": "#40",
     "decideApproval": "#40",
@@ -34,7 +33,7 @@ STUBS: dict[str, str] = {
 
 #: The operations this slice really serves.
 IMPLEMENTED: frozenset[str] = frozenset(
-    {"healthz", "readyz", "getRuntimeInfo", "recordDecision", "getProvenance"}
+    {"healthz", "readyz", "getRuntimeInfo", "recordDecision", "getProvenance", "retrieveContext"}
 )
 
 
