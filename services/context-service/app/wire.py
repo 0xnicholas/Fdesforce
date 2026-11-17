@@ -101,6 +101,8 @@ class Operation:
     #: The issuer kind allowed to call this operation (`x-fde-issuer`): `runtime`
     #: (`fde://<deployment_id>`) or `jobs` (`fde://<deployment_id>/jobs`).
     issuer: str | None
+    #: Whether the call acts for one Run, so the token must carry `run_id` (§5.1).
+    run_scoped: bool
     #: The body schema the runtime validates against, if the operation takes one.
     request: SchemaRef | None
     success_status: int

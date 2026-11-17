@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -47,13 +46,14 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.contract import OPERATION_INDEX, OperationIndex
 from app.errors import FdeError, send_error
+from app.expiry import ExpiringRecords
+from app.generated.api import IDEMPOTENCY_KEY_LENGTH
 from app.generated.schemas import SCHEMAS
 from app.identity import identity_of
 from app.wire import Operation
 
-#: `Idempotency-Key` is 16–128 characters (`contracts/…openapi.yaml`).
-MIN_KEY_LENGTH = 16
-MAX_KEY_LENGTH = 128
+#: The `Idempotency-Key` length the contract declares (generated from the parameter).
+MIN_KEY_LENGTH, MAX_KEY_LENGTH = IDEMPOTENCY_KEY_LENGTH
 
 #: How long a key keeps its meaning. At least 24 hours, per §3.5.
 RETENTION_SECONDS = 24 * 60 * 60
@@ -84,10 +84,9 @@ class RecordedResponse:
 
 @dataclass(frozen=True)
 class Entry:
-    """What the store knows about one key."""
+    """What the store knows about one key. The retention window is the store's."""
 
     fingerprint: str
-    expires_at: float
     response: RecordedResponse | None = None
     in_flight: bool = False
 
@@ -111,30 +110,15 @@ def conflict(reason: str) -> Outcome:
 class IdempotencyStore:
     """`KeyScope` → `Entry`, retained for `RETENTION_SECONDS`."""
 
-    #: How often expired entries are swept, in seconds.
-    SWEEP_INTERVAL_SECONDS = 60.0
-
     def __init__(self, *, now: Callable[[], float] | None = None, retention: float = RETENTION_SECONDS) -> None:
-        self._now = now if now is not None else _wall_clock
+        self._entries: ExpiringRecords[KeyScope, Entry] = ExpiringRecords(now=now)
         self._retention = retention
-        self._entries: dict[KeyScope, Entry] = {}
-        self._next_sweep = 0.0
 
     def begin(self, scope: KeyScope, fingerprint: str) -> Outcome:
         """Reserve the key, or answer with what the first attempt already did."""
-        self._sweep_if_due()
         entry = self._entries.get(scope)
-        if entry is not None and entry.expires_at < self._now():
-            # Expiry is decided on lookup, not by the sweep: the sweep is for
-            # memory, and a key must stop meaning something at the hour it says.
-            del self._entries[scope]
-            entry = None
         if entry is None:
-            self._entries[scope] = Entry(
-                fingerprint=fingerprint,
-                expires_at=self._now() + self._retention,
-                in_flight=True,
-            )
+            self._reserve(scope, fingerprint)
             return PROCEED
 
         if entry.fingerprint != fingerprint:
@@ -144,22 +128,15 @@ class IdempotencyStore:
         if entry.in_flight:
             # No response and still running: a second copy would be a second write.
             return conflict("in_flight")
-        self._entries[scope] = Entry(
-            fingerprint=entry.fingerprint,
-            expires_at=self._now() + self._retention,
-            in_flight=True,
-        )
+        self._reserve(scope, entry.fingerprint)
         return PROCEED
 
     def complete(self, scope: KeyScope, response: RecordedResponse) -> None:
         """Remember a success, so a retry replays it."""
         entry = self._entries.get(scope)
-        fingerprint = entry.fingerprint if entry is not None else ""
-        self._entries[scope] = Entry(
-            fingerprint=fingerprint,
-            expires_at=self._now() + self._retention,
-            response=response,
-            in_flight=False,
+        self._record(
+            scope,
+            Entry(fingerprint=entry.fingerprint if entry is not None else "", response=response, in_flight=False),
         )
 
     def abandon(self, scope: KeyScope) -> None:
@@ -167,26 +144,17 @@ class IdempotencyStore:
         entry = self._entries.get(scope)
         if entry is None:
             return
-        self._entries[scope] = Entry(
-            fingerprint=entry.fingerprint,
-            expires_at=self._now() + self._retention,
-            response=None,
-            in_flight=False,
-        )
+        self._record(scope, Entry(fingerprint=entry.fingerprint, response=None, in_flight=False))
 
-    def _sweep_if_due(self) -> None:
-        now = self._now()
-        if now < self._next_sweep:
-            return
-        self._entries = {scope: entry for scope, entry in self._entries.items() if entry.expires_at >= now}
-        self._next_sweep = now + self.SWEEP_INTERVAL_SECONDS
+    def _reserve(self, scope: KeyScope, fingerprint: str) -> None:
+        self._record(scope, Entry(fingerprint=fingerprint, in_flight=True))
+
+    def _record(self, scope: KeyScope, entry: Entry) -> None:
+        """Store `entry` with a fresh retention window, stamped on the store's clock."""
+        self._entries.put(scope, entry, expires_at=self._entries.now + self._retention)
 
     def __len__(self) -> int:
         return len(self._entries)
-
-
-def _wall_clock() -> float:
-    return time.time()
 
 
 def fingerprint(body: bytes) -> str:
@@ -301,16 +269,20 @@ def _key_scope(scope: Scope, headers: Mapping[bytes, bytes], operation: Operatio
             f"{MIN_KEY_LENGTH}–{MAX_KEY_LENGTH}",
             details={"reason": "invalid_idempotency_key"},
         )
-    return KeyScope(tenant_id=identity_of(Request(scope)).tenant_id, endpoint=operation.operation_id, key=key)
+    tenant_id = identity_of(Request(scope)).context.tenant_id
+    return KeyScope(tenant_id=tenant_id, endpoint=operation.operation_id, key=key)
 
 
 def _conflict_error(reason: str | None) -> FdeError:
     if reason == "in_flight":
+        # `conflict` is 409/not-retryable in §3.4's table, and a code's retryable
+        # value is the contract's, not this call's. The same key with the same body
+        # answers with the recorded result once the first attempt finishes.
         return FdeError(
             "conflict",
-            "an identical request with this Idempotency-Key is still being handled; retry once it finishes",
+            "an identical request with this Idempotency-Key is already being handled; "
+            "this key will answer with that attempt's result",
             details={"reason": "idempotency_in_flight"},
-            retryable=True,
         )
     return FdeError(
         "idempotency_conflict",

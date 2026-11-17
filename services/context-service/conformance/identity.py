@@ -152,12 +152,15 @@ def mint(
     """
     issued_at = int(time.time()) if now is None else now
     is_jobs = issuer.kind == "jobs"
+    # `sub` and `actor.id` are the same principal, as the runtime's issuer writes
+    # them (`packages/runtime-generator-mastra/src/identity.ts`): a body may say
+    # `subject.id` and mean either, so the two must not drift here.
+    principal = subject or ("fde-jobs" if is_jobs else "u-42")
     claims: dict[str, Any] = {
         "iss": issuer.iss,
         "aud": AUDIENCE,
-        "sub": subject or ("fde-jobs" if is_jobs else "user-42"),
-        "actor": actor
-        or {"type": "service" if is_jobs else "user", "id": subject or ("fde-jobs" if is_jobs else "u-42")},
+        "sub": principal,
+        "actor": actor or {"type": "service" if is_jobs else "user", "id": principal},
         "tenant_id": tenant_id,
         "deployment_id": deployment_id,
         "solution_id": solution_id,

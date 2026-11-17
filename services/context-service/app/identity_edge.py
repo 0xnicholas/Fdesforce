@@ -11,6 +11,7 @@ of §5.1/§5.3 — the checks that are about *this request* rather than the toke
 | the JWT `trace_id` equals the `traceparent` trace-id | `403 forbidden` |
 | the operation accepts this issuer kind (`runtime` vs `jobs`) | `403 forbidden` |
 | the token holds the operation's `x-fde-required-scope` | `403 forbidden` |
+| a Run-scoped operation's token carries `run_id` (§5.1) | `401 unauthenticated` |
 | `X-Tenant-Id` / `X-Actor`, if sent, agree with the token | `403 forbidden` |
 
 A middleware, not a per-route dependency, because every authenticated operation
@@ -103,6 +104,7 @@ class IdentityMiddleware:
         self._check_trace(identity, trace_id)
         self._check_issuer(identity, operation)
         self._check_scope(identity, operation)
+        self._check_run_scope(identity, operation)
         self._check_plaintext_headers(identity, headers)
         return identity
 
@@ -123,12 +125,13 @@ class IdentityMiddleware:
     def _check_trace(self, identity: VerifiedIdentity, trace_id: str | None) -> None:
         if trace_id is None:
             return
-        if identity.trace_id != trace_id:
+        claimed = identity.context.trace_id
+        if claimed != trace_id:
             raise forbidden(
                 "trace_mismatch",
                 "the ExecutionContext's `trace_id` does not match the traceparent of this request; "
                 "a token minted for another call cannot be replayed onto this one",
-                token_trace_id=identity.trace_id,
+                token_trace_id=claimed,
                 request_trace_id=trace_id,
             )
 
@@ -153,8 +156,18 @@ class IdentityMiddleware:
             required_scope=operation.required_scope,
         )
 
+    def _check_run_scope(self, identity: VerifiedIdentity, operation: Operation) -> None:
+        """§5.1: a Run-scoped call carries the Run it acts for."""
+        if not operation.run_scoped or identity.context.run_id is not None:
+            return
+        raise unauthenticated(
+            "missing_run_id",
+            f"{operation.operation_id} is Run-scoped, and this ExecutionContext carries no `run_id`; "
+            "a decision, a retrieval or an approval that names no Run cannot be attributed to one",
+        )
+
     def _check_plaintext_headers(self, identity: VerifiedIdentity, headers: Mapping[bytes, bytes]) -> None:
-        expected = {"tenant": identity.tenant_id, "actor": identity.actor.id}
+        expected = {"tenant": identity.context.tenant_id, "actor": identity.context.actor.id}
         for name, field in LEGACY_IDENTITY_HEADERS.items():
             asserted = _text(headers.get(name))
             if asserted is not None and asserted != expected[field]:

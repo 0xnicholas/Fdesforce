@@ -420,7 +420,8 @@ def body_and_headers(
     """
     body = sample_body(documents, definition)
     authorized.setdefault("trace_id", secrets.token_hex(16))
-    authorized.setdefault("run_id", body.get("run_id"))
+    if "run_id" in body:
+        authorized.setdefault("run_id", body["run_id"])
     headers = service.authorized(**authorized)
     claims = decode_claims(headers["authorization"])
     for field in ("tenant_id", "trace_id", "run_id"):
@@ -586,6 +587,22 @@ def run_c3(context: CaseContext) -> tuple[str, ...]:
     if control.status_code == 403:
         failures.append(f"a body that agrees with its token was refused: {control.text[:200]}")
 
+    # §3.3: `RetrieveRequest.subject` is a hint about the caller, not a credential.
+    subject, headers = body_and_headers(service, documents, "RetrieveRequest")
+    someone_else = {**subject, "subject": {"type": "user", "id": "someone-else"}}
+    response = service.post("/v1/context/retrieve", json=someone_else, headers=headers)
+    expect_forbidden(response, "RetrieveRequest.subject from another caller", "body_identity_mismatch")
+
+    subject, headers = body_and_headers(service, documents, "RetrieveRequest")
+    response = service.post("/v1/context/retrieve", json=subject, headers=headers)
+    if response.status_code == 403:
+        failures.append(f"a retrieval whose subject agrees with its token was refused: {response.text[:200]}")
+
+    # §5.1: a Run-scoped call must name the Run it acts for.
+    response = service.post("/v1/context/retrieve", json={}, headers=service.authorized(run_id=None))
+    if response.status_code != 401:
+        failures.append(f"a Run-scoped call with no run_id in the token answered {response.status_code}, expected 401")
+
     # Scope: an operation the token's scopes do not cover.
     narrow = service.authorized(scopes=("context:retrieve",))
     response = service.post("/v1/decisions", json={}, headers={**narrow, "Idempotency-Key": secrets.token_hex(16)})
@@ -607,7 +624,8 @@ def run_c3(context: CaseContext) -> tuple[str, ...]:
         raise CaseFailure(failures)
     return (
         "plaintext tenant/actor headers cannot override the token",
-        "body identity fields must repeat the token",
+        "body identity fields, including RetrieveRequest.subject, must repeat the token",
+        "a Run-scoped call needs run_id in the token",
         "scope is required per operation",
         "the two issuers cannot reach each other's surface",
     )
@@ -637,6 +655,27 @@ def run_c5(context: CaseContext) -> tuple[str, ...]:
     repeat = service.post("/v1/decisions", json=decision, headers={**retry, "Idempotency-Key": key})
     if repeat.status_code == 409:
         failures.append("the same key with the same payload was refused as a conflict")
+    elif repeat.status_code != original.status_code:
+        failures.append(
+            f"the same key and payload answered {repeat.status_code} after {original.status_code}; "
+            "one logical write has one outcome"
+        )
+
+    # A retry is the same *trace*: the body's `trace_id` is bound to the token's,
+    # so a write cannot be moved onto another call — which is why a replayed body
+    # already names the caller's trace (C6 holds for replays too).
+    moved = service.post(
+        "/v1/decisions",
+        json=decision,
+        headers={
+            **service.authorized(
+                trace_id=trace_id, run_id=decision["run_id"], traceparent_trace_id=secrets.token_hex(16)
+            ),
+            "Idempotency-Key": key,
+        },
+    )
+    if moved.status_code != 403:
+        failures.append(f"a retried write moved onto another trace answered {moved.status_code}, expected 403")
 
     changed = {**decision, "rationale": f"{decision['rationale']} (revised)"}
     conflicting = service.post(
@@ -681,7 +720,8 @@ def run_c5(context: CaseContext) -> tuple[str, ...]:
     if failures:
         raise CaseFailure(failures)
     return (
-        "the same key and payload is not a conflict",
+        "the same key and payload is one write, with one outcome",
+        "a retry must carry the original trace, so a replay cannot move a Decision",
         "the same key with a different payload is 409 idempotency_conflict",
         "a different key is a different write",
         "a write without a key is 400",
@@ -722,8 +762,10 @@ def run_c6(context: CaseContext) -> tuple[str, ...]:
     if response.status_code != 400:
         failures.append(f"an authenticated request with no traceparent answered {response.status_code}, expected 400")
 
-    # And a matching trace is carried into the response, on every surface the
-    # case names — envelope today, success body once the handlers land.
+    # And a matching trace is carried into the response, on every surface the case
+    # names. Those are 500 stub envelopes today (the handlers are #37/#39), so
+    # what this proves now is the propagation seam; the same assertion reads the
+    # success body once a handler answers one.
     for method, template, body in (
         ("post", "/v1/context/retrieve", {}),
         ("post", "/v1/decisions", {}),
@@ -743,7 +785,7 @@ def run_c6(context: CaseContext) -> tuple[str, ...]:
     return (
         "JWT trace_id must equal the traceparent trace-id",
         "traceparent is required on authenticated operations",
-        "retrieve, decision and provenance responses carry the caller's trace",
+        "retrieve, decision and provenance responses carry the caller's trace (envelopes today)",
     )
 
 

@@ -3,9 +3,10 @@
 "Real" is the claim under test: EC P-256 keys (not a shared secret, not `none`),
 signed JWTs that verify with the public half, a `kid` that is the RFC 7638
 thumbprint the service derives, and claims that satisfy
-`contracts/schemas/execution-context.schema.json`. This is what C2/C3/C6 will
-send in #36; a harness that could only fabricate an unsigned dict would make those
-cases theatre.
+`contracts/schemas/execution-context.schema.json`. This is what C2/C3/C6 send; a
+harness that could only fabricate an unsigned dict would make those cases theatre.
+`test_identity.py` proves the service's verifier accepts what this mints and
+refuses what it should.
 """
 
 from __future__ import annotations

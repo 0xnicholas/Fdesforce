@@ -83,7 +83,13 @@ HTTP_STATUS_TO_ERROR: Mapping[int, str] = {
 
 
 class FdeError(Exception):
-    """A failure the service chose, with the contract code a client reads."""
+    """A failure the service chose, with the contract code a client reads.
+
+    `status` and `retryable` are *derived* from the code, never overridden at a
+    call site: §3.4's table is the contract, and a code that could answer with two
+    different `retryable` values would be a table nothing can check.
+    """
+
     def __init__(
         self,
         code: str,
@@ -91,7 +97,6 @@ class FdeError(Exception):
         *,
         details: Mapping[str, Any] | None = None,
         status: int | None = None,
-        retryable: bool | None = None,
     ) -> None:
         if code not in ERROR_HTTP_STATUS:
             raise ValueError(f"{code!r} is not a contract error code")
@@ -100,7 +105,7 @@ class FdeError(Exception):
         self.message = message
         self.details = dict(details) if details is not None else None
         self.status = ERROR_HTTP_STATUS[code] if status is None else status
-        self.retryable = (code in RETRYABLE_CODES) if retryable is None else retryable
+        self.retryable = code in RETRYABLE_CODES
 
 
 def unauthenticated(reason: str, message: str) -> FdeError:
@@ -120,7 +125,6 @@ def envelope(
     message: str,
     status: int | None = None,
     details: Mapping[str, Any] | None = None,
-    retryable: bool | None = None,
 ) -> JSONResponse:
     """The one response body every failure produces.
 
@@ -130,7 +134,7 @@ def envelope(
     detail = ErrorDetail(
         code=code,  # type: ignore[arg-type]  # the generated model validates the enum
         message=message,
-        retryable=(code in RETRYABLE_CODES) if retryable is None else retryable,
+        retryable=code in RETRYABLE_CODES,
         trace_id=trace_id_of(request),
         details=dict(details) if details is not None else None,
     )
@@ -145,7 +149,6 @@ async def _fde_error(request: Request, exc: FdeError) -> JSONResponse:
         message=exc.message,
         status=exc.status,
         details=exc.details,
-        retryable=exc.retryable,
     )
 
 
@@ -163,7 +166,6 @@ async def send_error(scope: Scope, receive: Receive, send: Send, error: FdeError
         message=error.message,
         status=error.status,
         details=error.details,
-        retryable=error.retryable,
     )
     await response(scope, receive, send)
 

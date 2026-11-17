@@ -65,8 +65,8 @@ BANNER = """\
 METHODS = ("get", "post", "put", "patch", "delete")
 
 #: Schemas the OpenAPI document cannot `$ref` because they describe *how* it is
-#: authenticated rather than what it returns: the bearer token itself. The
-#: service verifies `ExecutionContext`s (#36), so it needs the model.
+#: authenticated rather than what it returns: the bearer token itself. The service
+#: verifies `ExecutionContext`s, so it needs the model.
 EXTRA_SCHEMA_FILES = ("execution-context.schema.json",)
 
 
@@ -493,6 +493,8 @@ class OperationSpec:
     idempotency_key: bool
     required_scope: str | None
     issuer: str | None
+    #: Whether the call acts for one Run, so the token must carry `run_id` (§5.1).
+    run_scoped: bool
     request: tuple[str, str] | None
     success_status: int
     #: The status a replay answers with (§3.5): the operation's own 200 response
@@ -559,6 +561,7 @@ def read_operations(openapi: Mapping[str, Any]) -> list[OperationSpec]:
             # so the generator refuses it instead of emitting a guess.
             required_scope = operation.get("x-fde-required-scope")
             issuer = operation.get("x-fde-issuer")
+            run_scoped = operation.get("x-fde-run-scoped", False)
             if auth:
                 if not isinstance(required_scope, str) or not required_scope:
                     raise GenerationError(
@@ -568,7 +571,9 @@ def read_operations(openapi: Mapping[str, Any]) -> list[OperationSpec]:
                     raise GenerationError(
                         f"{method.upper()} {path} declares x-fde-issuer={issuer!r}; expected one of {ISSUER_KINDS}"
                     )
-            elif required_scope is not None or issuer is not None:
+                if not isinstance(run_scoped, bool):
+                    raise GenerationError(f"{method.upper()} {path} declares a non-boolean x-fde-run-scoped")
+            elif required_scope is not None or issuer is not None or run_scoped:
                 raise GenerationError(
                     f"{method.upper()} {path} declares authorization facts but has no security requirement; "
                     "an unauthenticated operation has no caller identity to check"
@@ -619,6 +624,7 @@ def read_operations(openapi: Mapping[str, Any]) -> list[OperationSpec]:
                     idempotency_key="Idempotency-Key" in headers,
                     required_scope=required_scope if auth else None,
                     issuer=issuer if auth else None,
+                    run_scoped=run_scoped,
                     request=request,
                     success_status=success_status,
                     replay_status=replay_status,
@@ -627,6 +633,22 @@ def read_operations(openapi: Mapping[str, Any]) -> list[OperationSpec]:
                 )
             )
     return operations
+
+
+def idempotency_key_bounds(openapi: Mapping[str, Any]) -> tuple[int, int]:
+    """The `Idempotency-Key` length the contract declares, so the service checks the same one.
+
+    The header is a parameter, not a body, so no JSON Schema validator sees it;
+    without this the service would hand-copy `16`/`128` and the two could drift.
+    """
+    parameter = ((openapi.get("components") or {}).get("parameters") or {}).get("IdempotencyKey")
+    if parameter is None:
+        raise GenerationError("contracts/ has no IdempotencyKey parameter, but operations require one")
+    schema = parameter.get("schema") or {}
+    minimum, maximum = schema.get("minLength"), schema.get("maxLength")
+    if not isinstance(minimum, int) or not isinstance(maximum, int):
+        raise GenerationError("the IdempotencyKey parameter declares no minLength/maxLength")
+    return minimum, maximum
 
 
 def _schema_ref_literal(ref: tuple[str, str] | None) -> str:
@@ -649,6 +671,7 @@ def render_api(
             f"        idempotency_key={operation.idempotency_key},\n"
             f"        required_scope={literal(operation.required_scope)},\n"
             f"        issuer={literal(operation.issuer)},\n"
+            f"        run_scoped={operation.run_scoped},\n"
             f"        request={_schema_ref_literal(operation.request)},\n"
             f"        success_status={operation.success_status},\n"
             f"        replay_status={operation.replay_status},\n"
@@ -666,6 +689,8 @@ def render_api(
         + "#: The version of this API document. It is *not* the `fde.runtime/v1` minor:\n"
         + "#: `versions.RUNTIME_CONTRACT_VERSION` is what `runtime-info.contract_version` reports.\n"
         + f"CONTEXT_SERVICE_API_VERSION = {literal(version)}\n\n"
+        + "#: `Idempotency-Key` length bounds, from the `IdempotencyKey` parameter's schema.\n"
+        + f"IDEMPOTENCY_KEY_LENGTH = {literal(idempotency_key_bounds(openapi))}\n\n"
         + "#: Schema files the operation table refers to.\n"
         + f"SCHEMA_FILES = {literal(tuple(schema_files))}\n\n"
         + "OPERATIONS: tuple[Operation, ...] = (\n"

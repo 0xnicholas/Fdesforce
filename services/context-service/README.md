@@ -144,10 +144,12 @@ token signed by a key this deployment does not hold is not an identity, and that
 
 C3 checks that a client can only *agree* with its token: a plaintext `X-Tenant-Id`
 or `X-Actor` that disagrees is a `403`, a `DecisionRequest.tenant_id` or `.actor`
-from another identity is a `403`, an operation whose scope the token lacks is a
-`403 missing_scope`, and neither issuer can reach the other's surface. The control
-request in the same case — a body that agrees — must *not* be refused, so a
-service that refused everything would fail.
+from another identity is a `403`, a `RetrieveRequest.subject` naming someone else
+is a `403` (§3.3), a Run-scoped call whose token carries no `run_id` is a `401`
+(§5.1), an operation whose scope the token lacks is a `403 missing_scope`, and
+neither issuer can reach the other's surface. The control requests in the same
+case — a body that agrees — must *not* be refused, so a service that refused
+everything would fail.
 
 C6 pins the trace: the JWT `trace_id` must equal the `traceparent` trace-id
 (`403` otherwise), `traceparent` is required on authenticated operations (`400`
@@ -166,6 +168,11 @@ a key reused after a failed attempt with a different body conflicts too.
 A successful response is recorded and replayed as `200` with `idempotent_replay:
 true` where the response schema declares that field (`DecisionResponse`); a failed
 attempt records nothing to replay, so a retry of the same payload runs again.
+
+A retry is the same *trace*: the body's `trace_id` is bound to the token's, which
+is bound to the `traceparent`, so a replay cannot be moved onto another call — and
+the replayed body therefore already carries the caller's trace (C6 holds for
+replays, not just first attempts).
 
 ## What is real in this slice
 
@@ -221,3 +228,9 @@ Two things are in memory, by design in this slice:
 A restart therefore forgets both. That is a retry-window problem, not a
 correctness one for the audit chain: the Decision write itself stays idempotent on
 `decision_id`, which the caller owns (§4.2).
+
+One thing this slice does **not** do is key rotation overlap. §5.4 accepts the old
+and new public key until the old tokens expire, but the topology binds exactly one
+PEM per issuer, so there is nowhere to put the second key: rotation today means
+replacing the key and accepting that in-flight tokens fail until they are minted
+again. Adding overlap is a topology change (a list per issuer), not a service one.

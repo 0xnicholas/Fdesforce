@@ -128,6 +128,33 @@ def test_the_generator_refuses_an_unknown_issuer() -> None:
         read_operations(document)
 
 
+def test_the_generator_refuses_a_non_boolean_run_scope() -> None:
+    document = read_contract()
+    document["paths"]["/v1/decisions"]["post"]["x-fde-run-scoped"] = "yes"
+
+    with pytest.raises(GenerationError, match="x-fde-run-scoped"):
+        read_operations(document)
+
+
+def test_idempotency_key_bounds_are_the_contract_s() -> None:
+    """The header is a parameter, so no schema validator sees it — the table must carry it."""
+    from app.generated.api import IDEMPOTENCY_KEY_LENGTH
+
+    parameter = read_contract()["components"]["parameters"]["IdempotencyKey"]["schema"]
+
+    assert (parameter["minLength"], parameter["maxLength"]) == IDEMPOTENCY_KEY_LENGTH
+
+
+def test_run_scoped_operations_are_the_authenticated_ones_that_declare_it() -> None:
+    document = read_contract()
+    for item in document["paths"].values():
+        for operation in item.values():
+            if not isinstance(operation, dict) or "operationId" not in operation:
+                continue
+            generated = next(o for o in OPERATIONS if o.operation_id == operation["operationId"])
+            assert generated.run_scoped is bool(operation.get("x-fde-run-scoped", False)), operation["operationId"]
+
+
 def test_the_generator_refuses_authorization_facts_on_a_public_operation() -> None:
     """`security: []` means there is no caller identity; a scope there is a lie."""
     document = read_contract()

@@ -17,8 +17,11 @@ info:
     every authenticated operation declares the platform scope its caller must
     hold (`x-fde-required-scope`) and the issuer kind allowed to call it
     (`x-fde-issuer`: `runtime` = `fde://<deployment_id>`, `jobs` =
-    `fde://<deployment_id>/jobs`). An operation with `security: []` declares
-    neither, because it has no caller identity to check.
+    `fde://<deployment_id>/jobs`). A Run-scoped operation — one that acts for a
+    specific Run — also declares `x-fde-run-scoped: true`, because the
+    ExecutionContext then has to carry `run_id` (§5.1). An operation with
+    `security: []` declares none of these, because it has no caller identity to
+    check.
 servers:
   - url: http://context-service:8011
     description: In-bundle service network
@@ -39,6 +42,7 @@ paths:
       summary: Execute a Context Recipe and return an immutable Retrieval Snapshot
       x-fde-required-scope: context:retrieve
       x-fde-issuer: runtime
+      x-fde-run-scoped: true
       parameters:
         - $ref: '#/components/parameters/TraceParent'
       requestBody:
@@ -79,6 +83,7 @@ paths:
       summary: Record an immutable Decision and its Provenance entry
       x-fde-required-scope: decision:write
       x-fde-issuer: runtime
+      x-fde-run-scoped: true
       parameters:
         - $ref: '#/components/parameters/TraceParent'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -161,6 +166,7 @@ paths:
       summary: Create a pending approval request
       x-fde-required-scope: approval:create
       x-fde-issuer: runtime
+      x-fde-run-scoped: true
       parameters:
         - $ref: '#/components/parameters/TraceParent'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -265,6 +271,7 @@ paths:
       summary: Approve or reject a pending approval
       x-fde-required-scope: approval:decide
       x-fde-issuer: runtime
+      x-fde-run-scoped: true
       parameters:
         - $ref: '#/components/parameters/TraceParent'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -313,6 +320,7 @@ paths:
       summary: Mark an approved approval as consumed after workflow resume
       x-fde-required-scope: approval:consume
       x-fde-issuer: runtime
+      x-fde-run-scoped: true
       parameters:
         - $ref: '#/components/parameters/TraceParent'
         - $ref: '#/components/parameters/IdempotencyKey'

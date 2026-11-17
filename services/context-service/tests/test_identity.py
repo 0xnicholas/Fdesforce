@@ -108,12 +108,12 @@ def test_a_token_from_either_issuer_verifies(verifier: JwtVerifier, issuers: dic
     jobs = verifier.verify(sign(issuers, claims(issuers, "fde-jobs"), "fde-jobs"))
 
     assert (runtime.kind, jobs.kind) == ("runtime", "jobs")
-    assert runtime.tenant_id == TENANT_ID
+    assert runtime.context.tenant_id == TENANT_ID
     assert runtime.context.deployment_id == DEPLOYMENT_ID
-    assert runtime.trace_id == TRACE_ID
-    assert runtime.kid == issuers["mastra-app"].kid
+    assert runtime.context.trace_id == TRACE_ID
+    assert runtime.context.kid == issuers["mastra-app"].kid
 
-    assert runtime.scopes == tuple(RUNTIME_SCOPES)
+    assert tuple(runtime.context.scopes) == tuple(RUNTIME_SCOPES)
     assert runtime.has_scope("context:retrieve")
     assert not runtime.has_scope("context:ingest")
 

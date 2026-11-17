@@ -7,8 +7,7 @@ case that reached into the app could pass while the served surface was wrong.
 
 The harness also mints `ExecutionContext` tokens with **real ES256 keys** — one
 key pair per issuer (`mastra-app` and `fde-jobs`), exactly as `fde install keys`
-generates them (§5.4) — so the identity cases of later tickets have the same
-material a deployment has.
+generates them (§5.4) — so the identity cases send what a deployment sends.
 """
 
 from __future__ import annotations
@@ -38,6 +37,10 @@ DEPLOYMENT_ID = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
 #: The Acme reference tenant (`platform/templates/solution/fde-solution`).
 TENANT_ID = "acme"
 SOLUTION_ID = "claims-triage"
+
+#: The Run a Run-scoped call acts for (§5.1). A token without it is refused on
+#: retrieve/decisions/approvals, so the default token carries one.
+RUN_ID = "run_01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
 #: How long a spawned process may take to answer `/healthz`.
 START_TIMEOUT_SECONDS = 20.0
@@ -108,7 +111,7 @@ class ServiceProcess:
         tenant_id: str = TENANT_ID,
         trace_id: str | None = None,
         traceparent_trace_id: str | None = None,
-        run_id: str | None = None,
+        run_id: str | None = RUN_ID,
         actor: dict[str, str] | None = None,
         ttl_seconds: int = TOKEN_TTL_SECONDS,
         now: int | None = None,
@@ -190,9 +193,9 @@ class ServiceProcess:
             "GRAPH_BACKEND": "embedded",
             "GRAPH_PATH": str(data / "graph" / "graph.json"),
             "AUDIT_PATH": str(data / "audit" / "audit.sqlite"),
-            # The two verification halves the topology binds (§5.4, §9.3). #36
-            # makes the service check them; the harness already supplies them so
-            # the process boots with the configuration a deployment gives it.
+            # The two verification halves the topology binds (§5.4, §9.3). The
+            # service refuses to start without them, so the harness supplies the
+            # configuration a deployment gives it.
             "EXECUTION_CONTEXT_PUBLIC_KEY": issuers["mastra-app"].public_pem,
             "FDE_JOBS_PUBLIC_KEY": issuers["fde-jobs"].public_pem,
             **(env or {}),

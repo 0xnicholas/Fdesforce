@@ -203,3 +203,50 @@ def test_a_token_with_a_foreign_signature_is_an_envelope(service: ServiceProcess
 
     assert response.status_code == 401
     assert error_of(response)["details"]["reason"] == "unknown_kid"
+
+
+def test_a_run_scoped_call_without_run_id_is_refused(service: ServiceProcess) -> None:
+    """§5.1: retrieve, decisions and the approval calls are Run-scoped."""
+    headers = service.authorized(run_id=None)
+
+    response = service.post("/v1/context/retrieve", json={}, headers=headers)
+
+    assert response.status_code == 401
+    assert error_of(response)["details"]["reason"] == "missing_run_id"
+
+
+def test_a_call_that_is_not_run_scoped_needs_no_run_id(service: ServiceProcess) -> None:
+    """`GET /v1/approvals` is a queue read, not an act for one Run (§5.1)."""
+    headers = service.authorized(run_id=None)
+
+    response = service.get("/v1/approvals", headers=headers)
+
+    assert response.status_code != 401, response.text
+
+
+def test_a_retrieval_subject_must_be_the_caller(service: ServiceProcess, contract: ContractDocuments) -> None:
+    """§3.3: the subject is a recipe hint, and it may not be someone else."""
+    from conformance.cases import body_and_headers
+
+    body, headers = body_and_headers(service, contract, "RetrieveRequest")
+
+    response = service.post(
+        "/v1/context/retrieve",
+        json={**body, "subject": {"type": "user", "id": "someone-else"}},
+        headers=headers,
+    )
+
+    assert response.status_code == 403
+    error = error_of(response)
+    assert error["details"]["reason"] == "body_identity_mismatch"
+    assert error["details"]["field"] == "subject"
+
+
+def test_a_retrieval_subject_that_agrees_is_accepted(service: ServiceProcess, contract: ContractDocuments) -> None:
+    from conformance.cases import body_and_headers
+
+    body, headers = body_and_headers(service, contract, "RetrieveRequest")
+
+    response = service.post("/v1/context/retrieve", json=body, headers=headers)
+
+    assert response.status_code != 403, response.text

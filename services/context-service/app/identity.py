@@ -43,7 +43,8 @@ from pydantic import ValidationError
 from starlette.requests import Request
 
 from app.errors import unauthenticated
-from app.generated.models import Actor, ExecutionContext
+from app.expiry import ExpiringRecords
+from app.generated.models import ExecutionContext
 from app.settings import ConfigurationError, Settings
 
 #: The `aud` every `ExecutionContext` carries (§5.1).
@@ -124,52 +125,35 @@ def _load_public_key(pem: str, *, source: str) -> ec.EllipticCurvePublicKey:
     return key
 
 
+def _issuer_key(pem: str, *, kind: IssuerKind) -> IssuerKey:
+    key = _load_public_key(pem, source=KEY_SOURCES[kind])
+    return IssuerKey(kind=kind, kid=thumbprint(key), key=key)
+
+
 def load_issuer_keys(*, runtime_pem: str, jobs_pem: str) -> dict[str, IssuerKey]:
     """`kid` → key for both issuers. Anything malformed fails startup."""
-    loaded = (
-        IssuerKey(kind="runtime", kid="", key=_load_public_key(runtime_pem, source=KEY_SOURCES["runtime"])),
-        IssuerKey(kind="jobs", kid="", key=_load_public_key(jobs_pem, source=KEY_SOURCES["jobs"])),
-    )
-    by_kid = {entry.kind: IssuerKey(kind=entry.kind, kid=thumbprint(entry.key), key=entry.key) for entry in loaded}
-    if by_kid["runtime"].kid == by_kid["jobs"].kid:
+    keys = (_issuer_key(runtime_pem, kind="runtime"), _issuer_key(jobs_pem, kind="jobs"))
+    if keys[0].kid == keys[1].kid:
         raise ConfigurationError(
             "EXECUTION_CONTEXT_PUBLIC_KEY and FDE_JOBS_PUBLIC_KEY are the same key. "
             "Every Deployment has one key pair per issuer, and sharing one erases the "
             "maintenance surface's narrower scope (§5.1, §5.4)"
         )
-    return {entry.kid: entry for entry in by_kid.values()}
+    return {key.kid: key for key in keys}
 
 
 @dataclass(frozen=True)
 class VerifiedIdentity:
-    """A signature-checked `ExecutionContext`: the only identity the request edge reads."""
+    """A signature-checked `ExecutionContext`, and which issuer signed it.
+
+    The claims are read through `context`, deliberately: a second set of
+    pass-through properties would be a second way to ask the same question, and two
+    ways to read an identity is how one of them ends up unguarded. `kind` is here
+    rather than in `context` because it is not a claim — it is which key verified.
+    """
 
     kind: IssuerKind
     context: ExecutionContext
-
-    @property
-    def tenant_id(self) -> str:
-        return self.context.tenant_id
-
-    @property
-    def trace_id(self) -> str:
-        return self.context.trace_id
-
-    @property
-    def actor(self) -> Actor:
-        return self.context.actor
-
-    @property
-    def run_id(self) -> str | None:
-        return self.context.run_id
-
-    @property
-    def kid(self) -> str:
-        return self.context.kid
-
-    @property
-    def scopes(self) -> tuple[str, ...]:
-        return tuple(self.context.scopes)
 
     def has_scope(self, scope: str | None) -> bool:
         """Whether this identity holds `scope`; an operation with none needs nothing."""
@@ -195,39 +179,25 @@ class ReplayGuard:
     """`jti` single use, remembered for as long as the token could be replayed.
 
     Keyed by `(issuer kind, jti)`: the two issuers mint independently, so one
-    issuer's random id says nothing about the other's.
+    issuer's random id says nothing about the other's. The records are in memory,
+    which the single-writer rule makes enough for v0 (§4.3) — a restart accepts an
+    unexpired token once more, and a replay after a restart is the price of not
+    having a second store for one boolean.
     """
 
-    #: How often expired records are swept away, in seconds of the guard's clock.
-    SWEEP_INTERVAL_SECONDS = 60.0
-
     def __init__(self, *, now: Callable[[], float] | None = None) -> None:
-        self._now = now if now is not None else _wall_clock
-        self._seen: dict[tuple[str, str], float] = {}
-        self._next_sweep = 0.0
+        self._seen: ExpiringRecords[tuple[IssuerKind, str], bool] = ExpiringRecords(now=now)
 
     def consume(self, kind: IssuerKind, jti: str, *, expires_at: float) -> bool:
         """Record `jti`; `False` when it was already used (a replay)."""
-        self._sweep_if_due()
         key = (kind, jti)
-        if key in self._seen:
+        if self._seen.get(key) is not None:
             return False
-        self._seen[key] = expires_at
+        self._seen.put(key, True, expires_at=expires_at)
         return True
-
-    def _sweep_if_due(self) -> None:
-        now = self._now()
-        if now < self._next_sweep:
-            return
-        self._seen = {key: expiry for key, expiry in self._seen.items() if expiry >= now}
-        self._next_sweep = now + self.SWEEP_INTERVAL_SECONDS
 
     def __len__(self) -> int:
         return len(self._seen)
-
-
-def _wall_clock() -> float:
-    return time.time()
 
 
 class JwtVerifier:
@@ -245,7 +215,7 @@ class JwtVerifier:
         if not keys:
             raise ConfigurationError("a JwtVerifier needs at least one issuer key")
         self._keys: Mapping[str, IssuerKey] = {key.kid: key for key in keys}
-        self._now = now if now is not None else _wall_clock
+        self._now = now if now is not None else time.time
         self._replays = replays if replays is not None else ReplayGuard(now=self._now)
         self._max_lifetime = max_lifetime
         self._clock_skew = clock_skew

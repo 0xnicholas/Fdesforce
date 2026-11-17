@@ -10,6 +10,12 @@ Validation is JSON Schema 2020-12, not Pydantic: the conditional rules in
 `decision.schema.json` (an intent needs evidence, an outcome needs a parent) are
 part of the contract, and a validator that skipped them would accept a Decision
 the audit store must refuse.
+
+Validation is also where the body meets the identity. A body may describe the
+caller (`tenant_id`, `actor`, `requested_by`, `run_id`, `trace_id`, and
+`RetrieveRequest.subject`); it may not name a different one. That check runs after
+the schema check, so a malformed body is still a `422` and a body that contradicts
+the token is a `403` — never a write under a borrowed name.
 """
 
 from __future__ import annotations
@@ -141,6 +147,12 @@ BODY_IDENTITY_FIELDS: Mapping[str, str] = {
 #: Actor-shaped fields: compared by `(type, id)`, because `display` is cosmetic.
 BODY_ACTOR_FIELDS = ("actor", "requested_by")
 
+#: `RetrieveRequest.subject` is a *hint*, not a credential (§3.3): it tells the
+#: recipe who the retrieval is for, and it may not be someone else. `roles` and
+#: `scopes` on it are recipe filters — data permissions — so only the identity is
+#: bound, and the token's own roles/scopes remain the authority.
+BODY_SUBJECT_FIELD = "subject"
+
 
 def bind_identity(request: Request, instance: Any) -> None:
     """Refuse a body that asserts an identity the verified token does not carry.
@@ -158,7 +170,13 @@ def bind_identity(request: Request, instance: Any) -> None:
         if field not in instance:
             continue
         expected = getattr(identity.context, claim)
-        if expected is None or instance[field] != expected:
+        if expected is None:
+            raise forbidden(
+                "body_identity_mismatch",
+                f"`{field}` in the body asserts an identity this ExecutionContext does not carry",
+                field=field,
+            )
+        if instance[field] != expected:
             raise forbidden(
                 "body_identity_mismatch",
                 f"`{field}` in the body does not match the ExecutionContext; "
@@ -166,12 +184,24 @@ def bind_identity(request: Request, instance: Any) -> None:
                 field=field,
             )
 
+    actor = identity.context.actor
     for field in BODY_ACTOR_FIELDS:
-        if field in instance and _actor_of(instance[field]) != (identity.actor.type, identity.actor.id):
+        if field in instance and _actor_of(instance[field]) != (actor.type, actor.id):
             raise forbidden(
                 "body_identity_mismatch",
                 f"`{field}` in the body is not the actor this ExecutionContext asserts",
                 field=field,
+            )
+
+    if BODY_SUBJECT_FIELD in instance:
+        subject = instance[BODY_SUBJECT_FIELD]
+        asserted = _actor_of(subject)
+        if asserted != (actor.type, identity.context.sub):
+            raise forbidden(
+                "body_identity_mismatch",
+                "`subject` in the body is not the caller this ExecutionContext asserts; "
+                "a retrieval may hint at the caller, not at someone else (§3.3)",
+                field=BODY_SUBJECT_FIELD,
             )
 
 
