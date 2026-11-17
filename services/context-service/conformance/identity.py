@@ -32,10 +32,21 @@ from cryptography.hazmat.primitives.asymmetric import ec
 AUDIENCE = "context-service"
 TOKEN_TTL_SECONDS = 300
 
-#: The preview of §5.1 that a runtime-issued call carries. The scope matrix is
-#: `packages/spec/src/schema/platform-roles.ts`; #36 makes the service enforce it,
-#: and these are the scopes that ticket will pin the harness to.
-RUNTIME_SCOPES = ("context:retrieve", "decision:write", "approval:create", "approval:consume")
+#: The scopes a runtime-issued call carries. The scope matrix is
+#: `packages/spec/src/schema/platform-roles.ts` and the scopes are pinned to
+#: operations in `contracts/context-service-v1.openapi.yaml` (`x-fde-required-scope`);
+#: the service enforces both halves, so a token that wants every operation must
+#: carry every scope. `roles: [service]` grants the first four of these — the
+#: harness adds the approver/auditor scopes because it also poses as one.
+RUNTIME_SCOPES = (
+    "approval:consume",
+    "approval:create",
+    "approval:decide",
+    "approval:read",
+    "context:retrieve",
+    "decision:write",
+    "provenance:read",
+)
 #: `fde-jobs` carries only the maintenance scopes — that narrowness is the reason
 #: the second issuer exists (`MAINTENANCE_SCOPES`).
 JOBS_SCOPES = ("context:ingest",)

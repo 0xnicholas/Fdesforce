@@ -491,10 +491,20 @@ class OperationSpec:
     auth: bool
     traceparent: bool
     idempotency_key: bool
+    required_scope: str | None
+    issuer: str | None
     request: tuple[str, str] | None
     success_status: int
+    #: The status a replay answers with (§3.5): the operation's own 200 response
+    #: when the contract declares one, otherwise its success status.
+    replay_status: int
     response_ref: tuple[str, str] | None
     response_inline: dict[str, Any] | None
+
+
+#: The two `ExecutionContext` issuers (§5.1). `runtime` is `mastra-app`
+#: (`fde://<deployment_id>`); `jobs` is `fde-jobs` (`fde://<deployment_id>/jobs`).
+ISSUER_KINDS = ("runtime", "jobs")
 
 
 def _pointer(doc: Mapping[str, Any], ref: str) -> Any:
@@ -543,6 +553,27 @@ def read_operations(openapi: Mapping[str, Any]) -> list[OperationSpec]:
             security = operation.get("security", openapi.get("security"))
             auth = bool(security) and global_security
 
+            # Authorization is a property of the operation, so it lives in the
+            # contract. An authenticated operation that does not say which scope
+            # and which issuer it accepts is one the service could only guess at,
+            # so the generator refuses it instead of emitting a guess.
+            required_scope = operation.get("x-fde-required-scope")
+            issuer = operation.get("x-fde-issuer")
+            if auth:
+                if not isinstance(required_scope, str) or not required_scope:
+                    raise GenerationError(
+                        f"{method.upper()} {path} is authenticated but declares no x-fde-required-scope"
+                    )
+                if issuer not in ISSUER_KINDS:
+                    raise GenerationError(
+                        f"{method.upper()} {path} declares x-fde-issuer={issuer!r}; expected one of {ISSUER_KINDS}"
+                    )
+            elif required_scope is not None or issuer is not None:
+                raise GenerationError(
+                    f"{method.upper()} {path} declares authorization facts but has no security requirement; "
+                    "an unauthenticated operation has no caller identity to check"
+                )
+
             body = _resolve(openapi, operation.get("requestBody"))
             request = None
             if body is not None:
@@ -557,6 +588,9 @@ def read_operations(openapi: Mapping[str, Any]) -> list[OperationSpec]:
             success_status = 0
             response_ref = None
             response_inline = None
+            declared = {
+                int(status) for status in (operation.get("responses") or {}) if str(status).isdigit()
+            }
             for status, response in (operation.get("responses") or {}).items():
                 if not str(status).isdigit():
                     continue
@@ -570,6 +604,10 @@ def read_operations(openapi: Mapping[str, Any]) -> list[OperationSpec]:
                 break
             if success_status == 0:
                 raise GenerationError(f"{method.upper()} {path} declares no 2xx response")
+            # §3.5: a replay answers 200 with the original body. An operation that
+            # declares a 200 beside its 201 is declaring exactly that; one whose
+            # success is already 200 replays with the status it always answers.
+            replay_status = 200 if 200 in declared else success_status
 
             operations.append(
                 OperationSpec(
@@ -579,8 +617,11 @@ def read_operations(openapi: Mapping[str, Any]) -> list[OperationSpec]:
                     auth=auth,
                     traceparent="traceparent" in headers,
                     idempotency_key="Idempotency-Key" in headers,
+                    required_scope=required_scope if auth else None,
+                    issuer=issuer if auth else None,
                     request=request,
                     success_status=success_status,
+                    replay_status=replay_status,
                     response_ref=response_ref,
                     response_inline=response_inline,
                 )
@@ -606,8 +647,11 @@ def render_api(
             f"        auth={operation.auth},\n"
             f"        traceparent={operation.traceparent},\n"
             f"        idempotency_key={operation.idempotency_key},\n"
+            f"        required_scope={literal(operation.required_scope)},\n"
+            f"        issuer={literal(operation.issuer)},\n"
             f"        request={_schema_ref_literal(operation.request)},\n"
             f"        success_status={operation.success_status},\n"
+            f"        replay_status={operation.replay_status},\n"
             f"        response_ref={_schema_ref_literal(operation.response_ref)},\n"
             f"        response_inline={inline},\n"
             "    ),"

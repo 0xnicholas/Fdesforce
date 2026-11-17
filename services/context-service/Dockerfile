@@ -27,4 +27,4 @@ RUN pip install --no-cache-dir -e .
 # the Compose renderer attaches no ingress network to it.
 EXPOSE 8011
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8011"]
+CMD ["python", "-m", "uvicorn", "--factory", "app.main:create_app", "--host", "0.0.0.0", "--port", "8011"]

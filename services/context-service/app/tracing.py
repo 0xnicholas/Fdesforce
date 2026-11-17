@@ -2,9 +2,10 @@
 
 Every error envelope carries `trace_id`, and the value must be the trace the
 caller started — not an id this service invented — when the caller supplied a
-valid `traceparent`. A malformed or absent header gets a fresh trace instead of a
-rejection: the header becomes *required* on the identity seam (#36), where a
-missing `traceparent` and a mismatched JWT `trace_id` are C6's business.
+valid `traceparent`. A malformed or absent header gets a fresh trace here, so even
+a probe answered without one is correlatable; whether *this* operation may go
+without it is the request edge's question (`app.identity_edge`: a missing
+`traceparent` is a 400, and a JWT `trace_id` that disagrees with it is a 403).
 """
 
 from __future__ import annotations

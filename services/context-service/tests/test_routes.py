@@ -11,8 +11,11 @@ from __future__ import annotations
 
 from fastapi.routing import APIRoute
 
+from app.contract import OPERATION_INDEX
 from app.generated.api import OPERATIONS
 from app.main import create_app
+from app.settings import Settings
+from conformance.cases import concrete_path
 
 
 def api_routes(routes) -> list[tuple[str, str]]:  # type: ignore[no-untyped-def]
@@ -28,9 +31,9 @@ def api_routes(routes) -> list[tuple[str, str]]:  # type: ignore[no-untyped-def]
     return found
 
 
-def test_registered_routes_are_exactly_the_contract_operations() -> None:
+def test_registered_routes_are_exactly_the_contract_operations(app_settings: Settings) -> None:
     expected = {(operation.method.upper(), operation.path) for operation in OPERATIONS}
-    assert set(api_routes(create_app().routes)) == expected
+    assert set(api_routes(create_app(settings=app_settings).routes)) == expected
 
 
 def test_the_operation_table_is_unique() -> None:
@@ -39,6 +42,24 @@ def test_the_operation_table_is_unique() -> None:
     assert len({(operation.method, operation.path) for operation in OPERATIONS}) == len(OPERATIONS)
 
 
-def test_the_implicit_fastapi_surface_is_disabled() -> None:
-    paths = {path for _, path in api_routes(create_app().routes)}
+def test_the_implicit_fastapi_surface_is_disabled(app_settings: Settings) -> None:
+    paths = {path for _, path in api_routes(create_app(settings=app_settings).routes)}
     assert not paths & {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}
+
+
+def test_the_request_edge_index_agrees_with_the_router(app_settings: Settings) -> None:
+    """The middleware matches the path itself, before the router has run.
+
+    It must find exactly the operations the router would serve: one it missed
+    would be an unguarded route, and one it invented would be a 401 on a 404.
+    """
+    for operation in OPERATIONS:
+        concrete = concrete_path(operation.path)
+        assert OPERATION_INDEX.match(operation.method, concrete) is operation
+
+    assert len(OPERATION_INDEX) == len(OPERATIONS)
+    assert OPERATION_INDEX.match("get", "/v1/does-not-exist") is None
+    assert OPERATION_INDEX.match("post", "/v1/provenance/dec_01ARZ3NDEKTSV4RRFFQ69G5FAV") is None
+    # A path parameter is one segment, not zero and not many.
+    assert OPERATION_INDEX.match("get", "/v1/provenance/") is None
+    assert OPERATION_INDEX.match("get", "/v1/provenance/a/b") is None

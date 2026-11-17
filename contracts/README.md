@@ -44,3 +44,11 @@ Metric Catalog, Eval Suite, Eval Dataset, Evaluation, and Acceptance Report are 
   `example`/`examples` value, is validated against the schema around it. The C1 conformance case fails on an unmarked example, a
   marker that does not resolve, or an example that does not validate
   (`services/context-service/conformance/cases.py`).
+- Every authenticated operation of `context-service-v1.openapi.yaml` declares its
+  authorization facts as extensions — `x-fde-required-scope` (the platform scope
+  the caller's `ExecutionContext.scopes` must contain) and `x-fde-issuer`
+  (`runtime` for `fde://<deployment_id>`, `jobs` for
+  `fde://<deployment_id>/jobs`). They are here rather than in the service so the
+  contract and the enforcement cannot disagree; the service's operation table is
+  generated from them (`services/context-service/scripts/generate.py`), and it
+  refuses to generate an authenticated operation that omits either.

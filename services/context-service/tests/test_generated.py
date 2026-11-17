@@ -19,12 +19,13 @@ from pydantic import ValidationError
 
 from app.errors import ERROR_HTTP_STATUS
 from app.generated import models
+from app.generated.api import OPERATIONS
 from app.generated.versions import (
     GRAPH_SCHEMA_VERSION,
     RUNTIME_CONTRACT_VERSION,
     SERVICE_VERSION,
 )
-from scripts.generate import OUT_DIR, REPO_ROOT, SERVICE_ROOT, generate
+from scripts.generate import OUT_DIR, REPO_ROOT, SERVICE_ROOT, GenerationError, generate, read_operations
 
 CONTRACT_VERSION_PATTERN = r"^[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9.-]+)?$"
 
@@ -94,3 +95,43 @@ def test_the_generated_package_is_marked_generated() -> None:
     for path in OUT_DIR.glob("*.py"):
         first = path.read_text(encoding="utf-8").splitlines()[0]
         assert first.startswith("# GENERATED"), f"{path.name} is not marked as generated"
+
+
+def test_every_authenticated_operation_declares_scope_and_issuer() -> None:
+    """The service enforces what this table says; an empty cell would enforce nothing."""
+    for operation in OPERATIONS:
+        if operation.auth:
+            assert operation.required_scope, f"{operation.operation_id} declares no scope"
+            assert operation.issuer in ("runtime", "jobs"), operation.operation_id
+        else:
+            assert operation.required_scope is None, operation.operation_id
+            assert operation.issuer is None, operation.operation_id
+
+
+def read_contract() -> dict:
+    return yaml.safe_load((REPO_ROOT / "contracts" / "context-service-v1.openapi.yaml").read_text(encoding="utf-8"))
+
+
+def test_the_generator_refuses_an_authenticated_operation_without_a_scope() -> None:
+    document = read_contract()
+    del document["paths"]["/v1/decisions"]["post"]["x-fde-required-scope"]
+
+    with pytest.raises(GenerationError, match="x-fde-required-scope"):
+        read_operations(document)
+
+
+def test_the_generator_refuses_an_unknown_issuer() -> None:
+    document = read_contract()
+    document["paths"]["/v1/decisions"]["post"]["x-fde-issuer"] = "anyone"
+
+    with pytest.raises(GenerationError, match="x-fde-issuer"):
+        read_operations(document)
+
+
+def test_the_generator_refuses_authorization_facts_on_a_public_operation() -> None:
+    """`security: []` means there is no caller identity; a scope there is a lie."""
+    document = read_contract()
+    document["paths"]["/v1/runtime-info"]["get"]["x-fde-required-scope"] = "context:retrieve"
+
+    with pytest.raises(GenerationError, match="no security requirement"):
+        read_operations(document)

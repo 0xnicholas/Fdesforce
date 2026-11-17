@@ -12,6 +12,13 @@ info:
     only the fde-jobs issuer reaches. It is not part of the customer Runtime API
     and is not part of the `fde.runtime/v1` runtime contract that mastra-app
     serves, so it carries its own version here.
+
+    Authorization is part of this document, not a table a service transcribes:
+    every authenticated operation declares the platform scope its caller must
+    hold (`x-fde-required-scope`) and the issuer kind allowed to call it
+    (`x-fde-issuer`: `runtime` = `fde://<deployment_id>`, `jobs` =
+    `fde://<deployment_id>/jobs`). An operation with `security: []` declares
+    neither, because it has no caller identity to check.
 servers:
   - url: http://context-service:8011
     description: In-bundle service network
@@ -30,6 +37,8 @@ paths:
       tags: [context]
       operationId: retrieveContext
       summary: Execute a Context Recipe and return an immutable Retrieval Snapshot
+      x-fde-required-scope: context:retrieve
+      x-fde-issuer: runtime
       parameters:
         - $ref: '#/components/parameters/TraceParent'
       requestBody:
@@ -68,6 +77,8 @@ paths:
       tags: [decisions]
       operationId: recordDecision
       summary: Record an immutable Decision and its Provenance entry
+      x-fde-required-scope: decision:write
+      x-fde-issuer: runtime
       parameters:
         - $ref: '#/components/parameters/TraceParent'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -113,6 +124,8 @@ paths:
       tags: [decisions]
       operationId: getProvenance
       summary: Read the Decision and its PROV-O lineage
+      x-fde-required-scope: provenance:read
+      x-fde-issuer: runtime
       parameters:
         - $ref: '#/components/parameters/TraceParent'
         - name: decision_id
@@ -146,6 +159,8 @@ paths:
       tags: [approvals]
       operationId: createApproval
       summary: Create a pending approval request
+      x-fde-required-scope: approval:create
+      x-fde-issuer: runtime
       parameters:
         - $ref: '#/components/parameters/TraceParent'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -190,6 +205,8 @@ paths:
       tags: [approvals]
       operationId: listApprovals
       summary: List approvals visible to the caller
+      x-fde-required-scope: approval:read
+      x-fde-issuer: runtime
       parameters:
         - $ref: '#/components/parameters/TraceParent'
         - name: status
@@ -246,6 +263,8 @@ paths:
       tags: [approvals]
       operationId: decideApproval
       summary: Approve or reject a pending approval
+      x-fde-required-scope: approval:decide
+      x-fde-issuer: runtime
       parameters:
         - $ref: '#/components/parameters/TraceParent'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -292,6 +311,8 @@ paths:
       tags: [approvals]
       operationId: consumeApproval
       summary: Mark an approved approval as consumed after workflow resume
+      x-fde-required-scope: approval:consume
+      x-fde-issuer: runtime
       parameters:
         - $ref: '#/components/parameters/TraceParent'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -341,6 +362,8 @@ paths:
       tags: [jobs]
       operationId: startIngestJob
       summary: Ingest a frozen Context Package revision (internal maintenance surface)
+      x-fde-required-scope: context:ingest
+      x-fde-issuer: jobs
       description: |
         Compiles the frozen Context Package revision named in the request into the
         Context Graph. This is the maintenance surface, not the customer Runtime

@@ -95,9 +95,18 @@ class Operation:
     traceparent: bool
     #: Whether the contract requires an `Idempotency-Key` header.
     idempotency_key: bool
+    #: The scope the caller's `ExecutionContext.scopes` must contain, from the
+    #: contract's `x-fde-required-scope`. `None` only on an unauthenticated operation.
+    required_scope: str | None
+    #: The issuer kind allowed to call this operation (`x-fde-issuer`): `runtime`
+    #: (`fde://<deployment_id>`) or `jobs` (`fde://<deployment_id>/jobs`).
+    issuer: str | None
     #: The body schema the runtime validates against, if the operation takes one.
     request: SchemaRef | None
     success_status: int
+    #: The status a replay answers with (§3.5): the operation's own 200 response
+    #: when the contract declares one, otherwise its success status.
+    replay_status: int
     #: The 2xx response schema: a named schema or an inline one, never both.
     response_ref: SchemaRef | None
     response_inline: Mapping[str, Any] | None = field(default=None)

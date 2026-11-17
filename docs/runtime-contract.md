@@ -336,6 +336,8 @@ sequenceDiagram
 
 `tenant` 过滤必须在服务端完成，不能依赖客户端传参。明文 `X-Tenant-Id`/`X-Actor` 不作为信任来源；如果为了兼容保留，必须与 JWT 一致，否则拒绝。`DecisionRequest.actor`、`ApprovalDecisionRequest.actor` 和 `ApprovalCreateRequest.requested_by` 必须与 `ExecutionContext.actor` 一致；不一致返回 `403`。
 
+平台 scope 与 issuer 的强制按 operation 声明在 `contracts/context-service-v1.openapi.yaml` 上：每个需要身份的操作带 `x-fde-required-scope` 与 `x-fde-issuer`（`runtime` = `fde://<deployment_id>`，`jobs` = `fde://<deployment_id>/jobs`），context-service 的 operation 表由这两个字段生成，因此契约声明的授权与服务的强制点不会分叉。
+
 ### 5.4 密钥
 
 - 每 Deployment/issuer 一对 ES256 密钥：`mastra-app`（`iss=fde://<deployment_id>`）和 `fde-jobs`（`iss=fde://<deployment_id>/jobs`）。私钥在客户 secret store；`mastra-app` 私钥只注入 `mastra-app`，job 私钥只注入维护作业容器；公钥 + `kid` 注入 `context-service` 配置。

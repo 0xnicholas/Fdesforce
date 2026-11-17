@@ -15,6 +15,8 @@ the audit store must refuse.
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Iterable, Mapping
 from functools import cache
 from typing import Any
 
@@ -22,9 +24,10 @@ from jsonschema import Draft202012Validator
 from referencing import Registry
 from starlette.requests import Request
 
-from app.errors import FdeError
-from app.generated.api import OPERATIONS_BY_ROUTE
+from app.errors import FdeError, forbidden
+from app.generated.api import OPERATIONS, OPERATIONS_BY_ROUTE
 from app.generated.schemas import SCHEMAS
+from app.identity import identity_of
 from app.schema_registry import build_registry, problems, validator_for
 from app.wire import Operation, SchemaRef
 
@@ -54,6 +57,49 @@ def operation_for(request: Request) -> Operation:
     return operation
 
 
+_PATH_PARAMETER = re.compile(r"\{([a-z_]+)\}")
+
+
+def _path_pattern(template: str) -> re.Pattern[str]:
+    """One path template as a matcher: literals escaped, `{param}` = one segment."""
+    parts: list[str] = []
+    cursor = 0
+    for parameter in _PATH_PARAMETER.finditer(template):
+        parts.append(re.escape(template[cursor : parameter.start()]))
+        parts.append(r"[^/]+")
+        cursor = parameter.end()
+    parts.append(re.escape(template[cursor:]))
+    return re.compile("".join(parts))
+
+
+class OperationIndex:
+    """`(method, concrete path)` → operation, for the request edge.
+
+    A middleware runs before the router, so `scope["route"]` does not exist yet.
+    This index answers the same question from the generated table instead of
+    waiting for the router — and `tests/test_routes.py` proves the two agree for
+    every operation, so the edge cannot guard a route the router does not serve
+    (or miss one it does).
+    """
+
+    def __init__(self, operations: Iterable[Operation]) -> None:
+        self._routes = [
+            (operation.method.upper(), _path_pattern(operation.path), operation) for operation in operations
+        ]
+
+    def match(self, method: str, path: str) -> Operation | None:
+        for candidate_method, pattern, operation in self._routes:
+            if candidate_method == method.upper() and pattern.fullmatch(path):
+                return operation
+        return None
+
+    def __len__(self) -> int:
+        return len(self._routes)
+
+
+OPERATION_INDEX = OperationIndex(OPERATIONS)
+
+
 def parse_json_body(raw: bytes) -> Any:
     """Bytes → JSON, with a 400 that names the position instead of a 500."""
     if raw.strip() == b"":
@@ -81,8 +127,61 @@ def validate_body(request: Request, instance: Any) -> None:
         )
 
 
+#: Body fields that assert an identity, and the `ExecutionContext` claim each must
+#: repeat (§5.3). A client may describe the caller; it may not *name* a different
+#: one — that is the whole difference between a parameter and an identity.
+BODY_IDENTITY_FIELDS: Mapping[str, str] = {
+    "tenant_id": "tenant_id",
+    "deployment_id": "deployment_id",
+    "solution_id": "solution_id",
+    "trace_id": "trace_id",
+    "run_id": "run_id",
+}
+
+#: Actor-shaped fields: compared by `(type, id)`, because `display` is cosmetic.
+BODY_ACTOR_FIELDS = ("actor", "requested_by")
+
+
+def bind_identity(request: Request, instance: Any) -> None:
+    """Refuse a body that asserts an identity the verified token does not carry.
+
+    `DecisionRequest.actor`, `ApprovalCreateRequest.requested_by` and
+    `ApprovalDecisionRequest.actor` are the contract's own words for "who is
+    doing this"; a token that says otherwise means the caller is not who the body
+    claims, so the request is refused instead of written under a borrowed name.
+    """
+    identity = identity_of(request)
+    if not isinstance(instance, Mapping):
+        return
+
+    for field, claim in BODY_IDENTITY_FIELDS.items():
+        if field not in instance:
+            continue
+        expected = getattr(identity.context, claim)
+        if expected is None or instance[field] != expected:
+            raise forbidden(
+                "body_identity_mismatch",
+                f"`{field}` in the body does not match the ExecutionContext; "
+                "identity is signed, not passed",
+                field=field,
+            )
+
+    for field in BODY_ACTOR_FIELDS:
+        if field in instance and _actor_of(instance[field]) != (identity.actor.type, identity.actor.id):
+            raise forbidden(
+                "body_identity_mismatch",
+                f"`{field}` in the body is not the actor this ExecutionContext asserts",
+                field=field,
+            )
+
+
+def _actor_of(value: Any) -> tuple[Any, Any]:
+    return (value.get("type"), value.get("id")) if isinstance(value, Mapping) else (None, None)
+
+
 async def read_json_body(request: Request) -> Any:
-    """Read, parse and validate this request's body against its operation's schema."""
+    """Read, parse, validate and bind this request's body."""
     instance = parse_json_body(await request.body())
     validate_body(request, instance)
+    bind_identity(request, instance)
     return instance

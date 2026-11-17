@@ -1,7 +1,7 @@
 """The conformance harness (`contracts/conformance/cases.md` C1–C15).
 
 Every case runs against a **real context-service process** over real HTTP: the
-runner spawns `uvicorn app.main:app` in a child process, waits for `/healthz`,
+runner spawns `uvicorn --factory app.main:create_app` in a child process, waits for `/healthz`,
 and talks to it with an ordinary HTTP client. Nothing imports the app, because a
 case that reached into the app could pass while the served surface was wrong.
 
@@ -19,13 +19,14 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Self
 
 import httpx
 
-from conformance.identity import Issuer, generate_issuers
+from conformance.identity import TOKEN_TTL_SECONDS, Issuer, generate_issuers, mint
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = SERVICE_ROOT.parents[1]
@@ -80,10 +81,15 @@ class ServiceProcess:
 
     # -- HTTP -------------------------------------------------------------
 
-    def request(self, method: str, path: str, **kwargs: object) -> httpx.Response:
-        """One HTTP request with the trace header the contract requires."""
+    def request(self, method: str, path: str, *, omit_traceparent: bool = False, **kwargs: object) -> httpx.Response:
+        """One HTTP request with the trace header the contract requires.
+
+        `omit_traceparent=True` is for the cases that assert what happens without
+        it; every other call gets a fresh trace, because the contract requires one.
+        """
         headers = dict(kwargs.pop("headers", {}) or {})  # type: ignore[arg-type]
-        headers.setdefault("traceparent", new_traceparent())
+        if not omit_traceparent:
+            headers.setdefault("traceparent", new_traceparent())
         return self._client.request(method, path, headers=headers, **kwargs)  # type: ignore[arg-type]
 
     def get(self, path: str, **kwargs: object) -> httpx.Response:
@@ -91,6 +97,46 @@ class ServiceProcess:
 
     def post(self, path: str, **kwargs: object) -> httpx.Response:
         return self.request("POST", path, **kwargs)
+
+    # -- identity ---------------------------------------------------------
+
+    def authorized(
+        self,
+        *,
+        issuer: str = "mastra-app",
+        scopes: Iterable[str] | None = None,
+        tenant_id: str = TENANT_ID,
+        trace_id: str | None = None,
+        traceparent_trace_id: str | None = None,
+        run_id: str | None = None,
+        actor: dict[str, str] | None = None,
+        ttl_seconds: int = TOKEN_TTL_SECONDS,
+        now: int | None = None,
+    ) -> dict[str, str]:
+        """A fresh `ExecutionContext` and the `traceparent` it is bound to.
+
+        `jti` is single-use, so every call mints a new token: two requests cannot
+        share one header set any more than two calls can share one identity.
+        `traceparent_trace_id` is the deliberate-mismatch knob — C6 exists because
+        a token minted for one trace must not be usable on another.
+        """
+        trace = trace_id or os.urandom(16).hex()
+        token = mint(
+            self.issuers[issuer],
+            deployment_id=DEPLOYMENT_ID,
+            tenant_id=tenant_id,
+            solution_id=SOLUTION_ID,
+            trace_id=trace,
+            actor=actor,
+            scopes=scopes,
+            run_id=run_id,
+            ttl_seconds=ttl_seconds,
+            now=now,
+        )
+        return {
+            "authorization": f"Bearer {token}",
+            "traceparent": new_traceparent(traceparent_trace_id or trace),
+        }
 
     # -- lifecycle --------------------------------------------------------
 
@@ -157,7 +203,8 @@ class ServiceProcess:
                 sys.executable,
                 "-m",
                 "uvicorn",
-                "app.main:app",
+                "--factory",
+                "app.main:create_app",
                 "--host",
                 "127.0.0.1",
                 "--port",

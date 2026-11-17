@@ -12,18 +12,23 @@ description = "FDE context-service — the internal Context API, owned by the pl
 requires-python = ">=3.12"
 # Exact pins: the service image and CI install the same bytes, and a floating
 # dependency would make two builds of the same slice different artifacts.
+#
+# `pyjwt[crypto]` is a *runtime* dependency: `app.identity` verifies ES256
+# `ExecutionContext`s on every authenticated request, so a deployment without it
+# would boot and then refuse every call. `cryptography` is pinned beside it because
+# the ES256 half is the only curve this service accepts.
 dependencies = [
+  "cryptography==50.0.2",
   "fastapi==0.163.1",
   "jsonschema==4.26.0",
   "pydantic==2.12.5",
+  "pyjwt[crypto]==2.15.1",
   "uvicorn[standard]==0.54.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "cryptography==50.0.2",
   "httpx==0.28.1",
-  "pyjwt[crypto]==2.15.1",
   "pytest==9.2.0",
   "pyyaml==6.0.3",
   "ruff==0.17.5",

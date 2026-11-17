@@ -14,6 +14,7 @@ import httpx
 
 from app.main import create_app
 from app.readiness import ProbeResult, Readiness
+from app.settings import Settings
 from conformance.documents import ContractDocuments
 from conformance.harness import ServiceProcess, new_traceparent
 
@@ -52,7 +53,7 @@ def test_malformed_json_is_invalid_request_400(service: ServiceProcess, contract
     response = service.post(
         "/v1/context/retrieve",
         content=b'{"recipe_id":',
-        headers={"content-type": "application/json"},
+        headers={**service.authorized(), "content-type": "application/json"},
     )
 
     assert response.status_code == 400, response.text
@@ -61,7 +62,11 @@ def test_malformed_json_is_invalid_request_400(service: ServiceProcess, contract
 
 
 def test_empty_body_is_invalid_request_400(service: ServiceProcess, contract: ContractDocuments) -> None:
-    response = service.post("/v1/context/retrieve", content=b"", headers={"content-type": "application/json"})
+    response = service.post(
+        "/v1/context/retrieve",
+        content=b"",
+        headers={**service.authorized(), "content-type": "application/json"},
+    )
 
     assert response.status_code == 400, response.text
     assert_envelope(contract, response.json(), code="invalid_request", retryable=False)
@@ -86,7 +91,7 @@ def test_absent_traceparent_still_produces_a_trace_id(service: ServiceProcess, c
     assert first_error["trace_id"] != second_error["trace_id"]
 
 
-def test_unexpected_exception_is_an_internal_envelope_without_a_traceback() -> None:
+def test_unexpected_exception_is_an_internal_envelope_without_a_traceback(app_settings: Settings) -> None:
     """The catch-all, driven in-process: no contract route may raise on demand."""
 
     class Exploding:
@@ -95,7 +100,7 @@ def test_unexpected_exception_is_an_internal_envelope_without_a_traceback() -> N
         def probe(self) -> ProbeResult:
             raise RuntimeError("the secret is hunter2 and this must not reach the client")
 
-    app = create_app(readiness=Readiness([Exploding()]))
+    app = create_app(settings=app_settings, readiness=Readiness([Exploding()]))
 
     async def call() -> httpx.Response:
         transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)

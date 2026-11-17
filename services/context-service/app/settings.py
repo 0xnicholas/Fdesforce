@@ -45,8 +45,8 @@ class Settings:
     graph_path: str = "./data/graph/graph.json"
     #: Where the append-only audit store lives (`/data/audit` in the bundle).
     audit_path: str = "./data/audit/audit.sqlite"
-    #: PEM halves of the two issuer keys. Identity verification is #36; keeping
-    #: them in configuration here means the topology's bindings have one seam.
+    #: PEM halves of the two issuer keys (§5.4). Never `None` in a running
+    #: service: `JwtVerifier.from_settings` refuses to build without both.
     execution_context_public_key: str | None = None
     fde_jobs_public_key: str | None = None
 
@@ -84,4 +84,26 @@ class Settings:
             audit_path=source.get("AUDIT_PATH", cls.audit_path),
             execution_context_public_key=source.get("EXECUTION_CONTEXT_PUBLIC_KEY"),
             fde_jobs_public_key=source.get("FDE_JOBS_PUBLIC_KEY"),
-        )
+        ).validated()
+
+    def validated(self) -> Settings:
+        """This configuration, or a startup failure naming what is missing."""
+        self.require_issuer_keys()
+        return self
+
+    def require_issuer_keys(self) -> tuple[str, str]:
+        """The two public halves, or a startup failure naming what the topology owes."""
+        missing = [
+            name
+            for name, value in (
+                ("EXECUTION_CONTEXT_PUBLIC_KEY", self.execution_context_public_key),
+                ("FDE_JOBS_PUBLIC_KEY", self.fde_jobs_public_key),
+            )
+            if not value
+        ]
+        if missing:
+            raise ConfigurationError(
+                f"missing {', '.join(missing)}: without both issuer public keys this service cannot "
+                "verify any caller, so it must not start (§5.1, §5.4); the bundle topology binds both"
+            )
+        return str(self.execution_context_public_key), str(self.fde_jobs_public_key)

@@ -23,6 +23,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import Request
+from starlette.types import Receive, Scope, Send
 
 from app.generated.models import Error, ErrorDetail
 from app.tracing import trace_id_of
@@ -83,7 +84,6 @@ HTTP_STATUS_TO_ERROR: Mapping[int, str] = {
 
 class FdeError(Exception):
     """A failure the service chose, with the contract code a client reads."""
-
     def __init__(
         self,
         code: str,
@@ -101,6 +101,16 @@ class FdeError(Exception):
         self.details = dict(details) if details is not None else None
         self.status = ERROR_HTTP_STATUS[code] if status is None else status
         self.retryable = (code in RETRYABLE_CODES) if retryable is None else retryable
+
+
+def unauthenticated(reason: str, message: str) -> FdeError:
+    """401: there is no identity here, and the reason says which check failed."""
+    return FdeError("unauthenticated", message, details={"reason": reason})
+
+
+def forbidden(reason: str, message: str, **details: object) -> FdeError:
+    """403: the identity is real, but not allowed to do *this*."""
+    return FdeError("forbidden", message, details={"reason": reason, **details})
 
 
 def envelope(
@@ -137,6 +147,25 @@ async def _fde_error(request: Request, exc: FdeError) -> JSONResponse:
         details=exc.details,
         retryable=exc.retryable,
     )
+
+
+async def send_error(scope: Scope, receive: Receive, send: Send, error: FdeError) -> None:
+    """Write a failure raised *outside* the router as the same envelope.
+
+    Middleware sits outside Starlette's `ExceptionMiddleware`, so an `FdeError`
+    raised there would reach the catch-all and lose its code. The request edge
+    therefore sends the response itself — through the same `envelope`, so both
+    paths cannot drift.
+    """
+    response = envelope(
+        Request(scope, receive),
+        code=error.code,
+        message=error.message,
+        status=error.status,
+        details=error.details,
+        retryable=error.retryable,
+    )
+    await response(scope, receive, send)
 
 
 async def _request_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
