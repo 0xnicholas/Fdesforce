@@ -136,3 +136,18 @@ def test_it_refuses_an_audit_volume_from_another_store(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     assert "audit" in (result.stdout + result.stderr).lower()
+
+
+def test_it_refuses_a_snapshot_whose_payload_is_not_a_graph(tmp_path: Path) -> None:
+    """The stamp says which schema wrote it; the payload has to be one too."""
+    graph = tmp_path / "graph" / "graph.json"
+    graph.parent.mkdir(parents=True)
+    graph.write_text(
+        json.dumps({"fde_schema": {"kind": "fde.context_graph", "version": "1"}, "nodes": {"n": 1}, "edges": []}),
+        encoding="utf-8",
+    )
+
+    result = run_migrate(graph, tmp_path / "audit" / "audit.sqlite")
+
+    assert result.returncode != 0
+    assert "nodes" in (result.stdout + result.stderr)

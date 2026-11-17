@@ -301,7 +301,7 @@ _Avoid_: Search result, Context cache
 _Avoid_: Confirmation, Sign-off
 
 **Audit Store**:
-只追加、可验证完整性地保存 Decision、Provenance 和 Audit Event 的存储，与 Context Graph 分开。
+只追加、可验证完整性地保存 Decision、Provenance、Audit Event 和 Retrieval Snapshot 的存储，与 Context Graph 分开；快照只留引用与摘要，内容仍在 Context Graph。
 _Avoid_: Log, History
 
 **Audit Event**:

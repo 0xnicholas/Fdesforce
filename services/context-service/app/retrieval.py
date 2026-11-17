@@ -205,19 +205,27 @@ def _candidates(
 
     anchors = [match for match in matches if match.entity_id in best][:MAX_ANCHORS]
     if expand and anchors and max_hops > 0:
-        anchor_scores = {match.entity_id: best[match.entity_id].score for match in anchors}
-        # One call per anchor so a neighbour is weighted by the anchor that found it,
-        # rather than by whichever anchor the store happened to walk first.
-        for match in anchors:
-            reach = store.expand(tenant_id, [match.entity_id], hops=max_hops, limit=max_nodes * 2)
-            for expansion in reach:
-                if expansion.entity_id in best:
-                    continue  # a lexical hit outranks a walk to the same entity
-                entity = store.get_entity(tenant_id, expansion.entity_id)
-                if entity is None:
-                    continue
-                score = _score(anchor_scores[match.entity_id] * (HOP_DECAY**expansion.hop) * expansion.weight)
-                best[expansion.entity_id] = _Candidate(entity=entity, score=score, hop=expansion.hop)
+        # The anchors go in rank order and the port reports which one reached each
+        # neighbour, so a two-hop fact is weighted by the best anchor that found it
+        # rather than by whichever anchor happened to be walked first.
+        anchor_scores = {match.entity_id: best[match.entity_id].score for match in matches[:MAX_ANCHORS]}
+        reach = store.expand(
+            tenant_id,
+            [match.entity_id for match in anchors],
+            hops=max_hops,
+            limit=max_nodes * 2,
+        )
+        for expansion in reach:
+            if expansion.entity_id in best:
+                continue  # a lexical hit outranks a walk to the same entity
+            anchor_score = anchor_scores.get(expansion.anchor)
+            if anchor_score is None:
+                continue
+            entity = store.get_entity(tenant_id, expansion.entity_id)
+            if entity is None:
+                continue
+            score = _score(anchor_score * (HOP_DECAY**expansion.hop) * expansion.weight)
+            best[expansion.entity_id] = _Candidate(entity=entity, score=score, hop=expansion.hop)
 
     return sorted(best.values(), key=lambda candidate: (-candidate.score, candidate.entity.entity_id))
 
@@ -230,9 +238,11 @@ def _within_budget(
 ) -> tuple[list[_Candidate], BudgetUsed]:
     """Truncate to the budget, deterministically, and report what was used.
 
-    Truncation is by rank order, so it drops the weakest evidence first; a node that
-    would overflow `max_tokens` ends the walk instead of being half-included, because
-    half a citation is worse than one fewer.
+    Truncation is by rank order, so the weakest evidence goes first. An item that
+    would overflow `max_tokens` is *skipped*, not the end of the list: one long
+    document must not starve the smaller facts below it, and a half-included item
+    would be worse than either — the caller sees a smaller, complete answer and
+    `budget_used` says what it cost.
     """
     kept: list[_Candidate] = []
     tokens = 0
@@ -241,7 +251,7 @@ def _within_budget(
             break
         estimated = _tokens(candidate.entity.content)
         if tokens + estimated > max_tokens:
-            break
+            continue
         kept.append(candidate)
         tokens += estimated
     hops = max((candidate.hop for candidate in kept), default=0)

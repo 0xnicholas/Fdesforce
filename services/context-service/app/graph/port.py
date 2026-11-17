@@ -28,11 +28,18 @@ look like one — are not part of any signature, and no implementation may retur
 one in place of an `entity_id`. `app.graph.entity_id` owns the parse/render rules,
 including the tenant segment a read filters on.
 
+**What a read returns.** Only entities that can become a `RetrievalItem`: a stable
+attributable id, a `source_ref` and `version` that can be cited, and fields inside the
+wire's maxima. An implementation that kept an entity this port would refuse on write
+must not serve it either — which is why the embedded store filters on the way out
+(`_usable`), not only on the way in.
+
 **Errors.** Three failure classes, because callers act on them differently:
 
 - `InvalidEntity` / `InvalidRelationship` — the *caller* is wrong (a malformed id,
-  a missing `source_ref` or `version`, a relationship with an unknown end, a
-  cross-tenant edge). Ingest sees these as a bad batch and must not retry blindly.
+  a missing `source_ref` or `version`, a field the wire cannot carry, a relationship
+  with an unknown end, a cross-tenant edge). Ingest sees these as a bad batch and
+  must not retry blindly.
 - `GraphStoreClosed` — the store was used before `open()` or after `close()`.
 - `GraphSnapshotError` / `GraphSchemaMismatch` (`app.graph.snapshot`) — the *volume*
   is wrong. Startup stops; the fix is a migration or a rebuild, never a retry.

@@ -27,11 +27,12 @@ from __future__ import annotations
 import sqlite3
 import sys
 from collections.abc import Sequence
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
-from app.audit import AuditStore, AuditStoreError
+from app.audit import AuditStore, AuditStoreError, read_only_connection
 from app.generated.versions import AUDIT_SCHEMA_VERSION, GRAPH_SCHEMA_VERSION
 from app.graph import snapshot
 from app.settings import ConfigurationError, Settings
@@ -62,7 +63,7 @@ def _audit_state(path: Path) -> tuple[int, frozenset[str]] | None:
     if not path.exists():
         return None
     try:
-        with sqlite3.connect(path) as connection:
+        with closing(read_only_connection(path)) as connection:
             version = int(connection.execute("PRAGMA user_version").fetchone()[0])
             names = connection.execute(
                 "SELECT name FROM sqlite_master WHERE type IN ('table', 'trigger')"

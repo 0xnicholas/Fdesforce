@@ -138,21 +138,26 @@ backup has a stable name.
 ## Retrieval, and the snapshot a Decision cites
 
 `POST /v1/context/retrieve` runs the v0 half of the Recipe
-(`docs/semantic-modeling.md` §6.2–6.4): lexical search for anchors,
-`max_hops`-deep expansion from the top few of them, merge by `entity_id`, rank by
-score then `entity_id` (a total order — the digest depends on it), and truncate to
-the request's budget. Expansion scores are `anchor × 0.5^hop × edge weight`, so an
-exact match outranks its neighbourhood, which is the priority §6.3 asks for. The
-result reports:
+(`docs/semantic-modeling.md` §6.2–6.4): lexical search for anchors, expansion from
+the top few of them (at most two hops — §4.3's v0 shape; the contract lets a caller
+ask for four and the extra is capped, with `budget_used.hops` reporting what was
+actually used), merge by `entity_id`, rank by score then `entity_id` (a total order —
+the digest depends on it), and pack into the request's budget: an item too large for
+`max_tokens` is skipped rather than ending the answer, so one long document cannot
+starve the smaller facts below it. Expansion scores are
+`anchor × 0.5^hop × edge weight`, so an exact match outranks its neighbourhood, which
+is the priority §6.3 asks for. The result reports:
 
 - `items[]` with `entity_id`, `type`, `content`, `score`, `source_ref`, `version`,
   `classification`/`source_kind`/`provenance_id` when the entity carries them, and
   `trust: untrusted` always (C33: retrieved content is data, never instructions);
 - `index` — `graph` when the walk contributed an item, `lexical` when it did not;
-- `degraded` + `reason`: `empty` when nothing matched, `scale_limit` when the graph
-  is past the embedded ceiling (10k nodes / 50k edges, §4.3) — in which case the
-  walk is skipped rather than attempted slowly. `/readyz` reports the same fact
-  through the `graph` probe, so an operator sees it before a caller does;
+- `degraded` + `reason`: `empty` when nothing matched, `partial` when something
+  matched but the caller's own budget excluded all of it (and, from #39, while
+  ingest is still running), `scale_limit` when the graph is past the embedded ceiling
+  (10k nodes / 50k edges, §4.3) — in which case the walk is skipped rather than
+  attempted slowly. `/readyz` reports the ceiling through the `graph` probe, so an
+  operator sees it before a caller does;
 - `budget_used`: nodes, an estimated token count (`chars / 4`, deterministic and
   documented rather than a tokenizer dependency), and the deepest hop kept.
 

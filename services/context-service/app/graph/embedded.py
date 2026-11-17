@@ -52,6 +52,17 @@ from app.graph.semantica_graph import EngineGraph
 
 logger = logging.getLogger("fde.context_service.graph.embedded")
 
+#: The wire's own maxima for a `RetrievalItem` (`contracts/schemas/retrieval.schema.json`).
+#: The store refuses an entity the response could not carry: an over-long `content`
+#: or `source_ref` would otherwise fail model validation inside the handler, turning a
+#: mapping bug into a `500` on a caller's retrieval.
+WIRE_MAX = {
+    "type": 100,
+    "content": 20_000,
+    "source_ref": 500,
+    "version": 100,
+}
+
 #: How many engine candidates one lexical search asks for per requested result. The
 #: engine scores and truncates before the store can filter by tenant, so a graph
 #: holding more than one tenant's facts could otherwise under-return. v0 deployments
@@ -189,6 +200,13 @@ class EmbeddedGraphStore:
             raise InvalidEntity(f"{entity.entity_id} has no source_ref; an entity nothing can cite is not evidence")
         if not entity.version:
             raise InvalidEntity(f"{entity.entity_id} has no version; a citation without a version is not checkable")
+        for attribute, maximum in WIRE_MAX.items():
+            length = len(getattr(entity, attribute))
+            if length > maximum:
+                raise InvalidEntity(
+                    f"{entity.entity_id}: {attribute} is {length} characters and the retrieval item's "
+                    f"maximum is {maximum}; an entity the Context API cannot return is not stored"
+                )
         return entity
 
     def _checked_relationship(self, tenant_id: str, relationship: Relationship, engine: EngineGraph) -> None:
@@ -277,12 +295,24 @@ class EmbeddedGraphStore:
         return reached
 
     def _usable(self, tenant_id: str, entity_id: str) -> Entity | None:
-        """The entity, if it is one a caller of `tenant_id` may be shown."""
+        """The entity, if it is one a caller of `tenant_id` may be shown.
+
+        The same rules the write side enforces, applied on the way out: a snapshot
+        written by an older build (or by hand) can hold an entity this port would now
+        refuse, and serving it would either fail the response's schema or cite a
+        source that cannot be checked.
+        """
         entity = self.get_entity(tenant_id, entity_id)
         if entity is None:
             return None
         if not entity.source_ref or not entity.version:
             logger.warning("graph entity %s has no source; it is not retrievable", entity_id)
+            return None
+        if any(len(getattr(entity, attribute)) > maximum for attribute, maximum in WIRE_MAX.items()):
+            logger.warning(
+                "graph entity %s exceeds the retrieval item's field limits; it is not retrievable",
+                entity_id,
+            )
             return None
         return entity
 

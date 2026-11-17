@@ -94,6 +94,12 @@ def read(path: str | Path) -> dict[str, Any]:
     if not isinstance(document, dict):
         raise GraphSnapshotError(f"the graph snapshot at {location} is not a JSON object")
     _require_schema(document, location)
+    for key in ("nodes", "edges"):
+        if key in document and not isinstance(document[key], list):
+            raise GraphSnapshotError(
+                f"the graph snapshot at {location} has a {key!r} that is not a list; "
+                "the volume is corrupt and needs a rebuild, not a migration"
+            )
     return document
 
 

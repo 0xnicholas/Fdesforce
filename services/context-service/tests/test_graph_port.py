@@ -263,3 +263,32 @@ def test_deleting_an_unknown_source_removes_nothing(store: EmbeddedGraphStore) -
 
     assert store.delete_by_source(TENANT, "sharepoint://claims/policies/never-seen.md") == 0
     assert store.stats().nodes == 1
+
+
+def test_an_entity_the_response_could_not_carry_is_refused(store: EmbeddedGraphStore) -> None:
+    """The wire's own maxima are the store's: a 500 inside a handler is not a validation error.
+
+    `RetrievalItem.content` allows 20 000 characters and `source_ref` 500; an entity
+    over those would fail model validation while the response was being built, which
+    is a mapping bug surfacing as a server error on a caller's retrieval.
+    """
+    for over in (
+        Entity(
+            entity_id="fde:acme:document:long",
+            type="Document",
+            content="x" * 20_001,
+            source_ref="sharepoint://claims/long.md",
+            version="1",
+        ),
+        Entity(
+            entity_id="fde:acme:document:long",
+            type="Document",
+            content="short",
+            source_ref="sharepoint://claims/" + "d/" * 300 + "refund.md",
+            version="1",
+        ),
+    ):
+        with pytest.raises(InvalidEntity, match="characters"):
+            store.upsert_entities(TENANT, [over])
+
+    assert store.stats().nodes == 0

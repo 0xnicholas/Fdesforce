@@ -605,10 +605,7 @@ class AuditStore:
         return report
 
     def _read_only(self) -> sqlite3.Connection:
-        uri = f"file:{quote(str(self.path.resolve()), safe='/')}?mode=ro"
-        connection = sqlite3.connect(uri, uri=True, timeout=10.0)
-        connection.row_factory = sqlite3.Row
-        return connection
+        return read_only_connection(self.path)
 
     def _record(self, report: ChainReport) -> None:
         with self._lock, self._transaction(self._connected()) as connection:
@@ -626,6 +623,21 @@ class AuditStore:
                 """,
                 (report.status, report.verified_through_seq, report.chain_head, report.checked_at, report.detail),
             )
+
+
+def read_only_connection(path: str | Path) -> sqlite3.Connection:
+    """A second, read-only connection to the store at `path`.
+
+    For a pass that must not hold the write lock and must not be able to change the
+    file: the background `verify_chain`, and the migrate job's "what does this volume
+    hold right now" probe. `mode=ro` also refuses a path that is not there, instead of
+    creating an empty database — which is the difference between inspecting a volume
+    and quietly making one.
+    """
+    uri = f"file:{quote(str(Path(path).resolve()), safe='/')}?mode=ro"
+    connection = sqlite3.connect(uri, uri=True, timeout=10.0)
+    connection.row_factory = sqlite3.Row
+    return connection
 
 
 def _entry(row: sqlite3.Row) -> AuditEntry:

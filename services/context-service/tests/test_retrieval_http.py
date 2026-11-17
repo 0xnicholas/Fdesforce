@@ -72,6 +72,23 @@ ACME_ENTITIES = (
         version="9",
         source_kind="document",
     ),
+    # A pair for the budget test: the same query term, one document far too large for
+    # a small `max_tokens` and one that fits. Their `entity_id`s sort that way round,
+    # and both score 1.0 on the term, so the order is the ranking, not a coincidence.
+    entity(
+        "fde:acme:document:budget-heavy",
+        "Document",
+        "budgetprobe " * 60,
+        source_ref="sharepoint://claims/budget/heavy.md",
+        version="1",
+    ),
+    entity(
+        "fde:acme:document:budget-light",
+        "Document",
+        "budgetprobe note.",
+        source_ref="sharepoint://claims/budget/light.md",
+        version="1",
+    ),
 )
 
 ACME_RELATIONSHIPS = (
@@ -254,6 +271,17 @@ def test_a_deeper_max_hops_than_v0_supports_is_capped_and_says_so(
 
     assert body["budget_used"]["hops"] == 2
     assert "fde:acme:policy:approval" in {item["entity_id"] for item in body["items"]}
+
+
+def test_an_item_too_large_for_the_budget_does_not_starve_the_smaller_ones(
+    seeded_service: ServiceProcess, contract: ContractDocuments
+) -> None:
+    """One long document must not end the answer: the budget packs what fits, by rank."""
+    body = retrieved(seeded_service, contract, "budgetprobe", budget={"max_tokens": 10})
+
+    assert [item["entity_id"] for item in body["items"]] == ["fde:acme:document:budget-light"]
+    assert body["degraded"] is False
+    assert body["budget_used"]["tokens"] <= 10
 
 
 def test_a_budget_too_small_for_any_item_is_partial_not_empty(
