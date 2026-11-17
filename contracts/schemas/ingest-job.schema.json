@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fde.dev/contracts/schemas/ingest-job.schema.json",
+  "title": "FDE Context Ingest Job",
+  "description": "The internal maintenance surface of context-service: an ingest job that compiles a Bundle's frozen Context Package revision into the Context Graph. It is not part of the customer Runtime API — only the fde-jobs issuer reaches it, with the context:ingest maintenance scope — and it is not Run-scoped, so the ExecutionContext carries no run_id.",
+  "$defs": {
+    "JobId": {
+      "type": "string",
+      "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "IngestMode": {
+      "type": "string",
+      "description": "`incremental` follows each source watermark, `backfill` replays a window, `rebuild` rebuilds the graph from the sources and the package.",
+      "enum": ["incremental", "backfill", "rebuild"]
+    },
+    "IngestPackageRef": {
+      "type": "object",
+      "description": "The frozen Context Package revision the job compiles. The digest is the one the revision recorded and `solution.lock` pinned, so a job can only ever materialize semantics that were frozen.",
+      "required": ["name", "version", "digest"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9.-]{1,62}$"
+        },
+        "version": {
+          "$ref": "./common.schema.json#/$defs/Semver"
+        },
+        "digest": {
+          "$ref": "./common.schema.json#/$defs/Digest"
+        }
+      },
+      "additionalProperties": false
+    },
+    "IngestJobRequest": {
+      "type": "object",
+      "required": ["package", "mode"],
+      "properties": {
+        "package": {
+          "$ref": "#/$defs/IngestPackageRef"
+        },
+        "mode": {
+          "$ref": "#/$defs/IngestMode"
+        },
+        "sources": {
+          "type": "array",
+          "description": "Context Source ids to ingest. Absent means every source the package declares.",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 63
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "IngestSourceResult": {
+      "type": "object",
+      "required": ["source", "status"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 63
+        },
+        "status": {
+          "type": "string",
+          "enum": ["ok", "degraded", "failed"]
+        },
+        "entities": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "edges": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "watermark": {
+          "type": "string",
+          "description": "The watermark the next incremental run resumes from."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Why the source is degraded or failed."
+        }
+      },
+      "additionalProperties": false
+    },
+    "IngestJobResult": {
+      "type": "object",
+      "description": "The finished job. Synchronous in this slice: the response is the outcome, not a handle to poll.",
+      "required": ["job_id", "status", "package", "mode", "started_at", "finished_at", "sources"],
+      "properties": {
+        "job_id": {
+          "$ref": "#/$defs/JobId"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["succeeded", "degraded", "failed"]
+        },
+        "package": {
+          "$ref": "#/$defs/IngestPackageRef"
+        },
+        "mode": {
+          "$ref": "#/$defs/IngestMode"
+        },
+        "started_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        },
+        "finished_at": {
+          "$ref": "./common.schema.json#/$defs/Timestamp"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IngestSourceResult"
+          }
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

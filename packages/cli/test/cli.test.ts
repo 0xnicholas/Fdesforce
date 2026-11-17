@@ -24,6 +24,34 @@ describe('fde CLI', () => {
     expect(result.out).toMatch(/fde spec init/);
     expect(result.out).toMatch(/fde spec validate/);
     expect(result.out).toMatch(/fde spec lock/);
+    expect(result.out).toMatch(/fde context init/);
+    expect(result.out).toMatch(/fde context validate/);
+    expect(result.out).toMatch(/fde context freeze/);
+    expect(result.out).toMatch(/fde context ingest/);
+  });
+
+  it('exits 2 with usage for an unknown context subcommand', async () => {
+    const sb = fresh();
+    const result = await sb.run(['context', 'frobnicate']);
+
+    expect(result.code).toBe(2);
+    expect(result.err).toMatch(/unknown command "fde context frobnicate"/);
+  });
+
+  it('exits 2 for a bare `fde context`', async () => {
+    const sb = fresh();
+    const result = await sb.run(['context']);
+
+    expect(result.code).toBe(2);
+    expect(result.out).toMatch(/fde context validate/);
+  });
+
+  it('exits 2 with usage for an unknown command group', async () => {
+    const sb = fresh();
+    const result = await sb.run(['eval', 'run']);
+
+    expect(result.code).toBe(2);
+    expect(result.err).toMatch(/unknown command "eval"/);
   });
 
   it('exits 2 with usage for an unknown command', async () => {

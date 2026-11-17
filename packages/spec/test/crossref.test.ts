@@ -50,6 +50,7 @@ const readContextPackage = (): ContextPackageView => ({
       ContextPackageView['recipes']
     >[string],
   },
+  revision: readYaml(`${paths.exampleContextPackage}/revisions/1.0.0.yaml`) as NonNullable<ContextPackageView['revision']>,
 });
 
 const exampleTree = (): CheckSolutionInput => {
@@ -175,6 +176,18 @@ describe('reference resolution', () => {
 
     expect(report.errors.find((error) => error.code === 'unresolved_reference')?.path).toBe(
       'spec.workflows.document-triage-flow.steps[0].recipe',
+    );
+  });
+
+  it('fails when the referenced Context Package has no frozen revision', () => {
+    const report = checkSolution(
+      mutate(exampleTree(), (tree) => {
+        delete tree.contextPackage!.revision;
+      }),
+    );
+
+    expect(report.errors.find((error) => error.code === 'context_package_unfrozen')?.path).toBe(
+      'spec.semantic.contextPackageRef',
     );
   });
 

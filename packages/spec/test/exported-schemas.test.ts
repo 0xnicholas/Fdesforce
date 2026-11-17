@@ -77,6 +77,20 @@ describe('exported schemas accept the checked-in documents', () => {
     accepts('IdentityProfile', readYaml(paths.exampleIdentityProfile));
   });
 
+  it('the Customer Context Package documents accept the checked-in Acme package', () => {
+    const root = paths.exampleContextPackage;
+    accepts('CustomerContextPackage', readYaml(`${root}/manifest.yaml`));
+    accepts('ContextPackageRevision', readYaml(`${root}/revisions/1.0.0.yaml`));
+    accepts('SemanticModel', readYaml(`${root}/semantic-model.yaml`));
+    accepts('PermissionProfile', readYaml(`${root}/permissions.yaml`));
+    accepts('ContextSource', readYaml(`${root}/context-sources/claims-db.yaml`));
+    accepts('ContextSource', readYaml(`${root}/context-sources/sharepoint-claims.yaml`));
+    accepts('EntityMapping', readYaml(`${root}/mappings/claims-db.yaml`));
+    accepts('DocumentMapping', readYaml(`${root}/mappings/sharepoint-claims.yaml`));
+    accepts('ContextRecipe', readYaml(`${root}/recipes/claims-context.yaml`));
+    accepts('ContextEvalSuite', readYaml(`${root}/evals/claims-context.golden.yaml`));
+  });
+
   it('RuntimeTopology and BundleTopology accept split-topology documents', () => {
     const runtime = {
       apiVersion: 'fde.dev/v0',
@@ -119,6 +133,15 @@ describe('exported schemas stay closed', () => {
     const validate = compiled('SolutionSpec');
 
     expect(validate({ ...spec, spec: { ...spec['spec'], capabilties: {} } })).toBe(false);
+  });
+
+  it('rejects a permission baseline that relaxes the fail-closed default', () => {
+    const profile = readYaml<Record<string, any>>(`${paths.exampleContextPackage}/permissions.yaml`);
+    const validate = compiled('PermissionProfile');
+
+    expect(
+      validate({ ...profile, spec: { ...profile['spec'], defaults: { ...profile['spec']['defaults'], unknownClassification: 'internal' } } }),
+    ).toBe(false);
   });
 
   it('rejects a RuntimeProfile that omits a capability group', () => {

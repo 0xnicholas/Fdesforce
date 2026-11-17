@@ -15,7 +15,15 @@ import { join, resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { PLATFORM_ROLES, PLATFORM_ROLE_SCOPES, PLATFORM_SCOPES, isPlatformRole, scopesForRoles } from '../src/index.js';
+import {
+  MAINTENANCE_SCOPES,
+  PLATFORM_ROLES,
+  PLATFORM_ROLE_SCOPES,
+  PLATFORM_SCOPES,
+  isMaintenanceScope,
+  isPlatformRole,
+  scopesForRoles,
+} from '../src/index.js';
 
 const repoRoot = resolve(import.meta.dirname, '../../..');
 const security = readFileSync(join(repoRoot, 'docs/security-and-deployment.md'), 'utf8');
@@ -75,6 +83,32 @@ describe('the scope matrix is §4.1', () => {
     // `release:approve` lives in the workbench and never enters an ExecutionContext.
     expect(PLATFORM_SCOPES).not.toContain('release:approve');
     expect(PLATFORM_SCOPES).not.toContain('release:sign');
+  });
+});
+
+describe('the maintenance scopes of the fde-jobs issuer', () => {
+  /** §3.3: "scope 限定 `context:ingest`、`context:rebuild`、`migration:run`、`eval:run`". */
+  const documented = (): string[] => {
+    const line = security.split('\n').find((entry) => entry.includes('fde-jobs') && entry.includes('context:ingest'));
+    if (line === undefined) throw new Error('§3.3 no longer names the maintenance scopes');
+    return [...line.matchAll(/`([a-z]+:[a-z]+)`/g)].flatMap((match) => (match[1] === undefined ? [] : [match[1]]));
+  };
+
+  it('is exactly the §3.3 list', () => {
+    expect([...MAINTENANCE_SCOPES].sort()).toEqual([...new Set(documented())].sort());
+  });
+
+  it('is disjoint from the platform scopes, so a job credential cannot retrieve context', () => {
+    for (const scope of MAINTENANCE_SCOPES) {
+      expect(PLATFORM_SCOPES, scope).not.toContain(scope);
+      expect(scopesForRoles(['service']), scope).not.toContain(scope);
+    }
+  });
+
+  it('recognizes only its own scopes', () => {
+    expect(isMaintenanceScope('context:ingest')).toBe(true);
+    expect(isMaintenanceScope('context:retrieve')).toBe(false);
+    expect(isMaintenanceScope('')).toBe(false);
   });
 });
 

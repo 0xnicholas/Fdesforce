@@ -90,6 +90,15 @@ describe('exported JSON Schema documents', () => {
       'BundleTopology',
       'ModelProfile',
       'IdentityProfile',
+      'CustomerContextPackage',
+      'ContextPackageRevision',
+      'SemanticModel',
+      'ContextSource',
+      'EntityMapping',
+      'DocumentMapping',
+      'ContextRecipe',
+      'PermissionProfile',
+      'ContextEvalSuite',
     ]);
     for (const entry of schemas) {
       expect(entry.schema['$schema']).toBe('https://json-schema.org/draft/2020-12/schema');
@@ -101,13 +110,23 @@ describe('exported JSON Schema documents', () => {
     const mirrored = new Set(['runtime-profile.schema.json', 'runtime-capabilities.schema.json', 'bundle-topology.schema.json']);
     const exported = documentSchemas().map((entry) => entry.file);
 
-    // Solution Spec, lock, Model Profile and the identity profile are workbench
-    // documents with no published wire contract; everything else must be compared below.
+    // Solution Spec, lock, Model Profile, the identity profile and the Context
+    // Package documents are workbench documents with no published wire contract;
+    // everything else must be compared below.
     expect(exported.filter((file) => mirrored.has(file)).sort()).toEqual([...mirrored].sort());
     expect(exported.filter((file) => !mirrored.has(file)).sort()).toEqual([
+      'context-eval-suite.schema.json',
+      'context-package-revision.schema.json',
+      'context-recipe.schema.json',
+      'context-source.schema.json',
+      'customer-context-package.schema.json',
+      'document-mapping.schema.json',
+      'entity-mapping.schema.json',
       'identity-profile.schema.json',
       'model-profile.schema.json',
+      'permission-profile.schema.json',
       'runtime-topology.schema.json',
+      'semantic-model.schema.json',
       'solution-lock.schema.json',
       'solution-spec.schema.json',
     ]);

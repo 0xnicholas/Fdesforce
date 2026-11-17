@@ -116,11 +116,60 @@ export {
   PLATFORM_ROLES,
   PLATFORM_ROLE_SCOPES,
   PLATFORM_SCOPES,
+  MAINTENANCE_SCOPES,
+  isMaintenanceScope,
   isPlatformRole,
   isPlatformRoleName,
   scopesForRoles,
 } from './schema/platform-roles.js';
-export type { PlatformRole } from './schema/platform-roles.js';
+export type { MaintenanceScope, PlatformRole } from './schema/platform-roles.js';
+
+export {
+  EntityMappingSchema,
+  EntityMappingSpecSchema,
+  DocumentMappingSchema,
+  DocumentMappingSpecSchema,
+  MappingColumnTypeSchema,
+  MappingSchema,
+} from './schema/entity-mapping.js';
+export type { DocumentMapping, DocumentMappingSpec, EntityMapping, EntityMappingSpec, Mapping } from './schema/entity-mapping.js';
+
+export {
+  ContextPackageRevisionSchema,
+  ContextPackageRevisionSpecSchema,
+  ContextPackageSchema,
+  ContextPackageSpecSchema,
+} from './schema/context-package.js';
+export type { ContextPackage, ContextPackageRevision, ContextPackageSpec } from './schema/context-package.js';
+
+export { ContextSourceSchema, ContextSourceSpecSchema } from './schema/context-source.js';
+export type { ContextSource, ContextSourceSpec } from './schema/context-source.js';
+
+export { SemanticModelSchema, SemanticModelSpecSchema } from './schema/semantic-model.js';
+export type { SemanticModel, SemanticModelSpec } from './schema/semantic-model.js';
+
+export {
+  BudgetStageSchema,
+  ContextRecipeSchema,
+  ContextRecipeSpecSchema,
+  GraphStageSchema,
+  LexicalStageSchema,
+  MaskStageSchema,
+  MergeStageSchema,
+  RECIPE_STAGE_ORDER,
+  RankStageSchema,
+  RecipeInputSchemaSchema,
+  RecipeStageSchema,
+  ResolveStageSchema,
+  StructuredStageSchema,
+} from './schema/context-recipe.js';
+export type { ContextRecipe, ContextRecipeSpec, RecipeStage, RecipeStageType } from './schema/context-recipe.js';
+
+export { MaskActionSchema, PermissionProfileSchema, PermissionProfileSpecSchema, PiiClassSchema } from './schema/permission-profile.js';
+export type { MaskAction, PermissionProfile, PermissionProfileSpec, PiiClass } from './schema/permission-profile.js';
+
+export { ContextEvalQuestionSchema, ContextEvalSuiteSchema, ContextEvalSuiteSpecSchema } from './schema/context-eval-suite.js';
+export type { ContextEvalQuestion, ContextEvalSuite, ContextEvalSuiteSpec } from './schema/context-eval-suite.js';
 
 export {
   AssetPinsSchema,
@@ -138,16 +187,27 @@ export type { AssetPins, ConcreteAsset, RuntimePinBlock, SolutionLock, TemplateP
 
 export {
   parseBundleTopology,
+  parseContextEvalSuite,
+  parseContextPackage,
+  parseContextPackageRevision,
+  parseContextRecipe,
+  parseContextSource,
   parseIdentityProfile,
+  parseMapping,
   parseModelProfile,
+  parsePermissionProfile,
   parseRuntimeCapabilities,
   parseRuntimeProfile,
   parseRuntimeTopology,
+  parseSemanticModel,
   parseSolutionLock,
   parseSolutionSpec,
   parseTopology,
 } from './parse.js';
 export type { Diagnostic, ParseResult } from './parse.js';
+
+export { checkContextPackage } from './context.js';
+export type { CheckContextPackageInput, ContextPackageDocuments, ContextPackageReport } from './context.js';
 
 export { checkSolution, resolveSchemaPath, satisfiesRange } from './crossref.js';
 export type {
@@ -177,7 +237,9 @@ export {
   SemverSchema,
   SolutionIdSchema,
   SpecFilePathSchema,
+  PackageFilePathSchema,
   TenantIdSchema,
+  TermNameSchema,
   TraceIdSchema,
   UlidSchema,
 } from './schema/common.js';

@@ -1,0 +1,25 @@
+# Acme claims-db customers: the policyholder a claim belongs to.
+#
+# `ic:customerName` / `ic:customerEmail` are the properties the permission
+# baseline masks (redact / hash); a mask on a property no mapping produces can
+# never apply, which is why the mapping comes before the annotation.
+apiVersion: fde.dev/v0
+kind: EntityMapping
+metadata:
+  customer: acme
+  source: claims-db
+spec:
+  connectorRef: claims-db
+  dataset: public.customers
+  entity: "ic:Customer"
+  key: [customer_id]
+  properties:
+    customer_id: {property: "ic:customerId", type: string}
+    name: {property: "ic:customerName", type: string}
+    email: {property: "ic:customerEmail", type: string}
+  relations: []
+  watermark:
+    column: updated_at
+    mode: updated_at
+  filters:
+    - "tenant_id = :tenant_id"

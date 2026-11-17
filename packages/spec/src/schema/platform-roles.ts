@@ -56,6 +56,27 @@ export const PLATFORM_SCOPES: ReadonlyArray<string> = [
   ...new Set(Object.values(PLATFORM_ROLE_SCOPES).flat()),
 ].sort();
 
+/**
+ * The maintenance scopes the `fde-jobs` issuer carries
+ * (`docs/security-and-deployment.md` §3.3, `docs/runtime-contract.md` §5.1).
+ *
+ * These are deliberately **not** in `PLATFORM_ROLE_SCOPES`: a maintenance job is
+ * not a platform role, it is a second issuer whose credentials are mounted only
+ * into the `migrate`/`ingest`/`rebuild`/`eval` containers. A jobs token therefore
+ * carries `context:ingest` and friends without a path to `context:retrieve` — the
+ * narrower set is the whole point of the second issuer.
+ *
+ * `test/platform-roles.test.ts` compares this list with the §3.3 sentence so the
+ * two cannot drift.
+ */
+export const MAINTENANCE_SCOPES = ['context:ingest', 'context:rebuild', 'eval:run', 'migration:run'] as const;
+
+export type MaintenanceScope = (typeof MAINTENANCE_SCOPES)[number];
+
+export function isMaintenanceScope(value: string): value is MaintenanceScope {
+  return (MAINTENANCE_SCOPES as ReadonlyArray<string>).includes(value);
+}
+
 export function isPlatformRole(value: string): value is PlatformRole {
   return (PLATFORM_ROLES as ReadonlyArray<string>).includes(value);
 }

@@ -143,6 +143,42 @@ function policyRefsOf(value: unknown, path: string): Array<{ ref: string; path: 
   });
 }
 
+/**
+ * A Connector is a Customer-level asset outside the CCP: the package only names it
+ * (`connectorRef`), so the lock pins it here, with the data contract that defines
+ * the operations a Tool may call. A connector referenced by a Context Source is
+ * pinned exactly like one referenced by a Tool — an API surface is derived from
+ * connectors, and the CCP is the other thing that names one.
+ */
+function connectorAsset(catalogues: Catalogues, connectorRef: string, path: string, errors: Diagnostic[]): ConnectorAsset | undefined {
+  const connector = catalogues.connectors.get(connectorRef);
+  if (connector === undefined) {
+    errors.push({
+      code: 'artifact_missing',
+      message: `connector ${connectorRef} is not in the workspace`,
+      path,
+      remediation: 'vendor the connector under the workspace asset root or fix the reference',
+    });
+    return undefined;
+  }
+  const connectorDir = dirname(connector.path);
+  const files = [basename(connector.path)];
+  const contract = asString(asRecord(connector.document['spec'])['dataContract']);
+  if (contract !== undefined) {
+    if (!isFile(join(connectorDir, contract))) {
+      errors.push({
+        code: 'spec_file_missing',
+        message: `connector ${connectorRef} declares dataContract ${contract}, which does not exist`,
+        path,
+      });
+      return undefined;
+    }
+    files.push(contract);
+  }
+  const manifest = digestFiles(files.map((file) => ({ path: file, content: readText(join(connectorDir, file)) })));
+  return { digest: manifest.digest, files: manifest.files, document: connector.document };
+}
+
 export function resolveArtifacts(catalogues: Catalogues, raw: Record<string, unknown>): ResolvedArtifacts {
   const errors: Diagnostic[] = [];
   const resolved: ResolvedArtifacts = {
@@ -160,6 +196,12 @@ export function resolveArtifacts(catalogues: Catalogues, raw: Record<string, unk
   };
 
   const spec = asRecord(raw['spec']);
+
+  const addConnector = (connectorRef: string, path: string): void => {
+    if (resolved.connectors[connectorRef] !== undefined) return;
+    const asset = connectorAsset(catalogues, connectorRef, path, errors);
+    if (asset !== undefined) resolved.connectors[connectorRef] = asset;
+  };
 
   const addTemplate = (type: Exclude<TemplateType, 'solution'>, ref: string, path: string): DirArtifact | undefined => {
     const result = catalogues.templates[type].resolve(ref, path);
@@ -344,36 +386,9 @@ export function resolveArtifacts(catalogues: Catalogues, raw: Record<string, unk
 
   // Tools: connectors are Customer assets; their data contract is part of the pin.
   for (const [toolId, rawTool] of Object.entries(asRecord(spec['tools']))) {
-    const tool = asRecord(rawTool);
-    const connectorRef = asString(tool['connectorRef']);
+    const connectorRef = asString(asRecord(rawTool)['connectorRef']);
     if (connectorRef === undefined) continue;
-    const connector = catalogues.connectors.get(connectorRef);
-    const path = `spec.tools.${toolId}.connectorRef`;
-    if (connector === undefined) {
-      errors.push({
-        code: 'artifact_missing',
-        message: `connector ${connectorRef} is not in the workspace`,
-        path,
-        remediation: 'vendor the connector under the workspace asset root or fix the reference',
-      });
-      continue;
-    }
-    const connectorDir = dirname(connector.path);
-    const files = [basename(connector.path)];
-    const contract = asString(asRecord(connector.document['spec'])['dataContract']);
-    if (contract !== undefined) {
-      if (!isFile(join(connectorDir, contract))) {
-        errors.push({
-          code: 'spec_file_missing',
-          message: `connector ${connectorRef} declares dataContract ${contract}, which does not exist`,
-          path,
-        });
-        continue;
-      }
-      files.push(contract);
-    }
-    const manifest = digestFiles(files.map((file) => ({ path: file, content: readText(join(connectorDir, file)) })));
-    resolved.connectors[connectorRef] = { digest: manifest.digest, files: manifest.files, document: connector.document };
+    addConnector(connectorRef, `spec.tools.${toolId}.connectorRef`);
   }
 
   // Solution-level governance.
@@ -401,6 +416,9 @@ export function resolveArtifacts(catalogues: Catalogues, raw: Record<string, unk
       errors.push(result.error);
     } else {
       resolved.contextPackage = result.value;
+      for (const connectorRef of result.value.connectorRefs) {
+        addConnector(connectorRef, `semantic context source connectorRef (${result.value.name})`);
+      }
       const ontology = asRecord(asRecord(result.value.semanticModel?.['spec'])['ontology']);
       for (const [index, rawModule] of asArray(ontology['modules']).entries()) {
         const module = asRecord(rawModule);

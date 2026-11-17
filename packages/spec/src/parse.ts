@@ -1,10 +1,17 @@
 import { z } from 'zod';
 
 import { BundleTopologySchema, RuntimeTopologySchema, TopologySchema } from './schema/bundle-topology.js';
+import { ContextEvalSuiteSchema } from './schema/context-eval-suite.js';
+import { ContextPackageRevisionSchema, ContextPackageSchema } from './schema/context-package.js';
+import { ContextRecipeSchema } from './schema/context-recipe.js';
+import { ContextSourceSchema } from './schema/context-source.js';
+import { MappingSchema } from './schema/entity-mapping.js';
 import { IdentityProfileSchema } from './schema/identity-profile.js';
 import { ModelProfileSchema } from './schema/model-profile.js';
+import { PermissionProfileSchema } from './schema/permission-profile.js';
 import { RuntimeCapabilitiesSchema } from './schema/runtime-capabilities.js';
 import { RuntimeProfileSchema } from './schema/runtime-profile.js';
+import { SemanticModelSchema } from './schema/semantic-model.js';
 import { SolutionLockSchema } from './schema/solution-lock.js';
 import { SolutionSpecSchema } from './schema/solution-spec.js';
 
@@ -113,4 +120,40 @@ export function parseBundleTopology(input: unknown): ParseResult<z.infer<typeof 
 
 export function parseTopology(input: unknown): ParseResult<z.infer<typeof TopologySchema>> {
   return parseWith(TopologySchema, input, 'topology_invalid');
+}
+
+// ---------------------------------------------------------------------------
+// Customer Context Package documents (`fde context validate`)
+// ---------------------------------------------------------------------------
+
+export function parseContextPackage(input: unknown): ParseResult<z.infer<typeof ContextPackageSchema>> {
+  return parseWith(ContextPackageSchema, input, 'context_package_invalid');
+}
+
+export function parseContextPackageRevision(input: unknown): ParseResult<z.infer<typeof ContextPackageRevisionSchema>> {
+  return parseWith(ContextPackageRevisionSchema, input, 'context_package_revision_invalid');
+}
+
+export function parseSemanticModel(input: unknown): ParseResult<z.infer<typeof SemanticModelSchema>> {
+  return parseWith(SemanticModelSchema, input, 'semantic_model_invalid');
+}
+
+export function parseContextSource(input: unknown): ParseResult<z.infer<typeof ContextSourceSchema>> {
+  return parseWith(ContextSourceSchema, input, 'context_source_invalid');
+}
+
+export function parseMapping(input: unknown): ParseResult<z.infer<typeof MappingSchema>> {
+  return parseWith(MappingSchema, input, 'context_mapping_invalid');
+}
+
+export function parseContextRecipe(input: unknown): ParseResult<z.infer<typeof ContextRecipeSchema>> {
+  return parseWith(ContextRecipeSchema, input, 'context_recipe_invalid');
+}
+
+export function parsePermissionProfile(input: unknown): ParseResult<z.infer<typeof PermissionProfileSchema>> {
+  return parseWith(PermissionProfileSchema, input, 'permission_profile_invalid');
+}
+
+export function parseContextEvalSuite(input: unknown): ParseResult<z.infer<typeof ContextEvalSuiteSchema>> {
+  return parseWith(ContextEvalSuiteSchema, input, 'context_eval_suite_invalid');
 }

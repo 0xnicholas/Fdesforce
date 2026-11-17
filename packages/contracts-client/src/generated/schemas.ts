@@ -380,6 +380,50 @@ export interface ProvenanceResponse {
 
 
 
+// ---- ingest-job.schema.json
+
+export type JobId = string;
+
+/** `incremental` follows each source watermark, `backfill` replays a window, `rebuild` rebuilds the graph from the sources and the package. */
+export type IngestMode = "incremental" | "backfill" | "rebuild";
+
+/** The frozen Context Package revision the job compiles. The digest is the one the revision recorded and `solution.lock` pinned, so a job can only ever materialize semantics that were frozen. */
+export interface IngestPackageRef {
+  name: string;
+  version: Semver;
+  digest: Digest;
+}
+
+export interface IngestJobRequest {
+  package: IngestPackageRef;
+  mode: IngestMode;
+  /** Context Source ids to ingest. Absent means every source the package declares. */
+  sources?: Array<string>;
+}
+
+export interface IngestSourceResult {
+  source: string;
+  status: "ok" | "degraded" | "failed";
+  entities?: number;
+  edges?: number;
+  /** The watermark the next incremental run resumes from. */
+  watermark?: string;
+  /** Why the source is degraded or failed. */
+  reason?: string;
+}
+
+/** The finished job. Synchronous in this slice: the response is the outcome, not a handle to poll. */
+export interface IngestJobResult {
+  job_id: JobId;
+  status: "succeeded" | "degraded" | "failed";
+  package: IngestPackageRef;
+  mode: IngestMode;
+  started_at: Timestamp;
+  finished_at: Timestamp;
+  sources: Array<IngestSourceResult>;
+  message?: string;
+}
+
 // ---- retrieval.schema.json
 
 export interface Subject {

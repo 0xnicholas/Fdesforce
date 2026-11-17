@@ -1,0 +1,32 @@
+# Acme claims-db: policies, coverages and customers.
+#
+# `claims-db.yaml` maps `public.claims`; these three datasets carry the facts the
+# `claims-context` recipe expands into (Policy → Coverage → Customer). They share
+# the connector and the tenant filter, and they are what makes the permission
+# baseline's property annotations (`ic:customerName`, `ic:customerEmail`,
+# `ic:coverageLimit`) name real columns instead of intentions.
+apiVersion: fde.dev/v0
+kind: EntityMapping
+metadata:
+  customer: acme
+  source: claims-db
+spec:
+  connectorRef: claims-db
+  dataset: public.policies
+  entity: "ic:Policy"
+  key: [policy_number]
+  properties:
+    policy_number: {property: "ic:policyNumber", type: string}
+    status: {property: "ic:status", type: string}
+  relations:
+    - property: "ic:forCustomer"
+      targetEntity: "ic:Customer"
+      targetKey: customer_id
+      join:
+        table: public.customers
+        on: policies.customer_id = customers.customer_id
+  watermark:
+    column: updated_at
+    mode: updated_at
+  filters:
+    - "tenant_id = :tenant_id"

@@ -22,6 +22,9 @@ spec:
       contextSource: context-sources/sharepoint-claims.yaml
   entityMappings:
     - ref: mappings/claims-db.yaml
+    - ref: mappings/claims-db-policies.yaml
+    - ref: mappings/claims-db-coverages.yaml
+    - ref: mappings/claims-db-customers.yaml
     - ref: mappings/sharepoint-claims.yaml
   resolution:
     keys:

@@ -86,6 +86,9 @@ function views(project: Project): CheckSolutionInput {
           contextPackage: {
             manifest: contextPackage.manifest as ContextPackageView['manifest'],
             recipes: contextPackage.recipes as NonNullable<ContextPackageView['recipes']>,
+            ...(contextPackage.revision === undefined
+              ? {}
+              : { revision: contextPackage.revision as NonNullable<ContextPackageView['revision']> }),
           },
         }),
     ...(artifacts.runtimeProfile === undefined ? {} : { runtimeProfile: artifacts.runtimeProfile.document }),

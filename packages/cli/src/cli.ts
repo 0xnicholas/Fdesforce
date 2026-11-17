@@ -2,7 +2,24 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, renameSy
 import { dirname, join, resolve } from 'node:path';
 
 import { buildCatalogues } from './artifacts.js';
+import {
+  compatibilityOf,
+  freezeContextPackage,
+  loadContextPackage,
+  scaffoldContextPackage,
+  validateContextPackage,
+  type ContextPackageProject,
+} from './context.js';
 import { isDirectory, isFile } from './fsutil.js';
+import {
+  DEPLOYMENT_ID_PATTERN,
+  SOLUTION_ID_PATTERN,
+  loadJobsKey,
+  newTraceId,
+  readJobsKeyFile,
+  runIngest,
+  type IngestMode,
+} from './ingest.js';
 import { buildLock, diffLock, driftDiagnostics, renderLock } from './lock.js';
 import { loadProject } from './project.js';
 import { parseRef } from './refs.js';
@@ -30,12 +47,21 @@ Usage:
   fde spec init --template <name@version> --out <dir> [--workspace <dir>] [--platform <dir>] [--json]
   fde spec validate --spec <dir> [--workspace <dir>] [--platform <dir>] [--json]
   fde spec lock [--check] --spec <dir> [--template <name@version>] [--workspace <dir>] [--platform <dir>] [--json]
+  fde context init --customer <id> --name <package> --out <dir> [--version <x.y.z>] [--platform <dir>] [--json]
+  fde context validate --package <dir> [--workspace <dir>] [--platform <dir>] [--json]
+  fde context freeze --package <dir> --actor <id> [--source-commit <sha>] [--workspace <dir>] [--platform <dir>] [--json]
+  fde context ingest --package <dir> --context-service <url> --deployment <dep_id> --solution <id> --jobs-key <file>
+                     [--kid <id>] [--mode incremental|backfill|rebuild] [--source <id>]... [--workspace <dir>] [--json]
   fde --help
 
 Commands:
   spec init       materialize a versioned Solution Template into a complete Solution directory
   spec validate   report schema, reference, grammar and artifact errors in one pass
   spec lock       regenerate solution.lock; --check fails on any drift
+  context init    scaffold a draft Customer Context Package
+  context validate report schema, reference and permissions-baseline errors in one pass
+  context freeze  write the content-addressed, immutable revision for this package version
+  context ingest  run the context-service ingest job over the frozen package (internal job endpoint)
 
 Paths:
   --workspace     directory holding fde.workspace.yaml (discovered upward by default)
@@ -50,20 +76,21 @@ export async function runCli(argv: readonly string[], io: CliIO = {}): Promise<n
   };
 
   try {
-    return dispatch([...argv], sink);
+    return await dispatch([...argv], sink);
   } catch (error) {
     sink.err(`error: unexpected failure: ${error instanceof Error ? error.message : String(error)}`);
     return 1;
   }
 }
 
-function dispatch(argv: string[], io: Sink): number {
+async function dispatch(argv: string[], io: Sink): Promise<number> {
   if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h' || argv[0] === 'help') {
     io.out(USAGE);
     return 0;
   }
-  if (argv[0] !== 'spec') {
-    return usageError(io, `unknown command "${argv[0] ?? ''}"`);
+  const group = argv[0];
+  if (group !== 'spec' && group !== 'context') {
+    return usageError(io, `unknown command "${group ?? ''}"`);
   }
   const subcommand = argv[1];
   if (subcommand === undefined || subcommand === '--help' || subcommand === '-h') {
@@ -72,15 +99,31 @@ function dispatch(argv: string[], io: Sink): number {
   }
 
   const rest = argv.slice(2);
-  switch (subcommand) {
-    case 'init':
-      return specInit(rest, io);
-    case 'validate':
-      return specValidate(rest, io);
-    case 'lock':
-      return specLock(rest, io);
-    default:
-      return usageError(io, `unknown command "fde spec ${subcommand}"`);
+  switch (group) {
+    case 'spec':
+      switch (subcommand) {
+        case 'init':
+          return specInit(rest, io);
+        case 'validate':
+          return specValidate(rest, io);
+        case 'lock':
+          return specLock(rest, io);
+        default:
+          return usageError(io, `unknown command "fde spec ${subcommand}"`);
+      }
+    case 'context':
+      switch (subcommand) {
+        case 'init':
+          return contextInit(rest, io);
+        case 'validate':
+          return contextValidate(rest, io);
+        case 'freeze':
+          return contextFreeze(rest, io);
+        case 'ingest':
+          return contextIngest(rest, io);
+        default:
+          return usageError(io, `unknown command "fde context ${subcommand}"`);
+      }
   }
 }
 
@@ -290,16 +333,334 @@ function specLock(args: string[], io: Sink): number {
 }
 
 // ---------------------------------------------------------------------------
+// fde context init
+// ---------------------------------------------------------------------------
+
+function contextInit(args: string[], io: Sink): number {
+  const flags = parseFlags(args, {
+    strings: ['customer', 'name', 'out', 'version', 'workspace', 'platform'],
+    booleans: ['json'],
+  });
+  if (flags.errors.length > 0) return usageError(io, flags.errors[0] ?? 'invalid arguments');
+  const json = flags.values['json'] === true;
+
+  const customer = stringFlag(flags, 'customer');
+  const name = stringFlag(flags, 'name');
+  const outArg = stringFlag(flags, 'out');
+  if (customer === undefined) return usageError(io, 'missing required flag --customer');
+  if (name === undefined) return usageError(io, 'missing required flag --name');
+  if (outArg === undefined) return usageError(io, 'missing required flag --out');
+
+  const workspace = resolveWorkspace(flags, io, io.cwd, 'context init', json);
+  if (workspace === undefined) return 1;
+
+  const out = resolve(io.cwd, outArg);
+  if (existsSync(out) && (!isDirectory(out) || readdirSync(out).length > 0)) {
+    return emitDiagnostics(
+      'context init',
+      {
+        errors: [
+          diagnostic('output_not_empty', `${out} is not an empty directory`, {
+            path: out,
+            remediation: 'choose an empty --out directory; `fde context init` never overwrites a package',
+          }),
+        ],
+        warnings: [],
+      },
+      io,
+      json,
+    );
+  }
+
+  const version = stringFlag(flags, 'version') ?? '0.1.0';
+  if (!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(version)) return usageError(io, `--version must be x.y.z (got "${version}")`);
+
+  const compatibility = compatibilityOf(workspace.platformRoot);
+  const files = scaffoldContextPackage({
+    customer,
+    name,
+    version,
+    actor: `fde://${customer}`,
+    createdAt: new Date(),
+    schemas: { graph: compatibility.graph, audit: compatibility.audit },
+    contractMajor: compatibility.contractMajor,
+  });
+
+  mkdirSync(out, { recursive: true });
+  for (const [path, text] of Object.entries(files)) {
+    const target = join(out, path);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, text);
+  }
+
+  if (json) {
+    io.out(JSON.stringify({ command: 'context init', ok: true, package: `${customer}/${name}@${version}`, out, files: Object.keys(files).sort(), errors: [], warnings: [] }));
+  } else {
+    io.out(`scaffolded ${name}@${version} (draft) into ${out}`);
+  }
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// fde context validate
+// ---------------------------------------------------------------------------
+
+function contextValidate(args: string[], io: Sink): number {
+  const flags = parseFlags(args, {
+    strings: ['package', 'workspace', 'platform'],
+    booleans: ['json'],
+  });
+  if (flags.errors.length > 0) return usageError(io, flags.errors[0] ?? 'invalid arguments');
+  const json = flags.values['json'] === true;
+
+  const loaded = loadContextProject(flags, io, 'context validate', json);
+  if (loaded === undefined) return 1;
+  return emitDiagnostics('context validate', validateContextPackage(loaded), io, json);
+}
+
+// ---------------------------------------------------------------------------
+// fde context freeze
+// ---------------------------------------------------------------------------
+
+function contextFreeze(args: string[], io: Sink): number {
+  const flags = parseFlags(args, {
+    strings: ['package', 'actor', 'source-commit', 'workspace', 'platform'],
+    booleans: ['json'],
+  });
+  if (flags.errors.length > 0) return usageError(io, flags.errors[0] ?? 'invalid arguments');
+  const json = flags.values['json'] === true;
+
+  const actor = stringFlag(flags, 'actor');
+  if (actor === undefined) return usageError(io, 'missing required flag --actor');
+  const sourceCommit = stringFlag(flags, 'source-commit');
+  if (sourceCommit !== undefined && !/^[0-9a-f]{7,40}$/.test(sourceCommit)) {
+    return usageError(io, `--source-commit must be a commit id (got "${sourceCommit}")`);
+  }
+
+  const loaded = loadContextProject(flags, io, 'context freeze', json);
+  if (loaded === undefined) return 1;
+
+  const result = freezeContextPackage(loaded, {
+    actor,
+    now: new Date(),
+    ...(sourceCommit === undefined ? {} : { sourceCommit }),
+  });
+  if (result.status === 'refused') {
+    return emitDiagnostics('context freeze', { errors: result.errors, warnings: [] }, io, json);
+  }
+
+  const relativePath = result.revisionPath.startsWith(loaded.dir)
+    ? result.revisionPath.slice(loaded.dir.length + 1)
+    : result.revisionPath;
+  if (json) {
+    io.out(
+      JSON.stringify({
+        command: 'context freeze',
+        ok: true,
+        status: result.status,
+        revision: relativePath,
+        digest: result.revision.spec.digest,
+        errors: [],
+        warnings: [],
+      }),
+    );
+  } else if (result.status === 'unchanged') {
+    io.out(`${loaded.manifest?.metadata.name}@${loaded.manifest?.metadata.version} is already frozen at ${result.revision.spec.digest}`);
+  } else {
+    io.out(`froze ${loaded.manifest?.metadata.name}@${loaded.manifest?.metadata.version} at ${result.revision.spec.digest} -> ${relativePath}`);
+  }
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// fde context ingest
+// ---------------------------------------------------------------------------
+
+const INGEST_MODES: ReadonlyArray<IngestMode> = ['incremental', 'backfill', 'rebuild'];
+
+async function contextIngest(args: string[], io: Sink): Promise<number> {
+  const flags = parseFlags(args, {
+    strings: ['package', 'context-service', 'deployment', 'solution', 'jobs-key', 'kid', 'mode', 'workspace', 'platform'],
+    arrays: ['source'],
+    booleans: ['json'],
+  });
+  if (flags.errors.length > 0) return usageError(io, flags.errors[0] ?? 'invalid arguments');
+  const json = flags.values['json'] === true;
+
+  const baseUrl = stringFlag(flags, 'context-service');
+  const deploymentId = stringFlag(flags, 'deployment');
+  const solutionId = stringFlag(flags, 'solution');
+  const jobsKeyPath = stringFlag(flags, 'jobs-key');
+  if (stringFlag(flags, 'package') === undefined) return usageError(io, 'missing required flag --package');
+  if (baseUrl === undefined) return usageError(io, 'missing required flag --context-service');
+  if (deploymentId === undefined) return usageError(io, 'missing required flag --deployment');
+  if (solutionId === undefined) return usageError(io, 'missing required flag --solution');
+  if (jobsKeyPath === undefined) return usageError(io, 'missing required flag --jobs-key');
+  if (!DEPLOYMENT_ID_PATTERN.test(deploymentId)) return usageError(io, `--deployment must be dep_<ULID> (got "${deploymentId}")`);
+  if (!SOLUTION_ID_PATTERN.test(solutionId)) return usageError(io, `--solution must be a Solution id (got "${solutionId}")`);
+
+  const modeArg = stringFlag(flags, 'mode') ?? 'incremental';
+  const mode = INGEST_MODES.find((candidate) => candidate === modeArg);
+  if (mode === undefined) return usageError(io, `--mode must be one of ${INGEST_MODES.join(', ')} (got "${modeArg}")`);
+
+  const loaded = loadContextProject(flags, io, 'context ingest', json);
+  if (loaded === undefined) return 1;
+  const manifest = loaded.manifest;
+  if (manifest === undefined) {
+    return emitDiagnostics('context ingest', { errors: loaded.errors, warnings: [] }, io, json);
+  }
+
+  // The runtime only ever materializes semantics that were frozen: the digest in
+  // the job request must be the one the revision recorded.
+  const report = validateContextPackage(loaded);
+  if (report.errors.length > 0) return emitDiagnostics('context ingest', report, io, json);
+  if (loaded.revision === undefined || loaded.digest === undefined || loaded.revision.spec.digest !== loaded.digest) {
+    return emitDiagnostics(
+      'context ingest',
+      {
+        errors: [
+          diagnostic(
+            'context_package_not_frozen',
+            `${manifest.metadata.name}@${manifest.metadata.version} has no frozen revision matching its content`,
+            {
+              path: `revisions/${manifest.metadata.version}.yaml`,
+              remediation: 'run `fde context freeze` first; ingest only accepts a frozen, content-addressed package',
+            },
+          ),
+        ],
+        warnings: [],
+      },
+      io,
+      json,
+    );
+  }
+
+  const declaredSources = new Set(
+    (loaded.documents.semanticModel?.spec.sources ?? []).map((source) => source.ref),
+  );
+  const requested = flags.lists['source'] ?? [];
+  const unknown = requested.filter((source) => !declaredSources.has(source));
+  if (unknown.length > 0) {
+    return emitDiagnostics(
+      'context ingest',
+      {
+        errors: unknown.map((source) =>
+          diagnostic('context_reference_unknown', `--source ${source} is not a Context Source this package declares`, {
+            path: '--source',
+            remediation: `declare the source, or use one of ${[...declaredSources].sort().join(', ') || 'the package sources'}`,
+          }),
+        ),
+        warnings: [],
+      },
+      io,
+      json,
+    );
+  }
+
+  const pem = readJobsKeyFile(jobsKeyPath);
+  if (pem.pem === undefined) return emitDiagnostics('context ingest', { errors: pem.errors, warnings: [] }, io, json);
+  const key = loadJobsKey(pem.pem, stringFlag(flags, 'kid'));
+  if (key.key === undefined || key.kid === undefined) {
+    return emitDiagnostics('context ingest', { errors: key.errors, warnings: [] }, io, json);
+  }
+
+  const outcome = await runIngest({
+    baseUrl,
+    identity: {
+      key: key.key,
+      kid: key.kid,
+      deploymentId,
+      solutionId,
+      tenantId: manifest.metadata.customer,
+    },
+    request: {
+      package: { name: manifest.metadata.name, version: manifest.metadata.version, digest: loaded.revision.spec.digest },
+      mode,
+      ...(requested.length === 0 ? {} : { sources: [...new Set(requested)].sort() }),
+    },
+    traceId: newTraceId(),
+    now: new Date(),
+  });
+
+  if (outcome.result === undefined) return emitDiagnostics('context ingest', { errors: outcome.errors, warnings: [] }, io, json);
+
+  const result = outcome.result;
+  const warnings: Diagnostic[] =
+    result.status === 'degraded'
+      ? [
+          {
+            code: 'context_ingest_degraded',
+            message: `the job finished degraded: ${result.sources.filter((source) => source.status !== 'ok').map((source) => `${source.source} ${source.status}`).join(', ') || (result.message ?? 'no reason given')}; retrieve returns degraded=true until it is re-run`,
+          },
+        ]
+      : [];
+  const errors: Diagnostic[] =
+    result.status === 'failed' ? [diagnostic('context_ingest_failed', result.message ?? 'the ingest job failed')] : [];
+
+  if (json) {
+    io.out(JSON.stringify({ command: 'context ingest', ok: result.status !== 'failed', result, trace_id: outcome.traceId, errors, warnings }));
+  } else {
+    for (const warning of warnings) io.err(`warning[${warning.code}] ${warning.message}`);
+    for (const error of errors) {
+      io.err(`error[${error.code}] ${error.message}`);
+      if (error.remediation !== undefined) io.err(`  remediation: ${error.remediation}`);
+    }
+    io.out(
+      `${result.job_id} ${result.status} (${result.mode}) over ${result.sources.length} source(s), trace ${outcome.traceId}${
+        result.status === 'failed' ? '; the graph was not updated' : ''
+      }`,
+    );
+  }
+  return result.status === 'failed' ? 1 : 0;
+}
+
+/** Load the package + workspace both `validate` and `freeze` need, or report why not. */
+function loadContextProject(flags: ParsedFlags, io: Sink, command: string, json: boolean): ContextPackageProject | undefined {
+  const packageArg = stringFlag(flags, 'package') as string;
+  const dir = resolve(io.cwd, packageArg);
+  if (!isDirectory(dir)) {
+    emitDiagnostics(
+      command,
+      {
+        errors: [
+          diagnostic('context_package_missing', `package directory ${dir} does not exist`, {
+            path: dir,
+            remediation: 'pass --package with a Customer Context Package directory, or run `fde context init`',
+          }),
+        ],
+        warnings: [],
+      },
+      io,
+      json,
+    );
+    return undefined;
+  }
+
+  const workspace = resolveWorkspace(flags, io, dir, command, json);
+  if (workspace === undefined) return undefined;
+  return loadContextPackage({ dir, workspace });
+}
+
+// ---------------------------------------------------------------------------
 // Shared plumbing
 // ---------------------------------------------------------------------------
 
 interface FlagSpec {
   strings: string[];
   booleans: string[];
+  /** Repeatable string flags; each occurrence appends to `lists`. */
+  arrays?: string[];
 }
 
-function parseFlags(args: string[], spec: FlagSpec): { values: Flags; errors: string[] } {
+interface ParsedFlags {
+  values: Flags;
+  lists: Record<string, string[]>;
+  errors: string[];
+}
+
+function parseFlags(args: string[], spec: FlagSpec): ParsedFlags {
   const values: Flags = {};
+  const lists: Record<string, string[]> = {};
   const errors: string[] = [];
 
   for (let index = 0; index < args.length; index += 1) {
@@ -318,12 +679,15 @@ function parseFlags(args: string[], spec: FlagSpec): { values: Flags; errors: st
       values[name] = true;
       continue;
     }
-    if (!spec.strings.includes(name)) {
+    const repeatable = spec.arrays?.includes(name) ?? false;
+    if (!repeatable && !spec.strings.includes(name)) {
       errors.push(`unknown flag --${name}`);
       break;
     }
     if (equals >= 0) {
-      values[name] = arg.slice(equals + 1);
+      const value = arg.slice(equals + 1);
+      if (repeatable) lists[name] = [...(lists[name] ?? []), value];
+      else values[name] = value;
       continue;
     }
     const value = args[index + 1];
@@ -331,11 +695,12 @@ function parseFlags(args: string[], spec: FlagSpec): { values: Flags; errors: st
       errors.push(`--${name} needs a value`);
       break;
     }
-    values[name] = value;
+    if (repeatable) lists[name] = [...(lists[name] ?? []), value];
+    else values[name] = value;
     index += 1;
   }
 
-  return { values, errors };
+  return { values, lists, errors };
 }
 
 function stringFlag(flags: { values: Flags }, name: string): string | undefined {

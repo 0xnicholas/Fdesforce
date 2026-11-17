@@ -1,0 +1,22 @@
+# Reference Connector manifest for the Acme claims document store (Customer-level asset).
+#
+# The second synthetic reference source (`docs/semantic-modeling.md` §10.1): the
+# `sharepoint-claims` Context Source reads it through `DocumentMapping`, so the
+# connector only has to declare the read operations the extraction pipeline uses.
+# Real customer connectors and the Connector SDK are out of this slice.
+
+apiVersion: fde.dev/v0
+kind: Connector
+metadata:
+  customer: acme
+  name: sharepoint-claims
+spec:
+  type: sharepoint
+  endpointRef: secret://acme-prod/sharepoint/site
+  secretRef: secret://acme-prod/sharepoint/credentials
+  dataContract: contracts/sharepoint-claims.md
+  allowedOperations:
+    - listDocuments
+    - readDocument
+  rateLimit:
+    requestsPerMinute: 60

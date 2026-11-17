@@ -141,7 +141,7 @@ acme/
 | `frozen` | 不可变版本；可被 Solution 引用 | 冻结后不可改，只能出新版本 |
 
 - **版本**：semver；冻结时分配版本号，并计算内容 digest。
-- **冻结**：`fde context freeze` 要求干净 Git tree、validate 通过、context eval 通过；生成 `revision.yaml`（spec digest、commit、actor、timestamp）并写一条 Decision。
+- **冻结**：`fde context freeze` 要求 validate 通过、context eval 通过；生成 `revisions/<version>.yaml`（spec digest、commit、actor、timestamp）并写一条 Decision。实现把记录落在版本目录下（`revisions/` 不计入内容 digest），因此同一目录可以并存多个冻结版本；dirty-tree 检查属于运行它的 CI，CLI 只接受显式 `--source-commit`（见 [`packages/cli/README.md`](../packages/cli/README.md)）。
 - **引用**：Solution Spec 用 `spec.semantic.contextPackageRef` 引用；`solution.lock` pin `customerContextPackage: <version>@<digest>`。
 - **编译**：`fde build` 读取 frozen CCP，把 ontology、mapping、recipe、permission、eval 定义编译进 Bundle；构建不解析浮动范围，不回拉 Template registry。
 - **签名**：v0 不单独签 CCP；Git commit + digest + Bundle 签名覆盖。客户强制要求时，用 cosign 签 `manifest.yaml`，签名与 digest 一起进 lock。

@@ -85,6 +85,17 @@ export function listDir(path: string): string[] {
   return readdirSync(path).sort();
 }
 
+/**
+ * Whether a path is content a Context Package digest should cover.
+ *
+ * Hidden files are editor and filesystem debris (`.DS_Store`, `.gitignore`), not
+ * semantics: including them would make a package's digest depend on who checked it
+ * out, which is the opposite of content addressing.
+ */
+export function isContentPath(path: string): boolean {
+  return !path.split('/').some((segment) => segment.startsWith('.'));
+}
+
 export function toPosix(path: string): string {
   return path.split(sep).join('/');
 }

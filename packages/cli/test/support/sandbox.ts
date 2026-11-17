@@ -19,6 +19,8 @@ export interface Sandbox {
   root: string;
   workspace: string;
   specDir: string;
+  /** The Acme Customer Context Package (`examples/semantic/acme`). */
+  contextPackage: string;
   platform: string;
   path(relative: string): string;
   read(relative: string): string;
@@ -45,6 +47,7 @@ export function makeSandbox(): Sandbox {
     root,
     workspace,
     specDir,
+    contextPackage: join(root, 'examples/semantic/acme'),
     platform: join(root, 'platform'),
     path,
     read: (relative) => readFileSync(path(relative), 'utf8'),

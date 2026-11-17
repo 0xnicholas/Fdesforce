@@ -47,6 +47,12 @@ export interface ContextPackageView {
   manifest?: { metadata?: { name?: string; version?: string } };
   /** Context Recipes inside the package, keyed by recipe name. */
   recipes?: Record<string, { metadata?: { name?: string; version?: string } }>;
+  /**
+   * The frozen revision, when the package has one. A Spec may only reference a
+   * frozen Context Package (`docs/semantic-modeling.md` §3.4), so its absence is
+   * a build error rather than a silently mutable dependency.
+   */
+  revision?: { metadata?: { version?: string }; spec?: { digest?: string } };
 }
 
 export interface CheckSolutionInput {
@@ -830,6 +836,16 @@ function checkSemantic({ input, report }: Context): void {
       workflow.steps.filter((step) => step.type === 'context').map((step) => step.recipe),
     ),
   );
+
+  if (contextPackage !== undefined && contextPackage.revision === undefined) {
+    error(
+      report,
+      'context_package_unfrozen',
+      'spec.semantic.contextPackageRef',
+      `Context Package ${packageRef.name} has no frozen revision, so a build would compile semantics that no digest addresses`,
+      'run `fde context freeze` in the package, then `fde spec lock`',
+    );
+  }
 
   for (const [recipeName, binding] of Object.entries(semantic.recipeBindings)) {
     const { name, range } = splitRef(binding.recipeRef);

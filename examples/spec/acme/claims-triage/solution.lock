@@ -39,8 +39,13 @@ assets:
       files:
         claims-db.yaml: sha256:3b1f21cdd26ebeedf6c4c270df59a52c3f371ca60c4f3fd75b8ff8ee159e9c89
         contracts/claims-db.md: sha256:e4a92edc309f163363b898c60795a96eac3530ae8dc69438c6f6a5484ef9b68a
+    sharepoint-claims:
+      digest: sha256:00ce405c3844494ab77dbab0fce97752c519e6858668a44807740cb53526cb14
+      files:
+        contracts/sharepoint-claims.md: sha256:225cc797a2c93d62d307fd8d2425056d10b68bb292b65c66f197996009d56390
+        sharepoint-claims.yaml: sha256:f29761625d5261d86d3432c30f4d66123b08d1a5f11cdb70d618a5eb357b4a76
   customerContextPackage:
-    acme-claims-context: 1.0.0@sha256:49985cab6058095268674fee7284b16435d46ce897330b7cc15792d28f0758ee
+    acme-claims-context: 1.0.0@sha256:57449eddff7ed1a690dddeb6203171404ef6efe30562f9e49bb68b100e681886
 overlays:
   acme-baseline: 1.0.0@sha256:8d33388a06119e1d517091fd43ff950081738977af484f66224f4b08fffae005
   claims-triage-tuning: 1.0.0@sha256:2fb0867cbb2e8310bf766439b6b2fdc35a6bed8f5055498995cd214467505721

@@ -3,7 +3,7 @@
 
 import type { ApiResult, Transport } from '../transport.js';
 import { send } from '../transport.js';
-import type { Approval, ApprovalCreateRequest, ApprovalDecisionRequest, ApprovalDecisionResponse, ApprovalId, ApprovalList, CapabilityId, DecisionId, DecisionRequest, DecisionResponse, Error, ProvenanceResponse, RetrieveRequest, RetrieveResponse, RunId, RuntimeInfo } from './schemas.js';
+import type { Approval, ApprovalCreateRequest, ApprovalDecisionRequest, ApprovalDecisionResponse, ApprovalId, ApprovalList, CapabilityId, DecisionId, DecisionRequest, DecisionResponse, Error, IngestJobRequest, IngestJobResult, ProvenanceResponse, RetrieveRequest, RetrieveResponse, RunId, RuntimeInfo } from './schemas.js';
 
 export const CONTEXT_SERVICE_OPERATIONS = {
   retrieveContext: { method: 'post', path: '/v1/context/retrieve' },
@@ -14,6 +14,7 @@ export const CONTEXT_SERVICE_OPERATIONS = {
   decideApproval: { method: 'post', path: '/v1/approvals/{approval_id}/decisions' },
   consumeApproval: { method: 'post', path: '/v1/approvals/{approval_id}/consume' },
   getRuntimeInfo: { method: 'get', path: '/v1/runtime-info' },
+  startIngestJob: { method: 'post', path: '/internal/v1/jobs/ingest' },
   healthz: { method: 'get', path: '/healthz' },
   readyz: { method: 'get', path: '/readyz' },
 } as const;
@@ -34,6 +35,7 @@ export interface ContextServiceHeaders {
   createApproval: { traceparent: string; 'Idempotency-Key': string };
   decideApproval: { traceparent: string; 'Idempotency-Key': string };
   consumeApproval: { traceparent: string; 'Idempotency-Key': string };
+  startIngestJob: { traceparent: string };
 }
 
 export interface ContextServiceQuery {
@@ -45,6 +47,7 @@ export interface ContextServiceBodies {
   recordDecision: DecisionRequest;
   createApproval: ApprovalCreateRequest;
   decideApproval: ApprovalDecisionRequest;
+  startIngestJob: IngestJobRequest;
 }
 
 export interface ContextServiceResponses {
@@ -56,6 +59,7 @@ export interface ContextServiceResponses {
   decideApproval: { 200: ApprovalDecisionResponse; 400: Error; 401: Error; 403: Error; 404: Error; 409: Error; 422: Error; 429: Error; 500: Error; 503: Error; 504: Error };
   consumeApproval: { 200: Approval; 401: Error; 403: Error; 404: Error; 409: Error; 429: Error; 500: Error; 503: Error; 504: Error };
   getRuntimeInfo: { 200: RuntimeInfo };
+  startIngestJob: { 200: IngestJobResult; 400: Error; 401: Error; 403: Error; 409: Error; 422: Error; 429: Error; 500: Error; 503: Error; 504: Error };
   healthz: { 200: {
   status: "ok";
 } };
@@ -121,6 +125,10 @@ export class ContextServiceClient {
 
   async getRuntimeInfo(): Promise<ApiResult<ContextServiceResponses['getRuntimeInfo']>> {
     return this.call('getRuntimeInfo', {});
+  }
+
+  async startIngestJob(input: { headers: ContextServiceHeaders['startIngestJob']; body: ContextServiceBodies['startIngestJob'] }): Promise<ApiResult<ContextServiceResponses['startIngestJob']>> {
+    return this.call('startIngestJob', input);
   }
 
   async healthz(): Promise<ApiResult<ContextServiceResponses['healthz']>> {

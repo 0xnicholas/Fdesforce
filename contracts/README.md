@@ -16,6 +16,7 @@ Machine-readable artifacts for `fde.runtime/v1`. The narrative contract lives in
 | `schemas/runtime-profile.schema.json` | Runtime profile artifact referenced by `build.runtimeProfile` |
 | `schemas/runtime-capabilities.schema.json` | Shared Runtime Capability declaration and handshake detail map |
 | `schemas/bundle-topology.schema.json` | `RuntimeTopology` fragment and composed `BundleTopology` |
+| `schemas/ingest-job.schema.json` | Internal ingest job over a frozen Context Package (`/internal/v1/jobs/*`, `fde-jobs` issuer only) |
 | `schemas/error.schema.json` | Unified error envelope |
 | `conformance/cases.md` | Runtime contract acceptance cases (C1–C40) |
 | `conformance/adapter-cases.md` | Runtime adapter acceptance cases (A1–A11) |
@@ -29,6 +30,7 @@ Metric Catalog, Eval Suite, Eval Dataset, Evaluation, and Acceptance Report are 
 - Contract version: `fde.runtime/v1` (semantic version). Current minor: `1.4.0` (Agent memory; see [`docs/adr/0012-agent-memory.md`](../docs/adr/0012-agent-memory.md)).
 - Additive fields or endpoints: minor. Version history: `1.0.0` (runtime contract, #8) → `1.1.0` (decision audit binding, #20) → `1.2.0` (agent security, #21) → `1.3.0` (runtime adapter, #17: `runtime-info` unified to `runtime-app` + `runtime`/`capability_details` + `backend.graph: postgres` + A1–A11) → `1.4.0` (agent memory, #22: `thread_not_found`, `thread_id` required with `memory.thread`, C41–C48, A12).
 - Breaking changes: `/v2` or a negotiated media type, with at least one minor cycle of deprecation.
+- `context-service-v1.openapi.yaml` carries its own version because it owns the internal maintenance surface as well as the Context API: `1.1.0` adds `POST /internal/v1/jobs/ingest`. That endpoint is not part of the `fde.runtime/v1` runtime contract (the runtime app never calls it) and does not move the runtime minor.
 - Generated TS clients and Python models come from these files; do not hand-edit them.
 
 ## Validation

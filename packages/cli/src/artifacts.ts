@@ -2,7 +2,7 @@ import { basename, dirname, join } from 'node:path';
 
 import { digestFiles, normalizeText, sha256, type Digest } from '@fde/spec';
 
-import { asArray, asRecord, asString, isDirectory, listDir, readDocument, readText, walkFiles } from './fsutil.js';
+import { asArray, asRecord, asString, isContentPath, isDirectory, isFile, listDir, readDocument, readText, walkFiles } from './fsutil.js';
 import { highestSatisfying, parseRef } from './refs.js';
 import type { Diagnostic } from './types.js';
 
@@ -307,11 +307,16 @@ export interface ContextPackageArtifact {
   name: string;
   version: string;
   dir: string;
+  /** Package content files; `revisions/**` is provenance about the content, not content. */
   files: string[];
   digest: Digest;
   manifest: Record<string, unknown>;
   recipes: Record<string, Record<string, unknown>>;
   semanticModel?: Record<string, unknown>;
+  /** The frozen record for this version, when the package is frozen. */
+  revision?: Record<string, unknown>;
+  /** Connector ids the package's Context Sources read through (pinned like any other asset). */
+  connectorRefs: string[];
 }
 
 /** A Customer Context Package is a directory; the manifest names its parts. */
@@ -369,7 +374,33 @@ export class ContextPackageCatalog {
         this.problems.push({ ...semanticModel.error, code: 'artifact_invalid' });
       }
 
-      const files = walkFiles(dir);
+      // Context Sources are the only place a package names a Connector; the lock
+      // pins those connectors next to the package, not inside it.
+      const connectorRefs = new Set<string>();
+      for (const declared of asArray(spec['contextSources'])) {
+        const file = asString(declared);
+        if (file === undefined) continue;
+        const source = readDocument(join(dir, file), `context source ${file} of ${name}`);
+        if (!source.ok) {
+          this.problems.push({ ...source.error, code: 'artifact_invalid' });
+          continue;
+        }
+        const connectorRef = asString(asRecord(source.value['spec'])['connectorRef']);
+        if (connectorRef !== undefined) connectorRefs.add(connectorRef);
+      }
+
+      // `revisions/<version>.yaml` is written by `fde context freeze`; the content
+      // digest deliberately excludes it so the revision, the lock pin and the
+      // ingest job all name one value.
+      const revisionPath = `revisions/${version}.yaml`;
+      const revision = isFile(join(dir, revisionPath))
+        ? readDocument(join(dir, revisionPath), `revision ${revisionPath} of ${name}`)
+        : undefined;
+      if (revision !== undefined && !revision.ok) {
+        this.problems.push({ ...revision.error, code: 'artifact_invalid' });
+      }
+
+      const files = walkFiles(dir).filter((file) => !file.startsWith('revisions/') && isContentPath(file));
       const digest = digestFiles(files.map((file) => ({ path: file, content: readText(join(dir, file)) }))).digest;
 
       this.entries.set(`${name}@${version}`, {
@@ -381,6 +412,8 @@ export class ContextPackageCatalog {
         manifest: document.value,
         recipes,
         ...(semanticModel?.ok === true ? { semanticModel: semanticModel.value } : {}),
+        ...(revision?.ok === true ? { revision: revision.value } : {}),
+        connectorRefs: [...connectorRefs].sort(),
       });
     }
   }

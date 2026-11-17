@@ -20,6 +20,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@fde/contracts-client':
+        specifier: workspace:*
+        version: link:../contracts-client
       '@fde/spec':
         specifier: workspace:*
         version: link:../spec

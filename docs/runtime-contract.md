@@ -72,7 +72,7 @@ flowchart LR
 
 客户应用永远不直连 context-service。审批也走 `mastra-app` 代理，保证只有一个入口认证与审计边界。
 
-维护作业（`migrate`/`ingest`/`rebuild`/`eval`）使用 `fde-jobs` issuer 的受限 scope，调用内部作业端点；具体端点由实现切片确定，不进入客户应用 API 面。
+维护作业（`migrate`/`ingest`/`rebuild`/`eval`）使用 `fde-jobs` issuer 的受限 scope，调用内部作业端点；本片确定为 `POST /internal/v1/jobs/ingest`（同步返回作业结果，见 [`contracts/context-service-v1.openapi.yaml`](../contracts/context-service-v1.openapi.yaml)），不进客户应用 API 面。`fde context ingest` 是它的命令行入口。
 
 ### 3.2 Runtime API（客户端）
 

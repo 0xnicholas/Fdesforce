@@ -1,12 +1,17 @@
 openapi: 3.1.0
 info:
   title: FDE Context Service API
-  version: 1.0.0
+  version: 1.1.0
   description: |
     Internal runtime API owned by context-service. The generated runtime app
     (mastra-app in v0) is the only caller.
     Every endpoint except /healthz, /readyz, and /v1/runtime-info requires a
     signed ExecutionContext JWT and a W3C traceparent header.
+
+    1.1.0 adds the internal maintenance surface (`/internal/v1/jobs/*`), which
+    only the fde-jobs issuer reaches. It is not part of the customer Runtime API
+    and is not part of the `fde.runtime/v1` runtime contract that mastra-app
+    serves, so it carries its own version here.
 servers:
   - url: http://context-service:8011
     description: In-bundle service network
@@ -14,6 +19,8 @@ tags:
   - name: context
   - name: decisions
   - name: approvals
+  - name: jobs
+    description: Internal maintenance surface; fde-jobs issuer only
   - name: ops
 security:
   - bearerAuth: []
@@ -329,6 +336,57 @@ paths:
             application/json:
               schema:
                 $ref: './schemas/runtime-info.schema.json#/$defs/RuntimeInfo'
+  /internal/v1/jobs/ingest:
+    post:
+      tags: [jobs]
+      operationId: startIngestJob
+      summary: Ingest a frozen Context Package revision (internal maintenance surface)
+      description: |
+        Compiles the frozen Context Package revision named in the request into the
+        Context Graph. This is the maintenance surface, not the customer Runtime
+        API: mastra-app never calls it, it is not reachable through the ingress,
+        and only the fde-jobs issuer (iss = fde://<deployment_id>/jobs) may call
+        it, with the `context:ingest` maintenance scope. The job is not
+        Run-scoped, so the ExecutionContext carries no `run_id`.
+
+        Synchronous in this slice: the response is the finished job.
+
+        A package digest that is not the package's frozen revision is refused
+        with `409 conflict` and `error.details.reason = package_not_frozen`: the
+        runtime only ever materializes semantics that were frozen.
+      parameters:
+        - $ref: '#/components/parameters/TraceParent'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './schemas/ingest-job.schema.json#/$defs/IngestJobRequest'
+      responses:
+        '200':
+          description: The job finished
+          content:
+            application/json:
+              schema:
+                $ref: './schemas/ingest-job.schema.json#/$defs/IngestJobResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '504':
+          $ref: '#/components/responses/Timeout'
   /healthz:
     get:
       tags: [ops]

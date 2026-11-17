@@ -20,7 +20,7 @@ crosses a process boundary.
 | `packages/spec` | `@fde/spec` — Solution Spec / lock / Runtime Profile / Capabilities / Bundle Topology / Model Profile / Identity Profile schemas (Zod), the platform role vocabulary and its scope matrix, the exported JSON Schema, cross-document validation and topology invariants. |
 | `packages/runtime-generator` | `@fde/runtime-generator` — the build-time `RuntimeGenerator` port, Runtime Profile content addressing, `must/should` derivation and the fail-closed capability and identity gate. |
 | `packages/runtime-generator-mastra` | `@fde/runtime-generator-mastra` — the v0 Mastra generator: the mastra-app source tree with its Run API and SSE transport, the libsql/SQLite state store, the context client's retry policy, the ES256 `ExecutionContext` issuer, the topology fragment, the state migration and the A-case plan. |
-| `packages/cli` | `@fde/cli` — the `fde` command: `spec init`, `spec validate`, `spec lock`, `spec lock --check`. |
+| `packages/cli` | `@fde/cli` — the `fde` command: `spec init`, `spec validate`, `spec lock`, `spec lock --check`, and the `context init / validate / freeze / ingest` chain over a Customer Context Package. |
 | `packages/contracts-client` | `@fde/contracts-client` — TypeScript wire types and clients generated from `contracts/`. Nothing in `src/generated/` is hand-written. |
 
 ## Commands
@@ -37,11 +37,17 @@ pnpm generate:check    # fail if the committed generated code is stale
 pnpm build
 node packages/cli/dist/main.js spec validate --spec examples/spec/acme/claims-triage
 node packages/cli/dist/main.js spec lock --check --spec examples/spec/acme/claims-triage --template fde-solution@1.2.0
+
+# the context chain: validate and freeze the Acme Customer Context Package
+node packages/cli/dist/main.js context validate --package examples/semantic/acme --workspace examples/spec/acme
+node packages/cli/dist/main.js context freeze --package examples/semantic/acme --workspace examples/spec/acme --actor fde://acme/fde-lead
 ```
 
 `pnpm verify` is what CI runs. Command and diagnostic details are in
 [`packages/cli/README.md`](packages/cli/README.md); the offline platform store is
-described in [`platform/README.md`](platform/README.md). `packages/contracts-client/src/generated/**` is
+described in [`platform/README.md`](platform/README.md), and the Customer Context
+Package — including its frozen `revisions/<version>.yaml` — in
+[`examples/semantic/README.md`](examples/semantic/README.md). `packages/contracts-client/src/generated/**` is
 generated: change `contracts/`, then run `pnpm generate`.
 
 ## Implementation status
@@ -50,10 +56,12 @@ Slice 1「配置 → 部署 → 只读闭环」is in progress (`docs/architectur
 §5). Landed so far: the monorepo scaffold, the schema/validation layer (#24), the
 contract-derived client, the `fde spec init/validate/lock` command chain (#25), the
 `RuntimeGenerator` port with the Runtime Profile artifact and its fail-closed
-capability gate (#26), and the v0 Mastra generator: the app skeleton and grammar
-gate (#27), then the Run API (`POST /v1/runs` under an `Idempotency-Key`, SSE,
-cancel), the context client's retry policy, the libsql/SQLite state store and the
-three remaining port methods (#28), identity issuance (#29), and the startup
-handshake: `runtime/runtime-info.ts`, `/readyz` and the aggregated
-`/v1/runtime-info` (#30). The Compose renderer and context-service are separate
-tickets.
+capability gate (#26), the v0 Mastra generator: the app skeleton and grammar gate
+(#27), then the Run API (`POST /v1/runs` under an `Idempotency-Key`, SSE, cancel),
+the context client's retry policy, the libsql/SQLite state store and the three
+remaining port methods (#28), identity issuance (#29), the startup handshake:
+`runtime/runtime-info.ts`, `/readyz` and the aggregated `/v1/runtime-info` (#30),
+and the `fde context` toolchain with the Acme Customer Context Package: the CCP
+document schemas, `checkContextPackage`, `context init / validate / freeze`, and
+`context ingest` over the internal job endpoint (#31). The Compose renderer and
+the context-service implementation are separate tickets.

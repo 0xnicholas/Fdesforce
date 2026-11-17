@@ -35,3 +35,18 @@ export const ArtifactRefSchema = z.string().regex(/^[a-z0-9][a-z0-9.-]{1,62}@(\^
 
 /** A Spec-local file path (`files/prompts/triage.md`), never absolute. */
 export const SpecFilePathSchema = z.string().regex(/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._/-]{1,200}$/);
+
+/**
+ * A package-relative path inside a Customer Context Package (`recipes/claims-context.yaml`).
+ * Same rules as a Spec file path: relative, POSIX, no `..`.
+ */
+export const PackageFilePathSchema = SpecFilePathSchema;
+
+/**
+ * A prefixed ontology term, e.g. `ic:Claim` / `acme:priority`.
+ *
+ * The prefix is the module (or the Customer extension) and the local name is the
+ * term; a bare local name (`Claim`) is never a term, it is only ever a *hint* in
+ * the Semantic Model's resolution rules, where the package stays prefix-agnostic.
+ */
+export const TermNameSchema = z.string().regex(/^[A-Za-z][A-Za-z0-9_-]*:[A-Za-z][A-Za-z0-9_-]*$/);

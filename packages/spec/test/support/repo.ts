@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { parse } from 'yaml';
@@ -20,6 +20,18 @@ export function readYaml<T = unknown>(path: string): T {
 /** Files referenced by a `solution.lock spec.files` manifest, as text. */
 export function readSpecFiles(specDir: string, paths: ReadonlyArray<string>): Record<string, string> {
   return Object.fromEntries(paths.map((path) => [path, readText(join(specDir, path))]));
+}
+
+/** Every file of the Acme CCP, POSIX-relative, sorted — what `freeze` digests. */
+export function exampleContextPackageFiles(root = 'examples/semantic/acme'): string[] {
+  const walk = (prefix: string): string[] =>
+    readdirSync(join(repoRoot, root, prefix))
+      .sort()
+      .flatMap((name) => {
+        const relative = prefix === '' ? name : `${prefix}/${name}`;
+        return statSync(join(repoRoot, root, relative)).isDirectory() ? walk(relative) : [relative];
+      });
+  return walk('');
 }
 
 export const paths = {
