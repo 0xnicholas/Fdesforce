@@ -203,7 +203,10 @@ class AuditStore:
             raise AuditStoreError(f"{self.path} is not a readable SQLite database: {error}") from error
 
         expected = int(AUDIT_SCHEMA_VERSION)
-        if version == 0 and application_id == 0:
+        # A store with no version stamp is either brand new or one whose migration
+        # was interrupted after the application id was written (that id goes first,
+        # below). Both are safe to migrate: every statement is `IF NOT EXISTS`.
+        if version == 0 and application_id in (0, APPLICATION_ID):
             self._migrate(connection, expected)
             return
         if version != expected:
@@ -216,11 +219,14 @@ class AuditStore:
 
     def _migrate(self, connection: sqlite3.Connection, expected: int) -> None:
         # `executescript` commits before it runs, so this is deliberately not inside
-        # `_transaction`: DDL is idempotent (`IF NOT EXISTS`) and the version stamp is
-        # the last statement, so a crash before it leaves a store that re-migrates.
+        # `_transaction`: DDL is idempotent (`IF NOT EXISTS`). The application id is
+        # written before the version stamp on purpose — a crash between the two then
+        # leaves `version 0 + our id`, which `_prepare` resumes. The reverse order
+        # would leave `our version + no id`, which is indistinguishable from a
+        # foreign file and would refuse a store we created.
         connection.executescript(_SCHEMA)
-        connection.execute(f"PRAGMA user_version = {expected}")
         connection.execute(f"PRAGMA application_id = {APPLICATION_ID}")
+        connection.execute(f"PRAGMA user_version = {expected}")
 
     @contextmanager
     def _transaction(self, connection: sqlite3.Connection) -> Iterator[sqlite3.Connection]:

@@ -265,6 +265,20 @@ def test_a_decision_survives_a_restart_and_its_chain_verifies() -> None:
             "the restarted service reported the pre-restart verification, not a pass of its own"
         )
 
+        # The write's durable identity is on disk too: replaying it after the
+        # restart returns the original entry instead of appending a second one.
+        replay = restarted.post(
+            "/v1/decisions",
+            json=decision,
+            headers={
+                **restarted.authorized(trace_id=decision["trace_id"], run_id=decision["run_id"]),
+                "Idempotency-Key": secrets.token_hex(16),
+            },
+        )
+        assert replay.status_code == 200, replay.text
+        assert replay.json()["provenance_id"] == recorded["provenance_id"]
+        assert replay.json()["chain_head"] == recorded["chain_head"]
+
 
 def test_a_decision_cannot_smuggle_a_raw_prompt_or_output(
     service: ServiceProcess, contract: ContractDocuments

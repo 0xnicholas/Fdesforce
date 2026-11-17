@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from app.audit import GENESIS_HASH, AuditSchemaMismatch, AuditStore, DecisionConflict
+from app.audit import APPLICATION_ID, GENESIS_HASH, AuditSchemaMismatch, AuditStore, DecisionConflict
 from app.canonical import canonical_json, sha256_digest
 
 
@@ -178,6 +178,20 @@ def test_verify_chain_passes_after_a_reopen(path: Path) -> None:
     assert report.verified_through_seq == 2
 
 
+def test_a_replay_survives_a_reopen(path: Path) -> None:
+    """The `decision_id` uniqueness is on disk, so a restart cannot turn one write into two."""
+    with AuditStore(path) as first:
+        original = first.append_decision(decision())
+
+    with AuditStore(path) as reopened:
+        replay = reopened.append_decision(decision())
+
+        assert replay.created is False
+        assert replay.entry.provenance_id == original.entry.provenance_id
+        assert replay.entry.hash == original.entry.hash
+        assert len(reopened) == 1
+
+
 def test_verify_chain_detects_a_rewritten_payload(store: AuditStore, path: Path) -> None:
     store.append_decision(decision())
     written = store.append_decision(decision())  # replay: same entry, so the document is the stored one
@@ -258,6 +272,28 @@ def test_a_database_from_another_schema_version_is_refused(path: Path) -> None:
 
     with pytest.raises(AuditSchemaMismatch):
         AuditStore(path).open()
+
+
+def test_a_database_with_our_version_but_not_our_id_is_refused(path: Path) -> None:
+    """`user_version` alone is not enough: some other SQLite store could share it."""
+    path.parent.mkdir(parents=True)
+    with raw(path) as connection:
+        connection.execute("PRAGMA user_version = 1")
+
+    with pytest.raises(AuditSchemaMismatch, match="not an FDE audit store"):
+        AuditStore(path).open()
+
+
+def test_a_migration_interrupted_before_the_version_stamp_is_resumed(path: Path) -> None:
+    """The application id is written first, so a crash before `user_version` re-migrates."""
+    path.parent.mkdir(parents=True)
+    with raw(path) as connection:
+        connection.execute(f"PRAGMA application_id = {APPLICATION_ID}")
+
+    with AuditStore(path) as resumed:
+        resumed.append_decision(decision())
+        assert len(resumed) == 1
+        assert resumed.verify_chain().status == "valid"
 
 
 def test_the_document_is_the_hashed_payload(store: AuditStore) -> None:
