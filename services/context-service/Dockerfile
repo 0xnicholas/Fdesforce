@@ -1,7 +1,7 @@
 # The platform-owned context-service image (`docs/runtime-contract.md` §9.1).
 #
 # The bundle's `ContextServiceTopology` fragment uses this directory as the build
-# context (`platform/context-service/1.0.0/topology.yaml` → `build.context:
+# context (`platform/context-service/1.1.0/topology.yaml` → `build.context:
 # context-service`), so this Dockerfile lands at the root of that context.
 #
 # The base image is the platform's pinned interpreter (`platform/toolchain.yaml`

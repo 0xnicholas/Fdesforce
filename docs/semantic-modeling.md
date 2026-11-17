@@ -460,6 +460,13 @@ spec:
 
 **优先级**：精确结构化事实 > 图扩展 > 词法/向量。规则引擎只做过滤/策略判定，不参与召回排序。Recipe 可以在允许范围内调权重，但不能把 `mask` 或 `budget` 放到最后或省略。
 
+v0 实现的四个选择（`services/context-service/README.md` 有完整说明）：
+
+- `structured` 从**图**读：ingest 已经执行过 mapping，图就是物化后的结构化事实；Connector typed operation 是 Tool 的接缝（`/v1/connectors/{connector_id}/operations`），不是检索里的第二条数据通路。ingest 未完成时检索返回 `reason=partial`，而不是把旧图当成源的当前状态。
+- 权重直接当作分数上限（`score = 权重 × 阶段分`），所以 §6.3 的优先级是算术而不是事后排序；`freshnessBoost` 的「新鲜」由 ingest 判定并写进实体，避免同一请求两次调用因时钟不同而得到不同 snapshot digest。
+- `resolve` 解析不到时退到「该类实体的词法匹配」（§6.3 的图/词法实体匹配），所以 `graph` 的 `from: resolved` 仍然成立：阶段不从任意命中出发，只从**这一类**解析出的对象出发。
+- `structured` 取「已解析对象 + 该 source 声明的实体的 1 跳 join」，等价于一条 join 所有映射表的 SQL；2 跳及跨 source 的邻居归 `graph`，按 `anchor × 0.5^hop × edge` 衰减。`merge` 按内容 hash 去重时**合并 provenance**：被去掉的候选的 entity_id/source_ref/version 进入幸存项的 metadata。
+
 ### 6.4 降级语义
 
 | 情况 | 返回 |

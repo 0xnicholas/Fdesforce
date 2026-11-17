@@ -299,6 +299,27 @@ export interface Error {
   error: ErrorDetail;
 }
 
+// ---- connector.schema.json
+
+export interface ConnectorOperationRequest {
+  /** The Connector's name from the Customer-level manifest; it must equal the path parameter. */
+  connector_id: string;
+  /** The typed operation, as the Connector manifest declares it (camelCase in v0: `lookupClaim`). */
+  operation: string;
+  /** The operation's arguments, validated against the input schema the Tool pinned. */
+  input: Record<string, unknown>;
+}
+
+export interface ConnectorOperationResponse {
+  connector_id: string;
+  operation: string;
+  /** The operation's output, shaped by the output schema the Tool pinned. */
+  result: Record<string, unknown>;
+  output_digest: Digest;
+  classification?: Classification;
+  trace_id: TraceId;
+}
+
 // ---- decision.schema.json
 
 export interface GraphEntityEvidence {

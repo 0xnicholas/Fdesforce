@@ -42,7 +42,7 @@ export const paths = {
   exampleConnectorContract: 'examples/spec/acme/customer/connectors/contracts/claims-db.md',
   exampleEvalSuite: 'examples/eval/acme/eval-suite.yaml',
   exampleRuntimeProfile: 'platform/runtime-profiles/mastra-1.83-node22.yaml',
-  exampleContextServiceTopology: 'platform/context-service/1.0.0/topology.yaml',
+  exampleContextServiceTopology: 'platform/context-service/1.1.0/topology.yaml',
   exampleModelProfile: 'platform/model-profiles/standard.yaml',
   exampleFallbackProfile: 'platform/model-profiles/standard-fallback.yaml',
   exampleContextPackage: 'examples/semantic/acme',

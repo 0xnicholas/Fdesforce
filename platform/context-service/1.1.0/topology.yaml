@@ -1,0 +1,147 @@
+# Platform artifact — the platform's half of the v0 split topology.
+#
+# `docs/runtime-adapter.md` §8.1: the generator declares only the runtime it owns,
+# and the platform declares context-service, the graph and audit volumes and the
+# migrate/ingest jobs. `composeTopology` (in `@fde/bundle`) merges the two into the
+# single `BundleTopology` a renderer consumes; this fragment never declares the
+# startup order, the deployment naming or the ingress, because those belong to the
+# composed bundle rather than to one of its halves.
+#
+# Nothing here is a step value: component images are build contexts until the
+# release chain pins digests (#33), and every secret is a `secretRef` — the
+# install-time resolver reads the named secret from the customer's store (§9.3).
+#
+# 1.1.0 adds the frozen Context Package as a read-only volume (the service executes a
+# recipe from it, and the ingest job mounts the same files) and binds the two
+# deployment facts a maintenance token needs. Additive: 1.0.0 is unchanged and a lock
+# that pinned it still composes it.
+#
+# Schema: packages/spec/src/schema/bundle-topology.ts
+
+apiVersion: fde.dev/v0
+kind: ContextServiceTopology
+metadata:
+  name: context-service
+  version: 1.1.0
+  description: context-service 0.1.0 — embedded Context Graph + SQLite audit + frozen Context Package, split topology (v0).
+
+spec:
+  components:
+    - name: context-service
+      role: context-service
+      image:
+        build:
+          context: context-service
+          dockerfile: Dockerfile
+      # Internal only. No `expose`, so the composition never routes the ingress here
+      # and the renderer publishes no host port for it.
+      ports:
+        - { name: internal, containerPort: 8011 }
+      volumes:
+        - { name: graph, mountPath: /data/graph }
+        - { name: audit, mountPath: /data/audit }
+        # The frozen Context Package is an *input*: the bundle carries it
+        # (`context/<package>/…`, written by `fde build`), the install step puts it on
+        # the volume, and the service only reads it. Read-only so a bug cannot edit the
+        # semantics a Decision cites.
+        - { name: context-package, mountPath: /data/context-package, readOnly: true }
+      env:
+        - { name: GRAPH_BACKEND, value: embedded }
+        - { name: GRAPH_PATH, value: /data/graph/graph.json }
+        - { name: AUDIT_PATH, value: /data/audit/audit.sqlite }
+        - { name: CONTEXT_PACKAGE_PATH, value: /data/context-package }
+      secretRefs:
+        - { store: customer, key: fde/execution-context-public-key }
+        - { store: customer, key: fde/jobs/public-key }
+      # Readiness, not liveness: `/readyz` answers 200 only once the graph is loaded,
+      # the audit store is writable and the schema versions match (§9.2). A 503 raises
+      # in `urlopen`, so the probe exits non-zero and the dependents wait.
+      healthCheck:
+        path: /readyz
+        port: 8011
+        command:
+          - python
+          - -c
+          - import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8011/readyz').status == 200 else 1)
+      dependsOn: [migrate]
+      resources: { cpu: "0.5", memory: 1Gi }
+
+  volumes:
+    - name: graph
+      size: 20Gi
+      backup: true
+      description: Context Graph snapshot (embedded backend) — rebuilt from Context Sources, never the system of record for audit. Backed up separately from audit and mastra-state (§9.5).
+    - name: audit
+      size: 10Gi
+      backup: true
+      description: append-only audit store with its chain head. Backed up separately from graph and mastra-state (§9.5).
+    - name: context-package
+      backup: false
+      description: the frozen Context Package the deployment serves, mounted read-only into the service and the ingest job. Not backed up — it is the Bundle's own payload, recoverable from the release it was installed from.
+
+  jobs:
+    - name: migrate
+      owner: context-service
+      steps:
+        - id: schema
+          command: [python, -m, app.migrate]
+          runBefore: [context-service]
+      volumes:
+        - { name: graph, mountPath: /data/graph }
+        - { name: audit, mountPath: /data/audit }
+      env:
+        - { name: GRAPH_PATH, value: /data/graph/graph.json }
+        - { name: AUDIT_PATH, value: /data/audit/audit.sqlite }
+    - name: ingest
+      owner: context-service
+      steps:
+        # Not `runBefore` anything: ingest materializes the Context Graph after the
+        # service is up and never blocks readiness (§9.2). Until it finishes, retrieve
+        # answers `degraded=true, reason=partial` and `/readyz` says `degraded`.
+        - id: ingest
+          command: [python, -m, app.ingest]
+          runAfter: [migrate, context-service]
+      volumes:
+        - { name: context-package, mountPath: /data/context-package, readOnly: true }
+      env:
+        # Bundle-internal address; the renderer gives every service its topology name
+        # as a network alias, so the deployment prefix does not change this URL.
+        - { name: CONTEXT_SERVICE_URL, value: "http://context-service:8011" }
+        - { name: CONTEXT_PACKAGE_PATH, value: /data/context-package }
+        # A maintenance token acts for one Deployment and one Solution (§5.1), and
+        # neither is a value a bundle can bake in: a release is deployed per
+        # environment, so `fde install` writes both into the compose project's
+        # environment. `${NAME:?}` is deliberate — an unbound identity must fail the
+        # deployment, not mint a token for a Deployment nobody named.
+        - { name: FDE_DEPLOYMENT_ID, value: "${FDE_DEPLOYMENT_ID:?}" }
+        - { name: FDE_SOLUTION_ID, value: "${FDE_SOLUTION_ID:?}" }
+      secretRefs:
+        - { store: customer, key: fde/jobs/signing-key }
+
+  secretBindings:
+    # The `mastra-app` issuer's public key: context-service verifies, the runtime signs.
+    - secretRef: { store: customer, key: fde/execution-context-public-key }
+      target: env
+      name: EXECUTION_CONTEXT_PUBLIC_KEY
+      required: true
+    # The `fde-jobs` issuer's public key, for the same reason: a maintenance token is
+    # signed by a key context-service must hold the verification half of, and the two
+    # issuers never share a key (§5.4). `kid` is not configured — the service derives
+    # the RFC 7638 thumbprint from each key.
+    - secretRef: { store: customer, key: fde/jobs/public-key }
+      target: env
+      name: FDE_JOBS_PUBLIC_KEY
+      required: true
+    # The `fde-jobs` issuer's private key: mounted into the maintenance jobs only.
+    - secretRef: { store: customer, key: fde/jobs/signing-key }
+      target: file
+      name: /run/secrets/fde-jobs-signing-key
+      required: true
+
+  networks:
+    # `bundle` is internal: no container on it can be reached from the host or reach
+    # out. `edge` is the one non-internal network; the renderer attaches only the
+    # ingress component to it, so the runtime app can still reach its model endpoint
+    # while context-service stays bundle-local.
+    - { name: bundle, internal: true }
+    - { name: edge, internal: false }

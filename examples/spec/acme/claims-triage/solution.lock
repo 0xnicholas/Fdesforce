@@ -70,7 +70,7 @@ toolchain:
   generator: 0.1.0
   image: ghcr.io/fde-workbench/toolchain@sha256:cd0a10104158f27f0739b325582d241de5ff44a6d2aa333001ddee5d7cdf35fb
   contextServiceTopology:
-    version: 1.0.0
-    digest: sha256:822c8915210d51fe49fc248406013d7175b292c3f13845311b4e4b14ff27be0b
+    version: 1.1.0
+    digest: sha256:402abdccccfe827f7bfdd6bfae22581dcf683566bcc672710e6ff9f71b312a38
   licenseCatalog:
     digest: sha256:9e8861fa5f5feb35de6a91729efccae1c89270cd9a0c6e06c1d0dba2925bd4be

@@ -47,7 +47,10 @@ def test_runtime_info_reports_only_itself_with_the_platform_pins(service: Servic
     # `components[]` is this service's own component. The runtime app adds its own
     # entries when it aggregates; a peer that named one would publish it twice.
     assert [component["name"] for component in body["components"]] == ["context-service"]
-    assert body["components"][0]["status"] == "ready"
+    assert body["components"][0]["status"] == service.get("/readyz").json()["status"], (
+        "runtime-info reports the same readiness evaluation /readyz answers with, so a "
+        "component that said `ready` while the probe said `degraded` would be a second answer"
+    )
     assert body["components"][0]["contract_version"] == RUNTIME_CONTRACT_VERSION
 
 

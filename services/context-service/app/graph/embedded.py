@@ -128,7 +128,7 @@ class EmbeddedGraphStore:
         self._save()
         return len(checked)
 
-    def delete_by_source(self, tenant_id: str, source_ref: str) -> int:
+    def delete_source_ref(self, tenant_id: str, source_ref: str) -> int:
         """Remove one tenant's entities of `source_ref`, and every edge that touched them.
 
         This is ingest's rebuild path: a source that disappeared or was re-read must
@@ -137,7 +137,7 @@ class EmbeddedGraphStore:
         rebuild replaces the payload and keeps `graph_id`, then saves once.
         """
         if not source_ref:
-            raise InvalidEntity("delete_by_source needs a source_ref; an empty one would match everything")
+            raise InvalidEntity("delete_source_ref needs a source_ref; an empty one would match everything")
         engine = self._open_engine()
         nodes, edges = engine.payload()
         doomed = {
@@ -145,6 +145,37 @@ class EmbeddedGraphStore:
             for node in nodes
             if tenant_of(str(node.get("id"))) == tenant_id
             and str((node.get("properties") or {}).get("source_ref") or node.get("source_ref") or "") == source_ref
+        }
+        if not doomed:
+            return 0
+        kept_nodes = [node for node in nodes if str(node.get("id")) not in doomed]
+        kept_edges = [
+            edge
+            for edge in edges
+            if str(edge.get("source")) not in doomed and str(edge.get("target")) not in doomed
+        ]
+        engine.replace(kept_nodes, kept_edges)
+        self._save()
+        return len(doomed)
+
+    def delete_source(self, tenant_id: str, source_id: str) -> int:
+        """Remove everything ingest attributed to one Context Source — the `rebuild` path.
+
+        A rebuild must not leave behind a fact the source no longer asserts: an entity
+        dropped upstream would otherwise stay in the graph and keep being cited. The
+        attribution is the `source` attribute ingest records on every entity it writes
+        (the Context Source id, not the per-row `source_ref`), and the edges touching a
+        removed entity go with it — an edge to nothing is not evidence.
+        """
+        if not source_id:
+            raise InvalidEntity("delete_source needs a source id; an empty one would match a source nobody wrote")
+        engine = self._open_engine()
+        nodes, edges = engine.payload()
+        doomed = {
+            str(node.get("id"))
+            for node in nodes
+            if tenant_of(str(node.get("id"))) == tenant_id
+            and str((node.get("properties") or {}).get("source") or "") == source_id
         }
         if not doomed:
             return 0
@@ -268,11 +299,21 @@ class EmbeddedGraphStore:
                 break
         return matches
 
-    def expand(self, tenant_id: str, anchors: Sequence[str], *, hops: int, limit: int) -> list[Expansion]:
-        """Everything within `hops` of the anchors, nearest first.
+    def expand(
+        self,
+        tenant_id: str,
+        anchors: Sequence[str],
+        *,
+        hops: int,
+        limit: int,
+        predicates: Sequence[str] | None = None,
+    ) -> list[Expansion]:
+        """Everything within `hops` of the anchors over `predicates`, nearest first.
 
         Deduplicated by `entity_id` keeping the smallest hop, anchors excluded (they
-        are already the lexical candidates), and filtered like a search result.
+        are already the resolved/lexical candidates), and filtered like a search
+        result. `predicates` is the recipe's declared relations: a walk that could
+        follow every edge would return a neighbourhood no recipe asked for.
         """
         if hops <= 0 or limit <= 0 or not anchors:
             return []
@@ -282,14 +323,24 @@ class EmbeddedGraphStore:
         for anchor in anchors:
             if tenant_of(anchor) != tenant_id:
                 continue
-            for entity_id, hop, weight in engine.neighbours(anchor, hops=hops, limit=limit):
+            for entity_id, hop, weight, predicate in engine.neighbours(
+                anchor, hops=hops, limit=limit, relationships=predicates
+            ):
                 if entity_id in seen:
                     continue
                 seen.add(entity_id)
                 entity = self._usable(tenant_id, entity_id)
                 if entity is None:
                     continue
-                reached.append(Expansion(entity_id=entity.entity_id, hop=hop, weight=weight, anchor=anchor))
+                reached.append(
+                    Expansion(
+                        entity_id=entity.entity_id,
+                        hop=hop,
+                        weight=weight,
+                        anchor=anchor,
+                        predicate=predicate,
+                    )
+                )
                 if len(reached) >= limit:
                     return reached
         return reached

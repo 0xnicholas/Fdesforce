@@ -211,6 +211,7 @@ def run_c1(context: CaseContext) -> tuple[str, ...]:
 #: Path parameters need a value the schema accepts before the body is even read.
 _PATH_IDS = {
     "approval_id": "appr_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "connector_id": "claims-db",
     "decision_id": "dec_01ARZ3NDEKTSV4RRFFQ69G5FAV",
     "run_id": "run_01ARZ3NDEKTSV4RRFFQ69G5FAV",
 }
@@ -1085,6 +1086,99 @@ def run_c14(context: CaseContext) -> tuple[str, ...]:
 
 
 # ---------------------------------------------------------------------------
+# C15 — ready/degraded: ingest does not block readiness, and a partial answer says so
+# ---------------------------------------------------------------------------
+
+#: The scopes a retrieval of the Acme claim needs: the platform scope for the operation
+#: and the baseline's class scope for `ic:Claim` (`permissions.yaml`).
+C15_SCOPES = ("context:retrieve", "claims:read")
+
+
+def run_c15(context: CaseContext) -> tuple[str, ...]:
+    """`/readyz` is degraded while ingest is incomplete, and `retrieve` says `partial`.
+
+    §9.2's sequence is what is tested: the service starts on a migrated but unmaterialized
+    volume, the ingest job runs, and readiness turns green — the process never stops
+    serving in between, it reports. The case owns its process because the transition is the
+    assertion, and a shared one would already be on the far side of it.
+    """
+    documents = context.documents
+    failures: list[str] = []
+
+    with ServiceProcess.start() as service:
+        before = service.get("/readyz")
+        if before.status_code != 200:
+            failures.append(f"/readyz answered {before.status_code} before ingest, expected 200 (degraded)")
+        elif before.json()["status"] != "degraded":
+            failures.append(f"/readyz said {before.json()['status']!r} before ingest, expected 'degraded'")
+        elif not any(reason.startswith("ingest:") for reason in before.json()["reasons"]):
+            failures.append(f"/readyz gave no ingest reason before it ran: {before.json()['reasons']}")
+
+        retrieve_body = {
+            "recipe_id": "claims-context",
+            "query": "claim C-1001",
+            "filters": {"claim_id": "C-1001"},
+        }
+        unready = service.post(
+            "/v1/context/retrieve",
+            json=retrieve_body,
+            headers=service.authorized(scopes=C15_SCOPES),
+        )
+        if unready.status_code != 200:
+            failures.append(f"retrieve answered {unready.status_code} before ingest: {unready.text[:200]}")
+        else:
+            body = unready.json()
+            failures.extend(
+                f"the pre-ingest response: {problem}"
+                for problem in documents.problems(body, "retrieval.schema.json#/$defs/RetrieveResponse")
+            )
+            if body.get("degraded") is not True:
+                failures.append("retrieve answered as complete before the package was materialized")
+            if body.get("reason") != "partial":
+                failures.append(
+                    f"retrieve's reason was {body.get('reason')!r}, expected 'partial' "
+                    "(the graph is not the source's current state yet)"
+                )
+
+        job = service.ingest()
+        if job.status_code != 200:
+            failures.append(f"the ingest job answered {job.status_code}: {job.text[:300]}")
+        else:
+            failures.extend(
+                f"the ingest job: {problem}"
+                for problem in documents.problems(job.json(), "ingest-job.schema.json#/$defs/IngestJobResult")
+            )
+            if job.json().get("status") != "succeeded":
+                failures.append(f"the ingest job finished {job.json().get('status')!r}: {job.json().get('message')}")
+
+        after = service.get("/readyz")
+        if after.status_code != 200 or after.json()["status"] != "ready":
+            failures.append(f"/readyz after ingest: {after.status_code} {after.text[:200]}")
+
+        ready = service.post(
+            "/v1/context/retrieve",
+            json=retrieve_body,
+            headers=service.authorized(scopes=C15_SCOPES),
+        )
+        if ready.status_code != 200:
+            failures.append(f"retrieve answered {ready.status_code} after ingest: {ready.text[:200]}")
+        else:
+            body = ready.json()
+            if body.get("degraded") is not False:
+                failures.append(f"retrieve still reports {body.get('reason')!r} after a complete ingest")
+            if not body.get("items"):
+                failures.append("the materialized package answered the golden question with no items")
+
+    if failures:
+        raise CaseFailure(failures)
+    return (
+        "/readyz is degraded (not not_ready) while ingest is incomplete",
+        "retrieve answers degraded=true, reason=partial before the package is materialized",
+        "after the job: /readyz ready, and the retrieval cites the package's facts",
+    )
+
+
+# ---------------------------------------------------------------------------
 # The suite
 # ---------------------------------------------------------------------------
 
@@ -1103,7 +1197,7 @@ CASES: tuple[Case, ...] = (
     Case("C12", "Cancellation", None, needs_service=True, owner="#42"),
     Case("C13", "Audit append-only", run_c13),
     Case("C14", "Provenance returns Decision", run_c14, needs_service=True),
-    Case("C15", "Ready/degraded", None, needs_service=True, owner="#39"),
+    Case("C15", "Ready/degraded", run_c15),
 )
 
 

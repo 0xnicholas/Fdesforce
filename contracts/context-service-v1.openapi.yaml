@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: FDE Context Service API
-  version: 1.1.0
+  version: 1.2.0
   description: |
     Internal runtime API owned by context-service. The generated runtime app
     (mastra-app in v0) is the only caller.
@@ -12,6 +12,11 @@ info:
     only the fde-jobs issuer reaches. It is not part of the customer Runtime API
     and is not part of the `fde.runtime/v1` runtime contract that mastra-app
     serves, so it carries its own version here.
+
+    1.2.0 adds the Connector typed operation
+    (`POST /v1/connectors/{connector_id}/operations`): the single seam a
+    Connector-backed Tool has, so a Tool never holds Connector credentials.
+    Additive — 1.1.0's surface is unchanged.
 
     Authorization is part of this document, not a table a service transcribes:
     every authenticated operation declares the platform scope its caller must
@@ -27,6 +32,8 @@ servers:
     description: In-bundle service network
 tags:
   - name: context
+  - name: connectors
+    description: Connector typed operations; the Runtime app's Tool seam
   - name: decisions
   - name: approvals
   - name: jobs
@@ -58,6 +65,71 @@ paths:
             application/json:
               schema:
                 $ref: './schemas/retrieval.schema.json#/$defs/RetrieveResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '504':
+          $ref: '#/components/responses/Timeout'
+  /v1/connectors/{connector_id}/operations:
+    post:
+      tags: [connectors]
+      operationId: invokeConnectorOperation
+      summary: Invoke one typed operation on a Connector
+      x-fde-required-scope: context:retrieve
+      x-fde-issuer: runtime
+      x-fde-run-scoped: true
+      description: |
+        The one seam a Connector-backed Tool has (`docs/runtime-adapter.md` D6): the
+        generated Tool calls this, and context-service calls the Connector. The Tool
+        never holds Connector credentials and never learns the data source's address,
+        so tenant, scope and data permission are enforced where the credentials are —
+        on this side of the seam.
+
+        `x-fde-required-scope` is the platform scope that authorizes context access at
+        all; the *data* permission is the customer baseline's (`permissions.yaml`): an
+        entity class that names scopes is refused to a caller that does not hold them,
+        and a masked property stays masked here exactly as it does in a retrieval. A
+        Connector an operator did not register is `404 not_found`; an operation that
+        Connector does not implement is `404 not_found` too, with
+        `error.details.reason` saying which. A `connector_id` in the body that
+        disagrees with the path is `400 invalid_request`.
+
+        `output_digest` is the SHA-256 of the canonical JSON of `result`, so a Decision's
+        outcome can cite what the Tool returned without storing a second copy of it.
+      parameters:
+        - name: connector_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-z0-9][a-z0-9-]{1,62}$'
+        - $ref: '#/components/parameters/TraceParent'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './schemas/connector.schema.json#/$defs/ConnectorOperationRequest'
+      responses:
+        '200':
+          description: The operation's result
+          content:
+            application/json:
+              schema:
+                $ref: './schemas/connector.schema.json#/$defs/ConnectorOperationResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':

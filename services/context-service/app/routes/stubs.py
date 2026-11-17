@@ -28,12 +28,20 @@ STUBS: dict[str, str] = {
     "listApprovals": "#40",
     "decideApproval": "#40",
     "consumeApproval": "#40",
-    "startIngestJob": "#39",
 }
 
 #: The operations this slice really serves.
 IMPLEMENTED: frozenset[str] = frozenset(
-    {"healthz", "readyz", "getRuntimeInfo", "recordDecision", "getProvenance", "retrieveContext"}
+    {
+        "healthz",
+        "readyz",
+        "getRuntimeInfo",
+        "recordDecision",
+        "getProvenance",
+        "retrieveContext",
+        "invokeConnectorOperation",
+        "startIngestJob",
+    }
 )
 
 

@@ -2,7 +2,7 @@
 
 The deployment's startup order is `migrate` → `context-service` → `ingest`, and
 the topology makes the service wait on the job's exit (`dependsOn: [migrate]`,
-`platform/context-service/1.0.0/topology.yaml`). The job's contract is therefore
+`platform/context-service/1.1.0/topology.yaml`). The job's contract is therefore
 its **process**: exit 0 means both volumes are at the schema this release writes,
 and anything else means the service must not start. These tests run it the way
 the topology does — `GRAPH_PATH`/`AUDIT_PATH` in, no issuer keys, one exit code

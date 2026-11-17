@@ -22,6 +22,38 @@ from typing import Any
 from app.graph import snapshot
 from app.graph.embedded import EmbeddedGraphStore
 from app.graph.port import Entity, Relationship
+from app.ingest_ledger import IngestLedger, IngestLedgerStore, PackageRef, SourceState
+
+
+def seed_ledger(
+    graph_path: Path,
+    *,
+    package: PackageRef | None = None,
+    sources: tuple[str, ...] = ("claims-db", "sharepoint-claims"),
+) -> None:
+    """Record a completed ingest for the reference package revision."""
+    from conformance.harness import (
+        REFERENCE_PACKAGE_DIGEST,
+        REFERENCE_PACKAGE_NAME,
+        REFERENCE_PACKAGE_VERSION,
+    )
+
+    ref = package or PackageRef(
+        name=REFERENCE_PACKAGE_NAME,
+        version=REFERENCE_PACKAGE_VERSION,
+        digest=REFERENCE_PACKAGE_DIGEST,
+    )
+    IngestLedgerStore.for_graph(graph_path).record(
+        IngestLedger(
+            package=ref,
+            status="succeeded",
+            completed_at="2026-01-06T00:00:00Z",
+            job_id="job_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            sources=tuple(
+                SourceState(source=source, status="ok", watermark="2026-01-05T08:00:00Z") for source in sources
+            ),
+        )
+    )
 
 
 def entity(
@@ -60,13 +92,22 @@ def seed_volume(
     entities: Iterable[Entity],
     relationships: Iterable[Relationship] = (),
     extra_tenants: Mapping[str, tuple[Iterable[Entity], Iterable[Relationship]]] | None = None,
+    ingested: bool = True,
+    package: PackageRef | None = None,
 ) -> dict[str, Any]:
     """Write a migrated graph volume containing these entities and relationships.
 
     `extra_tenants` exists for the isolation tests: one volume, more than one
     tenant's facts, so "the token's tenant decides what is returned" can be
     asserted against data that would leak if the filter were missing.
+
+    `ingested=True` writes the ingest ledger beside the snapshot, saying this package
+    revision was materialized — which is what a real ingest does (§9.2). Without it the
+    service correctly reports `partial`, so a test that wants to assert on a *complete*
+    graph has to say that the graph is complete.
     """
+    if ingested:
+        seed_ledger(path, package=package)
     snapshot.establish(path)
     store = EmbeddedGraphStore(path).open()
     try:

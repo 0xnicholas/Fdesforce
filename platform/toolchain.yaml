@@ -25,4 +25,4 @@ spec:
     audit: 1
   # Which vendored `platform/context-service/<version>` fragment this toolchain
   # composes. Pinning it here keeps `fde build` from picking "whatever is newest".
-  contextServiceTopology: 1.0.0
+  contextServiceTopology: 1.1.0

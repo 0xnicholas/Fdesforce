@@ -56,6 +56,10 @@ _Avoid_: Function, Action
 对外部系统的接入，拥有凭证引用、数据契约和限流规则，并向 Tool 或 Context Source 提供能力；它是 Customer 级资产，可被多个 Solution 引用。
 _Avoid_: Integration, Adapter
 
+**Connector Typed Operation**:
+Connector 声明的具名操作（名称、输入/输出 schema、副作用与幂等语义）；Tool 和 ingest 都只通过 context-service 的这个接缝访问外部系统，所以 Tool 不持有 Connector 凭证、也不知道数据源地址（`docs/runtime-adapter.md` D6）。
+_Avoid_: Query, SQL, RPC
+
 ## 复用与定制
 
 **Template**:
@@ -233,6 +237,10 @@ _Avoid_: Eval, Benchmark
 **Context Graph**:
 按 Semantic Model 和 Entity Mapping 从 Context Source 物化出的图数据，可重建，不是作者实体。
 _Avoid_: Knowledge Graph
+
+**Ingest Ledger**:
+图卷上与快照同放的记录：这个图由哪个 frozen Context Package revision 物化、每个 source 的上次结果与 watermark。它让「ingest 未完成」在重启后仍然可读，`/readyz` 与 `retrieve` 由此给出同一个 `partial` 判断。
+_Avoid_: Cursor, Checkpoint, State file
 
 **Customer Context Package (CCP)**:
 一个 Customer 的版本化、不可变语义上下文资产包，聚合 Ontology 选择与客户扩展、Semantic Model、Context Source 定义、Entity Mapping、Context Recipe、权限 baseline 和 Context Eval Suite；不包含客户数据、secret 或生成物。

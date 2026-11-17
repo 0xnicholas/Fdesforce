@@ -225,6 +225,30 @@ class Error(WireModel):
     error: ErrorDetail
 
 
+class ConnectorOperationRequest(WireModel):
+    connector_id: str = Field(pattern='^[a-z0-9][a-z0-9-]{1,62}$')
+    operation: str = Field(pattern='^[a-z][A-Za-z0-9]{1,62}$')
+    input: dict[str, Any]
+
+
+class ConnectorOperationResponse(WireModel):
+    connector_id: str = Field(pattern='^[a-z0-9][a-z0-9-]{1,62}$')
+    operation: str = Field(pattern='^[a-z][A-Za-z0-9]{1,62}$')
+    result: dict[str, Any]
+    output_digest: Digest
+    classification: Classification | None = Field(default=None)
+    trace_id: TraceId
+
+    @model_validator(mode='before')
+    @classmethod
+    def _reject_null(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            for key in ('classification'):
+                if key in data and data[key] is None:
+                    raise ValueError(f'{cls.__name__}.{key} must not be null')
+        return data
+
+
 class GraphEntityEvidence(WireModel):
     type: Literal['graph_entity'] | None = Field(default=None)
     entity_id: EntityId
@@ -963,6 +987,8 @@ for _model in (
     PolicyEvaluation,
     ErrorDetail,
     Error,
+    ConnectorOperationRequest,
+    ConnectorOperationResponse,
     GraphEntityEvidence,
     RetrievalEvidence,
     RunArtifactEvidence,

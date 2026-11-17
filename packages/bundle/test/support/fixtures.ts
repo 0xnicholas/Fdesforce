@@ -27,7 +27,7 @@ export const repoRoot = resolve(import.meta.dirname, '../../../..');
 export const DEPLOYMENT_ID = 'dep_01ARZ3NDEKTSV4RRFFQ69G5FAV';
 export const OTHER_DEPLOYMENT_ID = 'dep_01BX5ZZKBKACTAV9WEVGEMMVRZ';
 
-export const PLATFORM_FRAGMENT = 'platform/context-service/1.0.0/topology.yaml';
+export const PLATFORM_FRAGMENT = 'platform/context-service/1.1.0/topology.yaml';
 
 export const readYaml = <T = unknown>(path: string): T =>
   parseYaml(readFileSync(join(repoRoot, path), 'utf8')) as T;

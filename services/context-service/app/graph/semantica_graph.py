@@ -158,10 +158,27 @@ class EngineGraph:
             candidates.append((entity_id, _clamp(float(score) if isinstance(score, (int, float)) else 0.0)))
         return candidates
 
-    def neighbours(self, entity_id: str, *, hops: int, limit: int) -> list[tuple[str, int, float]]:
-        """Everything reachable within `hops`, with the hop it was first reached at."""
-        results = self._graph.get_neighbors(entity_id, hops=hops, limit=limit)
-        reached: list[tuple[str, int, float]] = []
+    def neighbours(
+        self,
+        entity_id: str,
+        *,
+        hops: int,
+        limit: int,
+        relationships: Sequence[str] | None = None,
+    ) -> list[tuple[str, int, float, str]]:
+        """Everything reachable within `hops`, with the hop, weight and relation.
+
+        `relationships` is the engine's own `relationship_types` whitelist, applied at
+        every hop: the recipe's `relations` decide what the walk may traverse, and the
+        engine is the layer that can enforce it without a second traversal.
+        """
+        results = self._graph.get_neighbors(
+            entity_id,
+            hops=hops,
+            limit=limit,
+            relationship_types=list(relationships) if relationships else None,
+        )
+        reached: list[tuple[str, int, float, str]] = []
         for result in results:
             reached_id = result.get("id")
             if not isinstance(reached_id, str) or reached_id == entity_id:
@@ -173,6 +190,7 @@ class EngineGraph:
                     reached_id,
                     int(hop) if isinstance(hop, int) else 1,
                     _clamp(float(weight) if isinstance(weight, (int, float)) else 1.0, floor=0.0),
+                    str(result.get("relationship") or ""),
                 )
             )
         return reached

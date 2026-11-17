@@ -124,6 +124,7 @@ Admin 端点只对 `customer_admin` 开放，客户应用不调用；`halt` 语�
 | Method | Path | 用途 |
 |---|---|---|
 | `POST` | `/v1/context/retrieve` | 执行 Context Recipe，返回 Retrieval Snapshot |
+| `POST` | `/v1/connectors/{connector_id}/operations` | Connector typed operation（Tool 到客户数据源的唯一接缝，`docs/runtime-adapter.md` D6） |
 | `POST` | `/v1/decisions` | 写不可变 Decision + Provenance；需要 `Idempotency-Key` |
 | `GET` | `/v1/provenance/{decision_id}` | 读 Decision 的 PROV-O 谱系 |
 | `POST` | `/v1/approvals` | 创建审批请求；需要 `Idempotency-Key` |
@@ -170,6 +171,39 @@ Admin 端点只对 `customer_admin` 开放，客户应用不调用；`halt` 语�
 ```
 
 `RetrieveRequest.subject` 不是信任来源；context-service 以 `ExecutionContext` 的 `sub`/`actor` 为准，body 中的 subject 只作为 recipe 过滤提示，冲突时返回 `403`。
+
+`POST /v1/connectors/{connector_id}/operations` 请求：
+
+<!-- schema: contracts/schemas/connector.schema.json#/$defs/ConnectorOperationRequest -->
+```json
+{
+  "connector_id": "claims-db",
+  "operation": "lookupClaim",
+  "input": { "claimId": "C-1001" }
+}
+```
+
+响应：
+
+<!-- schema: contracts/schemas/connector.schema.json#/$defs/ConnectorOperationResponse -->
+```json
+{
+  "connector_id": "claims-db",
+  "operation": "lookupClaim",
+  "result": {
+    "claimId": "C-1001",
+    "policyNumber": "P-2001",
+    "customerId": "CU-42",
+    "amount": 12000,
+    "status": "review"
+  },
+  "output_digest": "sha256:3d1b1a2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8",
+  "classification": "confidential",
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736"
+}
+```
+
+Connector-backed Tool 只通过这个端点访问客户数据源（D6）：Tool 不持有 Connector 凭据，也拿不到数据源地址；tenant、scope 与数据权限都在持有凭据的这一侧执行。platform scope 是 `context:retrieve`（这是上下文访问），而**数据**权限来自客户基线 `permissions.yaml` —— 声明了 scopes 的实体类别对不持有该 scope 的调用者拒绝，被 mask 的属性与检索时一样保持 mask。`connector_id` 在 body 与 path 不一致时是 `400 invalid_request`；未注册的 Connector、以及该 Connector 未实现的 operation 都是 `404 not_found`。
 
 ### 3.4 错误 envelope
 

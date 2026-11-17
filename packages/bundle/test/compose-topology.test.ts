@@ -40,7 +40,12 @@ describe('the composed bundle', () => {
 
     expect(spec().components.map((component) => component.name)).toEqual(['context-service', 'mastra-app']);
     expect(spec().jobs.map((job) => job.name)).toEqual(['migrate', 'ingest', 'runtime-migrate']);
-    expect(spec().volumes.map((volume) => volume.name)).toEqual(['graph', 'audit', 'mastra-state']);
+    expect(spec().volumes.map((volume) => volume.name)).toEqual([
+      'graph',
+      'audit',
+      'context-package',
+      'mastra-state',
+    ]);
     expect(spec().secretBindings).toEqual([...platform.spec.secretBindings, ...runtime.spec.secretBindings]);
     expect(spec().components[1]).toEqual(runtime.spec.components[0]);
   });
@@ -67,15 +72,17 @@ describe('the split topology (v0)', () => {
     expect(contextService?.ports?.some((port) => port.expose === true)).toBe(false);
   });
 
-  it('gives the graph, the audit store and the runtime state three volumes, graph and audit distinct', () => {
+  it('gives the graph, the audit store, the Context Package and the runtime state four volumes', () => {
     const names = spec().volumes.map((volume) => volume.name);
 
-    expect(new Set(names).size).toBe(3);
+    expect(new Set(names).size).toBe(4);
     expect(names).toContain('graph');
     expect(names).toContain('audit');
+    expect(names).toContain('context-package');
     expect(names).toContain('mastra-state');
-    // Every volume is backed up separately (§9.5): the graph is rebuildable but
-    // expensive, the audit store is not rebuildable at all.
+    // Every volume of *this deployment's data* is backed up separately (§9.5): the graph
+    // is rebuildable but expensive, the audit store is not rebuildable at all. The
+    // Context Package is the Bundle's payload, so it is restored by redeploying.
     expect(spec().volumes.filter((volume) => volume.backup === true).map((volume) => volume.name).sort()).toEqual([
       'audit',
       'graph',

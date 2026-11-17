@@ -241,7 +241,7 @@ def test_deleting_by_source_removes_the_entities_and_the_edges_that_touched_them
         ],
     )
 
-    removed = store.delete_by_source(TENANT, "sharepoint://claims/policies/refund.md")
+    removed = store.delete_source_ref(TENANT, "sharepoint://claims/policies/refund.md")
 
     assert removed == 1
     assert store.get_entity(TENANT, "fde:acme:policy:refund") is None
@@ -253,7 +253,7 @@ def test_deleting_by_source_is_scoped_to_the_tenant(store: EmbeddedGraphStore) -
     store.upsert_entities(TENANT, [entity()])
     store.upsert_entities("beta", [entity("fde:beta:policy:refund", source_ref="sharepoint://beta/policies/refund.md")])
 
-    assert store.delete_by_source("beta", "sharepoint://claims/policies/refund.md") == 0
+    assert store.delete_source_ref("beta", "sharepoint://claims/policies/refund.md") == 0
     assert store.get_entity(TENANT, "fde:acme:policy:refund") is not None
     assert store.get_entity("beta", "fde:beta:policy:refund") is not None
 
@@ -261,7 +261,7 @@ def test_deleting_by_source_is_scoped_to_the_tenant(store: EmbeddedGraphStore) -
 def test_deleting_an_unknown_source_removes_nothing(store: EmbeddedGraphStore) -> None:
     store.upsert_entities(TENANT, [entity()])
 
-    assert store.delete_by_source(TENANT, "sharepoint://claims/policies/never-seen.md") == 0
+    assert store.delete_source_ref(TENANT, "sharepoint://claims/policies/never-seen.md") == 0
     assert store.stats().nodes == 1
 
 

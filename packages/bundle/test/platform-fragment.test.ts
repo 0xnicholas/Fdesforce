@@ -54,7 +54,7 @@ describe('the vendored platform fragment', () => {
     expect(loaded.topology.kind).toBe('ContextServiceTopology');
     expect(loaded.topology.metadata).toEqual({
       name: 'context-service',
-      version: '1.0.0',
+      version: '1.1.0',
       description: expect.stringContaining('context-service'),
     });
   });

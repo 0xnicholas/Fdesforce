@@ -23,6 +23,10 @@ requires-python = ">=3.12"
 # `scripts/semantica_surface.py` fails CI when the imports the service makes are not
 # on this wheel's export surface — an upgrade has to be a decision, not a drift.
 #
+# `pyyaml` is a *runtime* dependency: the service reads the frozen Context Package
+# (`app/context_package.py`), which is YAML — recipes, sources, mappings, the permission
+# baseline. A deployment whose image lacked it would boot and then refuse every retrieval.
+#
 # `pydantic` sits at 2.13.4 because that is semantica 0.7.0's floor (`>=2.13.4`);
 # it was 2.12.5 before this service had an engine dependency. Still an exact pin:
 # two installs of this slice must resolve to the same bytes.
@@ -32,6 +36,7 @@ dependencies = [
   "jsonschema==4.26.0",
   "pydantic==2.13.4",
   "pyjwt[crypto]==2.15.1",
+  "pyyaml==6.0.3",
   "semantica==0.7.0",
   "uvicorn[standard]==0.54.0",
 ]
@@ -40,12 +45,17 @@ dependencies = [
 dev = [
   "httpx==0.28.1",
   "pytest==9.2.0",
-  "pyyaml==6.0.3",
   "ruff==0.17.5",
 ]
 
 [tool.setuptools.packages.find]
 include = ["app*"]
+
+# The reference Connectors' seeds are part of the shipped service: a *synthetic* source
+# is what makes a deployment runnable with nothing to provision, so the data files travel
+# with the code that reads them.
+[tool.setuptools.package-data]
+"app.connectors" = ["seed/*.json"]
 
 [tool.pytest.ini_options]
 # `app` and `conformance` are importable from the service root, so tests exercise

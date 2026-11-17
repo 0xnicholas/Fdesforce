@@ -5,13 +5,13 @@ from app.wire import Operation, SchemaRef
 
 #: The version of this API document. It is *not* the `fde.runtime/v1` minor:
 #: `versions.RUNTIME_CONTRACT_VERSION` is what `runtime-info.contract_version` reports.
-CONTEXT_SERVICE_API_VERSION = '1.1.0'
+CONTEXT_SERVICE_API_VERSION = '1.2.0'
 
 #: `Idempotency-Key` length bounds, from the `IdempotencyKey` parameter's schema.
 IDEMPOTENCY_KEY_LENGTH = (16, 128)
 
 #: Schema files the operation table refers to.
-SCHEMA_FILES = ('approval.schema.json', 'common.schema.json', 'decision.schema.json', 'error.schema.json', 'execution-context.schema.json', 'ingest-job.schema.json', 'retrieval.schema.json', 'runtime-capabilities.schema.json', 'runtime-info.schema.json', 'runtime-profile.schema.json')
+SCHEMA_FILES = ('approval.schema.json', 'common.schema.json', 'connector.schema.json', 'decision.schema.json', 'error.schema.json', 'execution-context.schema.json', 'ingest-job.schema.json', 'retrieval.schema.json', 'runtime-capabilities.schema.json', 'runtime-info.schema.json', 'runtime-profile.schema.json')
 
 OPERATIONS: tuple[Operation, ...] = (
     Operation(
@@ -28,6 +28,22 @@ OPERATIONS: tuple[Operation, ...] = (
         success_status=200,
         replay_status=200,
         response_ref=SchemaRef('retrieval.schema.json', '/$defs/RetrieveResponse'),
+        response_inline=None,
+    ),
+    Operation(
+        method='post',
+        path='/v1/connectors/{connector_id}/operations',
+        operation_id='invokeConnectorOperation',
+        auth=True,
+        traceparent=True,
+        idempotency_key=False,
+        required_scope='context:retrieve',
+        issuer='runtime',
+        run_scoped=True,
+        request=SchemaRef('connector.schema.json', '/$defs/ConnectorOperationRequest'),
+        success_status=200,
+        replay_status=200,
+        response_ref=SchemaRef('connector.schema.json', '/$defs/ConnectorOperationResponse'),
         response_inline=None,
     ),
     Operation(

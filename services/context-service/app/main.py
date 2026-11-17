@@ -13,6 +13,10 @@ The lifespan is where the volumes become real: `AuditStore.open()` and
 `EmbeddedGraphStore.open()` **verify** the schemas `python -m app.migrate`
 established (§9.2 — the job migrates, the service refuses), and a background
 `ChainVerifier` records one `verify_chain` pass at startup and then periodically.
+The **Context Package**, the **Connectors** and the **ingest ledger** are assembled
+here too: a service with no package has no recipe to execute, and one whose ledger says
+the graph is not this package's current materialization must say `partial` rather than
+answer as if it were.
 An unopenable, unmigrated or foreign-schema volume stops the process — a context
 service that cannot keep evidence, or cannot see the graph, must not accept a
 request it will then answer wrongly.
@@ -41,6 +45,8 @@ from fastapi import FastAPI
 from app.audit import AuditStore
 from app.audit_verifier import ChainVerifier
 from app.clock import isoformat_z, utc_now
+from app.connectors import ConnectorRegistry
+from app.context_package import ContextPackage, PackageError
 from app.errors import install_error_handlers
 from app.graph.embedded import EmbeddedGraphStore
 from app.graph.port import GraphStore
@@ -48,9 +54,10 @@ from app.graph.probes import GraphProbe
 from app.idempotency import IdempotencyMiddleware, IdempotencyStore
 from app.identity import JwtVerifier
 from app.identity_edge import IdentityMiddleware
+from app.ingest_ledger import IngestLedgerStore, IngestStatus
 from app.readiness import Readiness
-from app.routes import approvals, context, decisions, jobs, ops
-from app.settings import Settings
+from app.routes import approvals, connectors, context, decisions, jobs, ops
+from app.settings import ConfigurationError, Settings
 from app.tracing import TraceMiddleware
 
 
@@ -62,11 +69,22 @@ def create_app(
     idempotency: IdempotencyStore | None = None,
     audit: AuditStore | None = None,
     graph: GraphStore | None = None,
+    package: ContextPackage | None = None,
+    connector_registry: ConnectorRegistry | None = None,
+    ingest_ledger_store: IngestLedgerStore | None = None,
 ) -> FastAPI:
     """Build the service. Missing required configuration fails here, at startup."""
     service_settings = settings if settings is not None else Settings.from_env()
     audit_store = audit if audit is not None else AuditStore(service_settings.audit_path)
     graph_store = graph if graph is not None else EmbeddedGraphStore(service_settings.graph_path)
+    context_pkg = package if package is not None else _load_package(service_settings)
+    connector_registry = connector_registry if connector_registry is not None else ConnectorRegistry.reference()
+    ledger = (
+        ingest_ledger_store
+        if ingest_ledger_store is not None
+        else IngestLedgerStore.for_graph(service_settings.graph_path)
+    )
+    ingest = IngestStatus.for_package(ledger, context_pkg)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
@@ -103,11 +121,14 @@ def create_app(
     )
     application.state.settings = service_settings
     application.state.readiness = (
-        readiness if readiness is not None else Readiness([GraphProbe(graph_store)])
+        readiness if readiness is not None else Readiness([GraphProbe(graph_store), ingest])
     )
     application.state.started_at = isoformat_z(utc_now())
     application.state.audit = audit_store
     application.state.graph = graph_store
+    application.state.context_package = context_pkg
+    application.state.connectors = connector_registry
+    application.state.ingest_status = ingest
 
     # `add_middleware` prepends, so this order is the *reverse* of the call order:
     # the last one added is the outermost.
@@ -122,6 +143,29 @@ def create_app(
     application.add_middleware(TraceMiddleware)
 
     install_error_handlers(application)
-    for router in (ops.router, context.router, decisions.router, approvals.router, jobs.router):
+    for router in (
+        ops.router,
+        context.router,
+        connectors.router,
+        decisions.router,
+        approvals.router,
+        jobs.router,
+    ):
         application.include_router(router)
     return application
+
+
+def _load_package(settings: Settings) -> ContextPackage:
+    """The frozen package this deployment serves, or a startup failure naming why not.
+
+    Fail closed, like the volumes: a service that booted without a package would accept
+    `POST /v1/context/retrieve` and answer 404 to every recipe, which is an outage an
+    operator would only find from the caller's side.
+    """
+    try:
+        return ContextPackage.load(settings.context_package_path)
+    except PackageError as error:
+        raise ConfigurationError(
+            f"CONTEXT_PACKAGE_PATH={settings.context_package_path!r} is not a servable Context Package: "
+            f"{error}; the bundle mounts the frozen package read-only"
+        ) from error

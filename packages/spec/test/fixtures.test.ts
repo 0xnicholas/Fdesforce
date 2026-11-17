@@ -132,8 +132,19 @@ describe('Platform example artifacts', () => {
     // The runtime's `mastra-state` is the generator's; these two are the platform's.
     // Sharing one would give graph facts and audit evidence the same backup and
     // retention semantics, and §9.5 backs up each separately.
-    expect(result.value.spec.volumes.map((volume) => volume.name).sort()).toEqual(['audit', 'graph']);
-    expect(result.value.spec.volumes.every((volume) => volume.backup === true)).toBe(true);
+    expect(result.value.spec.volumes.map((volume) => volume.name).sort()).toEqual([
+      'audit',
+      'context-package',
+      'graph',
+    ]);
+    // The two stores are this deployment's data and are backed up separately. The
+    // package is the Bundle's own payload — recoverable from the release — so backing it
+    // up would copy a static input on every run.
+    const backed = result.value.spec.volumes.filter((volume) => volume.backup === true);
+    expect(backed.map((volume) => volume.name).sort()).toEqual(['audit', 'graph']);
+    expect(result.value.spec.volumes.filter((volume) => volume.backup !== true).map((volume) => volume.name)).toEqual([
+      'context-package',
+    ]);
   });
 
   it('validates the chat model profile and its fallback', () => {

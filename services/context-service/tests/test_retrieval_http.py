@@ -1,21 +1,22 @@
-"""`POST /v1/context/retrieve` over the served surface (§3.3, §4.3).
+"""`POST /v1/context/retrieve` over the served surface (§3.3, §4.1, §4.3).
 
-The seam is HTTP against a spawned process seeded with a real graph volume. The
-ticket is explicit that `GraphStore` is an internal port and *not* a test seam, so
-nothing here reaches into the store: the fixture builds a volume with the shipped
-implementation (what ingest will do), the process loads it, and every assertion is
-about what a caller receives.
+The seam is HTTP against a spawned process with a real graph volume. `GraphStore` is an
+internal port and *not* a test seam, so nothing here reaches into the store: fixtures build
+volumes with the shipped implementation (or run the real ingest job), the process loads
+them, and every assertion is about what a caller receives.
 
 What a caller must be able to rely on, and what these tests pin:
 
-- an item says where it came from (`entity_id`, `source_ref`, `version`) or it is
-  not evidence (§3.3, C31's classification rule) — a citation without a source is
-  a hallucination with a footnote;
-- `retrieval_id` and `snapshot_digest` describe an immutable Retrieval Snapshot
-  (§4.1), so a Decision can cite what the model actually saw;
+- an item says where it came from (`entity_id`, `source_ref`, `version`) and how far it is
+  trusted, or it is not evidence (§3.3);
+- `retrieval_id` and `snapshot_digest` describe an immutable Retrieval Snapshot (§4.1), so
+  a Decision can cite what the model actually saw — and two identical calls share a digest;
 - the token's tenant decides what comes back, not the query (§5.3, C3);
-- an empty answer is `degraded=true, reason=empty`, never a silent empty list
-  (§3.3's `degraded.reason` enum).
+- an empty answer, an unmaterialized graph and a graph past the ceiling are three
+  different answers (§6.4, §9.2), and each says which it is.
+
+The stage-by-stage behaviour of the recipe itself — weights, relation filtering, masks —
+is `tests/test_recipe_pipeline.py`; this file is the contract's own promises.
 """
 
 from __future__ import annotations
@@ -36,17 +37,21 @@ RETRIEVE_RESPONSE = "retrieval.schema.json#/$defs/RetrieveResponse"
 RETRIEVAL_ID = re.compile(r"^ret_[0-9A-HJKMNP-TV-Z]{26}$")
 DIGEST = re.compile(r"^sha256:[a-f0-9]{64}$")
 
-#: The Acme claims-triage facts the retrieval tests reason about: a claim, the
-#: policy that governs it, and the approval rule one hop further out.
+#: The Acme claims-triage facts a seeded volume holds: a claim, the policy that governs
+#: it, and the approval rule one hop further out. `term`/`source` are what ingest writes,
+#: and the stages read exactly those — a fixture without them is a graph no ingest makes.
 ACME_ENTITIES = (
     entity(
-        "fde:acme:claim:c-1001",
+        "fde:acme:claim:C-1001",
         "Claim",
         "Claim C-1001: refund request from a premium customer.",
-        source_ref="claims-db://claims/C-1001",
+        source_ref="claims-db://public.claims/C-1001",
         version="17",
+        term="ic:Claim",
+        source="claims-db",
         classification="confidential",
         source_kind="structured",
+        properties={"ic:claimId": "C-1001"},
     ),
     entity(
         "fde:acme:policy:refund",
@@ -54,6 +59,8 @@ ACME_ENTITIES = (
         "Premium customers may receive a refund within 30 days.",
         source_ref="sharepoint://claims/policies/refund.md",
         version="3",
+        term="ic:Policy",
+        source="sharepoint-claims",
         source_kind="document",
     ),
     entity(
@@ -62,6 +69,8 @@ ACME_ENTITIES = (
         "Refund requests over 100000 require manual approval.",
         source_ref="sharepoint://claims/policies/approval.md",
         version="2",
+        term="ic:Policy",
+        source="sharepoint-claims",
         source_kind="document",
     ),
     entity(
@@ -70,17 +79,21 @@ ACME_ENTITIES = (
         "Refunds are processed by the claims team within five business days.",
         source_ref="sharepoint://claims/faq.md",
         version="9",
+        term="ic:ClaimDocument",
+        source="sharepoint-claims",
         source_kind="document",
     ),
-    # A pair for the budget test: the same query term, one document far too large for
-    # a small `max_tokens` and one that fits. Their `entity_id`s sort that way round,
-    # and both score 1.0 on the term, so the order is the ranking, not a coincidence.
+    # A pair for the budget test: the same query term, one document far too large for a
+    # small `max_tokens` and one that fits. Both score the same on the term, so what is
+    # kept is the packing rule, not a lucky order.
     entity(
         "fde:acme:document:budget-heavy",
         "Document",
         "budgetprobe " * 60,
         source_ref="sharepoint://claims/budget/heavy.md",
         version="1",
+        term="ic:ClaimDocument",
+        source="sharepoint-claims",
     ),
     entity(
         "fde:acme:document:budget-light",
@@ -88,17 +101,19 @@ ACME_ENTITIES = (
         "budgetprobe note.",
         source_ref="sharepoint://claims/budget/light.md",
         version="1",
+        term="ic:ClaimDocument",
+        source="sharepoint-claims",
     ),
 )
 
 ACME_RELATIONSHIPS = (
-    relationship("fde:acme:claim:c-1001", "fde:acme:policy:refund", "hasPolicy", weight=0.9),
-    relationship("fde:acme:policy:refund", "fde:acme:policy:approval", "governedBy", weight=0.8),
-    relationship("fde:acme:policy:refund", "fde:acme:document:faq", "explainedBy", weight=0.5),
+    relationship("fde:acme:claim:C-1001", "fde:acme:policy:refund", "ic:hasPolicy", weight=0.9),
+    relationship("fde:acme:policy:refund", "fde:acme:policy:approval", "ic:documentsPolicy", weight=0.8),
+    relationship("fde:acme:policy:refund", "fde:acme:document:faq", "ic:documentsPolicy", weight=0.5),
 )
 
-#: Another tenant's facts on the same volume. A retrieval that ignored the token's
-#: tenant would return these, which is what makes the isolation test able to fail.
+#: Another tenant's facts on the same volume. A retrieval that ignored the token's tenant
+#: would return these, which is what makes the isolation test able to fail.
 BETA_ENTITIES = (
     entity(
         "fde:beta:policy:refund",
@@ -106,8 +121,13 @@ BETA_ENTITIES = (
         "Premium customers may receive a refund within 30 days.",
         source_ref="sharepoint://beta/policies/refund.md",
         version="1",
+        term="ic:Policy",
+        source="sharepoint-claims",
     ),
 )
+
+#: The scopes the Acme baseline's classes need (`permissions.yaml`).
+CLAIMS = ("context:retrieve", "claims:read", "claims:documents:read", "customer:pii:read")
 
 
 @pytest.fixture(scope="session")
@@ -131,9 +151,10 @@ def retrieve(
     *,
     tenant_id: str = "acme",
     budget: dict[str, int] | None = None,
+    scopes: tuple[str, ...] = CLAIMS,
 ) -> Any:
     """One authenticated retrieval; the token's trace is the one the body must carry."""
-    headers = service.authorized(tenant_id=tenant_id)
+    headers = service.authorized(tenant_id=tenant_id, scopes=scopes)
     body: dict[str, Any] = {"recipe_id": "claims-context", "query": query}
     if budget is not None:
         body["budget"] = budget
@@ -162,6 +183,8 @@ def test_an_item_says_which_entity_version_and_source_it_came_from(
     assert item["source_ref"] == "sharepoint://claims/policies/refund.md"
     assert item["version"] == "3"
     assert 0.0 < item["score"] <= 1.0
+    assert item["trust"] == "untrusted", "C33: retrieved content is data, never instructions"
+    assert item["classification"] == "internal", "the baseline classifies ic:Policy"
 
     assert RETRIEVAL_ID.match(body["retrieval_id"]), f"{body['retrieval_id']!r} is not a retrieval id"
     assert DIGEST.match(body["snapshot_digest"]), f"{body['snapshot_digest']!r} is not a digest"
@@ -173,7 +196,7 @@ def test_the_response_carries_the_callers_trace(
     seeded_service: ServiceProcess, contract: ContractDocuments
 ) -> None:
     """C6: the retrieval is one call in one trace, like every other response."""
-    headers = seeded_service.authorized()
+    headers = seeded_service.authorized(scopes=CLAIMS)
     trace_id = headers["traceparent"].split("-")[1]
 
     response = seeded_service.post(
@@ -210,33 +233,33 @@ def test_a_query_that_matches_nothing_is_degraded_and_says_why(
     assert body["reason"] == "empty"
 
 
-def test_a_graph_hit_is_ranked_below_the_anchor_that_found_it(
+def test_a_resolved_entity_pulls_in_its_neighbourhood_through_the_recipes_relations(
     seeded_service: ServiceProcess, contract: ContractDocuments
 ) -> None:
-    """§4.3's "lexical + 2-hop": a claim pulls in the policy that governs it.
+    """§6.2's `graph` stage: the walk starts at the resolved entity, not at every match.
 
-    `C-1001` matches exactly one entity — the claim — so every other item came from
-    the walk, and the scores say so: each hop halves the anchor's relevance and the
-    edge's weight scales it, so a direct quote outranks its neighbourhood.
+    The claim is resolved deterministically (`filters.claim_id`), and the policy, the
+    approval rule and the FAQ come back along `ic:hasPolicy` / `ic:documentsPolicy` — the
+    relations the recipe declares. `budget_used.hops` reports how deep the walk went.
     """
-    body = retrieved(seeded_service, contract, "C-1001")
+    headers = seeded_service.authorized(scopes=CLAIMS)
+    body = seeded_service.post(
+        "/v1/context/retrieve",
+        json={"recipe_id": "claims-context", "query": "claim C-1001", "filters": {"claim_id": "C-1001"}},
+        headers=headers,
+    ).json()
+    contract.require(body, RETRIEVE_RESPONSE, "retrieve response")
 
-    assert body["index"] == "graph", "the answer used the graph, so it must say so"
     by_id = {item["entity_id"]: item for item in body["items"]}
-    assert set(by_id) == {
-        "fde:acme:claim:c-1001",
-        "fde:acme:policy:refund",
-        "fde:acme:policy:approval",
-        "fde:acme:document:faq",
-    }
-    assert by_id["fde:acme:claim:c-1001"]["metadata"]["hop"] == 0
+    assert body["index"] == "graph", "the answer used the graph, so it must say so"
+    assert {"fde:acme:claim:C-1001", "fde:acme:policy:refund", "fde:acme:policy:approval"} <= set(by_id)
+    assert by_id["fde:acme:claim:C-1001"]["metadata"]["hop"] == 0
     assert by_id["fde:acme:policy:refund"]["metadata"]["hop"] == 1
     assert by_id["fde:acme:policy:approval"]["metadata"]["hop"] == 2
     assert body["budget_used"]["hops"] == 2
 
     scores = [item["score"] for item in body["items"]]
     assert scores == sorted(scores, reverse=True), "items are ranked, not whichever order the walk produced"
-    assert scores[0] > scores[1] > scores[2], "an anchor outranks a neighbour, and a neighbour a 2-hop reach"
 
 
 def test_the_budget_truncates_from_the_weakest_end(
@@ -256,18 +279,39 @@ def test_the_budget_truncates_from_the_weakest_end(
 def test_a_smaller_max_hops_stops_the_walk_sooner(
     seeded_service: ServiceProcess, contract: ContractDocuments
 ) -> None:
-    body = retrieved(seeded_service, contract, "C-1001", budget={"max_hops": 1})
+    headers = seeded_service.authorized(scopes=CLAIMS)
+    body = seeded_service.post(
+        "/v1/context/retrieve",
+        json={
+            "recipe_id": "claims-context",
+            "query": "claim C-1001",
+            "filters": {"claim_id": "C-1001"},
+            "budget": {"max_hops": 1},
+        },
+        headers=headers,
+    ).json()
+    contract.require(body, RETRIEVE_RESPONSE, "retrieve response")
 
-    assert body["index"] == "graph"
     assert body["budget_used"]["hops"] == 1
     assert "fde:acme:policy:approval" not in {item["entity_id"] for item in body["items"]}
 
 
-def test_a_deeper_max_hops_than_v0_supports_is_capped_and_says_so(
+def test_a_deeper_max_hops_than_the_recipe_or_v0_supports_is_capped_and_says_so(
     seeded_service: ServiceProcess, contract: ContractDocuments
 ) -> None:
-    """The contract allows 4 hops; §4.3's v0 backend walks 2. `budget_used` reports the cap."""
-    body = retrieved(seeded_service, contract, "C-1001", budget={"max_hops": 4})
+    """The contract allows 4 hops; the recipe declares 2 and §4.3's backend walks 2."""
+    headers = seeded_service.authorized(scopes=CLAIMS)
+    body = seeded_service.post(
+        "/v1/context/retrieve",
+        json={
+            "recipe_id": "claims-context",
+            "query": "claim C-1001",
+            "filters": {"claim_id": "C-1001"},
+            "budget": {"max_hops": 4},
+        },
+        headers=headers,
+    ).json()
+    contract.require(body, RETRIEVE_RESPONSE, "retrieve response")
 
     assert body["budget_used"]["hops"] == 2
     assert "fde:acme:policy:approval" in {item["entity_id"] for item in body["items"]}
@@ -299,6 +343,7 @@ def test_a_budget_too_small_for_any_item_is_partial_not_empty(
 # The embedded ceiling: degrade, do not slow down (§4.3)
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def over_ceiling_service(tmp_path_factory: pytest.TempPathFactory) -> Iterator[ServiceProcess]:
     """One node past the published ceiling, each with one word of content.
@@ -314,6 +359,8 @@ def over_ceiling_service(tmp_path_factory: pytest.TempPathFactory) -> Iterator[S
             f"Padding policy {index}.",
             source_ref=f"sharepoint://claims/policies/pad-{index}.md",
             version="1",
+            term="ic:Policy",
+            source="sharepoint-claims",
         )
         for index in range(EMBEDDED_MAX_NODES + 1)
     )
@@ -349,8 +396,8 @@ def test_the_same_retrieval_twice_is_one_digest_and_two_snapshots(
 ) -> None:
     """§4.1: the snapshot is content-addressed, so an auditor can prove what was served.
 
-    Two identical calls are two snapshots — each has its own `retrieval_id`, because
-    each was a distinct retrieval a Decision may cite — but they must carry the same
+    Two identical calls are two snapshots — each has its own `retrieval_id`, because each
+    was a distinct retrieval a Decision may cite — but they must carry the same
     `snapshot_digest`, or "the same question got the same answer" would be unprovable.
     """
     first = retrieved(seeded_service, contract, "refund premium")

@@ -101,14 +101,20 @@ describe('the split topology in Compose terms', () => {
     });
   });
 
-  it('declares the three volumes with their deployment-derived names, so a backup finds them', () => {
+  it('declares the four volumes with their deployment-derived names, so a backup finds them', () => {
     const volumes = compose()['volumes'] as Compose;
 
-    expect(Object.keys(volumes).sort()).toEqual(['audit', 'graph', 'mastra-state']);
+    expect(Object.keys(volumes).sort()).toEqual(['audit', 'context-package', 'graph', 'mastra-state']);
     expect(volumes['audit']).toEqual({ name: 'fde-dep-01arz3ndektsv4rrffq69g5fav-audit' });
     expect(volumes['graph']).toEqual({ name: 'fde-dep-01arz3ndektsv4rrffq69g5fav-graph' });
+    expect(volumes['context-package']).toEqual({ name: 'fde-dep-01arz3ndektsv4rrffq69g5fav-context-package' });
     expect(volumes['mastra-state']).toEqual({ name: 'fde-dep-01arz3ndektsv4rrffq69g5fav-mastra-state' });
-    expect(service('context-service')['volumes']).toEqual(['graph:/data/graph', 'audit:/data/audit']);
+    // `:ro` is the point: the service executes the frozen package, it never writes it.
+    expect(service('context-service')['volumes']).toEqual([
+      'graph:/data/graph',
+      'audit:/data/audit',
+      'context-package:/data/context-package:ro',
+    ]);
   });
 });
 
@@ -224,8 +230,17 @@ describe('configuration and secrets', () => {
       GRAPH_BACKEND: 'embedded',
       GRAPH_PATH: '/data/graph/graph.json',
       AUDIT_PATH: '/data/audit/audit.sqlite',
+      CONTEXT_PACKAGE_PATH: '/data/context-package',
       EXECUTION_CONTEXT_PUBLIC_KEY: '${EXECUTION_CONTEXT_PUBLIC_KEY:?}',
       FDE_JOBS_PUBLIC_KEY: '${FDE_JOBS_PUBLIC_KEY:?}',
+    });
+    // The ingest job acts for one Deployment and one Solution: both are install-time
+    // variables, because a release is deployed per environment (§5.1).
+    expect(service('ingest')['environment']).toEqual({
+      CONTEXT_SERVICE_URL: 'http://context-service:8011',
+      CONTEXT_PACKAGE_PATH: '/data/context-package',
+      FDE_DEPLOYMENT_ID: '${FDE_DEPLOYMENT_ID:?}',
+      FDE_SOLUTION_ID: '${FDE_SOLUTION_ID:?}',
     });
   });
 

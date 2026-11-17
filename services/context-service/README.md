@@ -13,10 +13,14 @@ enforcement and write idempotency. Since #37 it also holds the **audit store**: 
 append-only, hash-chained SQLite ledger on its own volume, the idempotent Decision
 write, and the provenance read. Since #38 it holds the **graph**: a `GraphStore`
 port with one embedded implementation (Semantica's `ContextGraph` over a JSON
-snapshot on the graph volume), the `migrate` job that establishes both volumes, and
-`POST /v1/context/retrieve` — lexical search plus 2-hop expansion, answered with an
-immutable Retrieval Snapshot. Approvals land in #40 and ingest in #39; the table
-below says exactly which handler is whose.
+snapshot on the graph volume) and the `migrate` job that establishes both volumes.
+Since #39 it holds the **Recipe pipeline** — the whole of
+`resolve → structured → graph → lexical → merge → rank → mask → budget`, executed
+from the frozen Customer Context Package rather than from a strategy in this file —
+plus the **ingest job** that materializes that package's sources into the graph, the
+**Connector typed operations** a Tool reaches its customer system through, and the
+degraded semantics that make an incomplete graph say so. Approvals land in #40; the
+table below says exactly which handler is whose.
 
 ## Layout
 
@@ -36,7 +40,21 @@ app/
   audit_verifier.py  the background verify_chain pass (startup + periodic)
   provenance.py      Decision → PROV-O JSON-LD + lineage summary (§6.3, C14)
   migrate.py         `python -m app.migrate`: the job that establishes both schemas (§9.2)
-  retrieval.py       the v0 pipeline: lexical → 2-hop → merge → rank → budget → snapshot
+  retrieval.py       the Recipe pipeline: resolve → structured → graph → lexical → merge →
+                     rank → mask → budget → snapshot (every stage read from the package)
+  mask.py            the permission baseline (§7): class scopes, property masks, denials
+  content.py         how an entity's content is rendered — once, so a digest is stable
+  context_package.py the frozen Customer Context Package: recipes, sources, mappings,
+                     permissions, revisions — and the refusals `fde context validate` makes
+  connectors/        the Connector port and the two synthetic reference sources
+    port.py          read() for ingest, invoke() for a typed operation, four error classes
+    claims_db.py     `claims-db`: the public.* datasets and `lookupClaim`, from a seed
+    documents.py     `sharepoint-claims`: the document corpus, chunked by heading
+  ingest.py          the compile step: package + sources → entities and edges; also
+                     `python -m app.ingest`, the container the topology runs
+  ingest_state.py    the ledger on the graph volume: package revision, watermarks, and
+                     IngestStatus — the one answer `/readyz` and `retrieve` share
+  jobs_identity.py   minting a `fde-jobs` ExecutionContext (the maintenance side of §5.4)
   limits.py          the published envelope (§7.2, §4.3) the pipeline enforces
   graph/
     port.py          the GraphStore port: methods, stable-ID rules, error semantics (§4.3)
@@ -49,7 +67,8 @@ app/
   schema_registry.py JSON Schema registry + validation helpers
   tracing.py         traceparent → trace_id for every envelope (C6)
   wire.py            the generated models' base class and the Operation table types
-  routes/            one module per OpenAPI tag: ops, context, decisions, approvals, jobs
+  routes/            one module per OpenAPI tag: ops, context, connectors, decisions,
+                     approvals, jobs
   generated/         GENERATED from contracts/ — never hand-edited
 conformance/         the C1–C15 runner, its real-process ES256 key harness, and the graph-volume fixture
 scripts/generate.py  contracts/ → app/generated/**; `--check` runs in CI
@@ -80,7 +99,7 @@ and `tests/test_generated.py` also asserts it byte-for-byte.
 
 ## The migrate job, and why the service refuses to start without it
 
-`platform/context-service/1.0.0/topology.yaml` runs `python -m app.migrate` before
+`platform/context-service/1.1.0/topology.yaml` runs `python -m app.migrate` before
 `context-service` and makes the service wait on its exit (`dependsOn: [migrate]`).
 §9.2 says which side owns what, and the split is enforced in both directions:
 
@@ -135,29 +154,66 @@ all. Semantica ignores the keys it does not know, so `ContextGraph.load_from_fil
 can still read it, and `graph_id` is minted once by `migrate` and preserved, so a
 backup has a stable name.
 
-## Retrieval, and the snapshot a Decision cites
+## The Recipe pipeline: the package decides, the service executes
 
-`POST /v1/context/retrieve` runs the v0 half of the Recipe
-(`docs/semantic-modeling.md` §6.2–6.4): lexical search for anchors, expansion from
-the top few of them (at most two hops — §4.3's v0 shape; the contract lets a caller
-ask for four and the extra is capped, with `budget_used.hops` reporting what was
-actually used), merge by `entity_id`, rank by score then `entity_id` (a total order —
-the digest depends on it), and pack into the request's budget: an item too large for
-`max_tokens` is skipped rather than ending the answer, so one long document cannot
-starve the smaller facts below it. Expansion scores are
-`anchor × 0.5^hop × edge weight`, so an exact match outranks its neighbourhood, which
-is the priority §6.3 asks for. The result reports:
+`POST /v1/context/retrieve` runs the recipe the request names, stage by stage, in the
+package's order (`docs/semantic-modeling.md` §6.2–6.4). Nothing about the pipeline is
+decided in this service: the stages, their weights, the relations the walk may follow,
+the classes a source is trusted for and the budget ceilings are the `ContextRecipe`'s,
+and `app.context_package` refuses a package whose recipe reorders, duplicates or drops a
+stage. The model selects a recipe and fills a query; it never writes one (§6.1) — an
+unknown `recipe_id` is a `404 recipe_not_found` that lists what the package does declare.
+
+| Stage | What it does here |
+| --- | --- |
+| `resolve` | the business object, in three decreasingly certain steps: `filters[key]` (deterministic), a key-shaped query token that names an entity, then a lexical match *inside the recipe's class* — §6.3's "解析不到 → 图/词法实体匹配", which is what keeps `graph`'s `from: resolved` true. No anchor, no walk: a neighbourhood of a guess is not evidence |
+| `structured` | the resolved object **and its one-hop joins of the classes the recipe names**, from the source it trusts. A SQL source would answer it with one join over the mapped tables, so this is the graph equivalent; everything further, or from another source, belongs to the next stage. v0 reads it from the graph because ingest already applied the mapping — the Connector typed operation is the Tool seam, not a second data path inside a retrieval |
+| `graph` | 1–`maxHops` out from the resolved entity, over the recipe's `relations` only (`ic:hasPolicy`, never "every edge"), scored `anchor × 0.5^hop × edge weight` |
+| `lexical` | the query's matches inside the recipe's declared source, top-K as declared |
+| `merge` | one candidate per `entity_id`, and one per content hash when the recipe dedupes on it; the best path to an entity wins |
+| `rank` | `score = recipe weight × stage score`, plus the recipe's `freshnessBoost` when ingest recorded the entity fresh |
+| `mask` | the permission baseline (§7): a class the caller's scopes do not reach is withheld and recorded, a masked property is replaced *before* the content is re-rendered |
+| `budget` | the recipe's ceilings, tightened by the caller's (a caller may ask for less, never more), packed in rank order |
+
+Three consequences worth reading twice.
+
+**Weights are the priority, not a tie-break.** With the Acme recipe
+(`structured: 0.5, graph: 0.3, lexical: 0.2`) an exact fact of the declared source scores
+`0.5`, a two-hop reach `0.3 × 0.25`, and a lexical match at most `0.2` — so §6.3's
+"exact > graph > lexical" is arithmetic rather than a rule bolted on after ranking.
+`tests/test_recipe_pipeline.py` asserts those numbers from the recipe, not from the
+implementation.
+
+**Dedupe merges, it does not discard.** A content-hash duplicate keeps one item, and the
+loser's `entity_id`, `source_ref` and `version` ride along in the survivor's
+`metadata.merged`: §6.3's "冲突保留，不丢弃候选" is about not losing a citation to a
+rendering coincidence.
+
+**Freshness is decided at ingest.** A score that moved with the wall clock would change
+the snapshot digest between two identical calls. Ingest records `fresh`/`stale` against
+the source's `staleAfter`, so the boost is a property of the graph revision a Decision
+cites.
+
+**A mask that cannot be applied is not a mask.** A property whose baseline declares
+`columnMask: hash` is replaced and the content is re-rendered from the masked facts —
+masking the field while leaving the original string in `content` would mask nothing. A
+class whose scopes the caller lacks is dropped and recorded as a `deny` policy
+evaluation in the response (and in the snapshot manifest), so a Decision can say which
+class of context was withheld instead of silently receiving less.
+
+The response reports:
 
 - `items[]` with `entity_id`, `type`, `content`, `score`, `source_ref`, `version`,
-  `classification`/`source_kind`/`provenance_id` when the entity carries them, and
+  `classification` (the baseline's, never the source's own, and `restricted` when the
+  baseline is silent), `source_kind`/`provenance_id` when the entity carries them, and
   `trust: untrusted` always (C33: retrieved content is data, never instructions);
 - `index` — `graph` when the walk contributed an item, `lexical` when it did not;
-- `degraded` + `reason`: `empty` when nothing matched, `partial` when something
-  matched but the caller's own budget excluded all of it (and, from #39, while
-  ingest is still running), `scale_limit` when the graph is past the embedded ceiling
-  (10k nodes / 50k edges, §4.3) — in which case the walk is skipped rather than
-  attempted slowly. `/readyz` reports the ceiling through the `graph` probe, so an
-  operator sees it before a caller does;
+- `degraded` + `reason`, most specific first: `scale_limit` when the graph is past the
+  embedded ceiling (10k nodes / 50k edges, §4.3) and the walk is skipped rather than
+  attempted slowly; `partial` while ingest has not finished (§9.2 — the graph is not the
+  source's current state yet) or when the caller's budget excluded everything that
+  matched; `empty` only when the graph is complete and nothing matched;
+- `policy_evaluations[]` when a class was withheld (§7.2);
 - `budget_used`: nodes, an estimated token count (`chars / 4`, deterministic and
   documented rather than a tokenizer dependency), and the deepest hop kept.
 
@@ -180,6 +236,78 @@ knowing:
 A failed append fails the request (`503 unavailable`, retryable) instead of handing
 out a `retrieval_id` that names nothing: a Decision citing it would be a dead
 reference.
+
+## Ingest: the package materialized, and the ledger that says so
+
+`python -m app.ingest` is the container the topology runs after the service is up, and
+`POST /internal/v1/jobs/ingest` is the same job over HTTP (`fde-jobs` issuer,
+`context:ingest`, not Run-scoped). Neither blocks readiness: §9.2 puts the job *after*
+the service, and until it finishes `/readyz` answers `degraded` and `retrieve` answers
+`reason=partial`.
+
+Per declared Context Source the job reads the source's records through its Connector
+(resumed from the watermark for `incremental`), applies the package's mapping —
+`entity_id` from `fde:<tenant>:<type>:<key>`, `content` rendered from the mapped
+properties, `source_ref` naming the row (`claims-db://public.claims/C-1001`), `version`
+the watermark value — and writes one batch of entities, then the edges whose both ends
+now exist. Three rules it keeps rather than optimizes away:
+
+- **only frozen semantics.** The request names a package revision; the package's
+  `revisions/<version>.yaml` is `fde context freeze`'s attestation, and a digest that is
+  not that one is `409 package_not_frozen`. The runtime materializes what was signed off,
+  never what a caller asserts;
+- **a missing source degrades, it never vanishes.** A Connector that raises is one
+  source's failure: the others still materialize, the job reports which one and why, the
+  ledger keeps the graph `partial`, and every retrieval says so;
+- **an edge never invents an entity.** A relation whose target the package does not
+  produce is dropped and counted. A dangling reference is a package or a data problem an
+  operator should see, not a fact to make up.
+
+`rebuild` drops what the source previously contributed *after* a successful read (a
+rebuild whose source turned out to be unreachable must not leave the graph emptier than
+it found it), `backfill` re-reads everything, `incremental` resumes from the ledger's
+watermark. §5.5 says a backfill "replays a window" and `IngestJobRequest` has no field to
+name one, so v0's `backfill` is a full re-read; a window is a contract change, not a flag
+this job invents.
+
+**The ledger** (`<GRAPH_PATH>/../ingest.json`) is what makes any of that survive a
+restart: which package revision the graph came from, each source's outcome, and the
+watermarks the next run resumes from. It lives on the graph volume because the snapshot
+and the record of what produced it must be backed up, restored and replaced together.
+`IngestStatus` is its only reader, and `/readyz` plus `retrieve` both go through it —
+one decision, two readers, so an operator and a caller cannot be told different things:
+
+| Ledger | `/readyz` | `retrieve` |
+| --- | --- | --- |
+| absent | `degraded` `ingest: not_started` | `partial` |
+| another package revision | `degraded` `ingest: stale` | `partial` |
+| this package, a source degraded/failed | `degraded` `ingest: partial (…)` | `partial` |
+| this package, all sources ok | `ready` | complete (unless the graph is over its ceiling) |
+
+## Connectors: two synthetic sources, one seam
+
+v0 ships the **reference** sources, so a deployment can be ingested and retrieved before
+any customer Connector exists (`docs/semantic-modeling.md` §5.1):
+
+| Connector | Serves | Typed operations |
+| --- | --- | --- |
+| `claims-db` | `public.claims`, `public.policies`, `public.coverages`, `public.customers`, `public.fraud_flags` from a seed, with the pre-joined relation keys a SQL Connector would produce from the mapping's `join` | `lookupClaim` |
+| `sharepoint-claims` | the policy corpus, pre-chunked by heading | none — a document source is retrieved, never called |
+
+`POST /v1/connectors/{connector_id}/operations` is the **one seam** a Connector-backed
+Tool has (`docs/runtime-adapter.md` D6). `claims-lookup` calls it; context-service calls
+the Connector. So the Tool never holds Connector credentials and never learns the data
+source's address, and the two permissions that matter are enforced where the credentials
+are: the operation's platform scope (`context:retrieve`) authorizes context access, and
+`permissions.yaml` authorizes *this data* — the same `scopes` map the mask stage applies,
+so a Tool call and a retrieval cannot disagree about who may see a claim. `output_digest`
+is the SHA-256 of the canonical result, so a Decision's outcome can cite what the Tool
+returned without keeping a second copy of it (§6.5).
+
+The seeds are part of the image (`app/connectors/seed/`), because a *reference* source is
+what makes the deployment runnable with nothing to provision; a real Connector implements
+the same port (`read` for ingest, `invoke` for a typed operation) and changes nothing above
+it.
 
 ## The Semantica pin: asserted, then verified
 
@@ -213,7 +341,7 @@ uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -e '.[dev]'
 
 python -m pytest             # unit + real-process HTTP tests
-python -m conformance        # C1–C15 runner (C1–C6, C10, C13, C14 implemented in this slice)
+python -m conformance        # C1–C15 runner (C1–C6, C10, C13, C14, C15 in this slice)
 python -m conformance --list # what runs, what is pending, and which ticket owns it
 python scripts/generate.py --check
 python scripts/semantica_surface.py           # imports vs the pinned wheel
@@ -231,9 +359,22 @@ python -m app.migrate
 GRAPH_BACKEND=embedded \
 GRAPH_PATH=./data/graph/graph.json \
 AUDIT_PATH=./data/audit/audit.sqlite \
+CONTEXT_PACKAGE_PATH=../../examples/semantic/acme \
 EXECUTION_CONTEXT_PUBLIC_KEY="$(cat execution-context.pub.pem)" \
 FDE_JOBS_PUBLIC_KEY="$(cat jobs.pub.pem)" \
 python -m uvicorn --factory app.main:create_app --host 127.0.0.1 --port 8011
+```
+
+The deployment's next step is the ingest job, which is what turns `/readyz` from
+`degraded` to `ready`:
+
+```bash
+CONTEXT_SERVICE_URL=http://127.0.0.1:8011 \
+CONTEXT_PACKAGE_PATH=../../examples/semantic/acme \
+FDE_DEPLOYMENT_ID=dep_01ARZ3NDEKTSV4RRFFQ69G5FAV \
+FDE_SOLUTION_ID=claims-triage \
+FDE_JOBS_SIGNING_KEY=jobs.priv.pem \
+python -m app.ingest --mode=incremental
 ```
 
 `--factory` is deliberate: the module has no import-time `app`, so configuration
@@ -249,7 +390,10 @@ with reasons. Neither needs a token.
 `conformance/harness.py` spawns the **real** service
 (`uvicorn --factory app.main:create_app`, a free port, a temp data volume) and
 talks to it over HTTP. Nothing imports the app to assert on it: a case that called
-a handler directly could pass while the served surface was wrong.
+a handler directly could pass while the served surface was wrong. The harness also
+copies the reference package onto the volume the topology mounts
+(`examples/semantic/acme`) and knows how to run the ingest job as the deployment's
+container does, so a case can assert on a graph the real job built.
 
 `conformance/identity.py` mints `ExecutionContext` JWTs with **real ES256 keys**,
 one pair per issuer (`mastra-app` → `fde://<deployment_id>`, `fde-jobs` →
@@ -311,6 +455,17 @@ C6 pins the trace: the JWT `trace_id` must equal the `traceparent` trace-id
 (`403` otherwise), `traceparent` is required on authenticated operations (`400`
 when absent), and the retrieve, decision and provenance responses carry the
 caller's trace.
+
+### C15: readiness is a transition, not a flag
+
+C15 owns its process for the same reason C13 does: the assertion *is* the change. The
+service starts on a migrated but unmaterialized volume, `/readyz` answers
+`degraded` (200 — it can serve) with an `ingest: not_started` reason, and a retrieval
+answers `degraded=true, reason=partial`. Then the ingest job runs, `/readyz` turns
+`ready`, and the same retrieval cites the package's facts. A service that reported
+`ready` before ingest would have no way to say "the graph is not the source's current
+state yet"; one that reported `not_ready` would have turned a partial answer into an
+outage (§9.2).
 
 ### C5: one key, one payload
 
@@ -380,8 +535,13 @@ audit volume grows.
 | `GET /v1/runtime-info` | served, reports only context-service |
 | Error envelope, 422 normalization | served; C10 green |
 | Request-body validation against `contracts/` | served |
-| `POST /v1/context/retrieve` | served (`app/routes/context.py`, `app/retrieval.py`); lexical + 2-hop, `retrieval_id` + `snapshot_digest` |
-| `POST /internal/v1/jobs/ingest` | route + validation; handler is #39 |
+| `POST /v1/context/retrieve` | served (`app/routes/context.py`, `app/retrieval.py`); the package's recipe, stage by stage, `retrieval_id` + `snapshot_digest` |
+| The Customer Context Package: recipes, sources, mappings, permissions, revisions | served (`app/context_package.py`); loaded at startup from `CONTEXT_PACKAGE_PATH`, and a missing or foreign package stops the process |
+| The Recipe pipeline: `resolve → structured → graph → lexical → merge → rank → mask → budget` | served (`app/retrieval.py`, `app/mask.py`); every stage read from the recipe, C15 green |
+| `POST /internal/v1/jobs/ingest` + `python -m app.ingest` | served (`app/routes/jobs.py`, `app/ingest.py`); frozen-digest refusal, per-source outcomes, watermarks, `rebuild`/`backfill`/`incremental` |
+| The ingest ledger + `IngestStatus` | served (`app/ingest_state.py`); `/readyz` and `retrieve` read the same answer, and a restart keeps it |
+| `POST /v1/connectors/{connector_id}/operations` | served (`app/routes/connectors.py`); the Tool seam, with the permission baseline's class gate |
+| Reference Connectors (`claims-db`, `sharepoint-claims`) | served (`app/connectors/`); synthetic sources over a seed, `read` for ingest and `lookupClaim` for a Tool |
 | Graph: `GraphStore` port, embedded backend, snapshot envelope | served (`app/graph/`); the store is loaded at startup and stops the process if the volume is not migrated |
 | `migrate` job: graph + audit schema, exit 0 gates startup | served (`app/migrate.py`); the service verifies and refuses, it never creates |
 | Semantica pin + import-surface check | `semantica==0.7.0`; `scripts/semantica_surface.py` runs in CI and in the image build |
@@ -403,7 +563,7 @@ cannot quietly shrink the surface it claims.
 
 ## Configuration
 
-The topology binds these (`platform/context-service/1.0.0/topology.yaml`); the
+The topology binds these (`platform/context-service/1.1.0/topology.yaml`); the
 service reads nothing else.
 
 | Variable | Meaning |
@@ -412,6 +572,7 @@ service reads nothing else.
 | `GRAPH_PATH` | embedded graph snapshot path (`/data/graph` volume); verified at startup, and a missing, unreadable or foreign-schema snapshot stops the process |
 | `AUDIT_PATH` | SQLite audit store path (`/data/audit` volume); opened at startup, and an unopenable or foreign-schema file stops the process |
 | `AUDIT_BACKEND` | `sqlite` in v0 |
+| `CONTEXT_PACKAGE_PATH` | the frozen Context Package the service executes (`/data/context-package`, mounted read-only); **required** — a service with no package has no recipe, so a missing or unservable package stops the process |
 | `EXECUTION_CONTEXT_PUBLIC_KEY` | PEM public key of the `mastra-app` issuer; **required** |
 | `FDE_JOBS_PUBLIC_KEY` | PEM public key of the `fde-jobs` issuer; **required** |
 

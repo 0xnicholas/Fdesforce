@@ -13,6 +13,7 @@ generates them (§5.4) — so the identity cases send what a deployment sends.
 from __future__ import annotations
 
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -41,6 +42,17 @@ SOLUTION_ID = "claims-triage"
 #: The Run a Run-scoped call acts for (§5.1). A token without it is refused on
 #: retrieve/decisions/approvals, so the default token carries one.
 RUN_ID = "run_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+
+#: The frozen Context Package a deployment serves. The Acme package is the reference
+#: customer (`examples/semantic/acme`), and the harness copies it onto the volume the
+#: topology mounts — a service with no package has no recipe to execute.
+REFERENCE_PACKAGE = REPO_ROOT / "examples" / "semantic" / "acme"
+
+#: The package's `metadata.name` and `version`, and the digest `revisions/<version>.yaml`
+#: recorded (`fde context freeze`'s attestation). The ingest job names all three.
+REFERENCE_PACKAGE_NAME = "acme-claims-context"
+REFERENCE_PACKAGE_VERSION = "1.0.0"
+REFERENCE_PACKAGE_DIGEST = "sha256:a8216d62662cf855120f1b3ec4ab9c865a5bc9a9f3ef179f6deb2b7a5ed0eaf5"
 
 #: How long a spawned process may take to answer `/healthz`.
 START_TIMEOUT_SECONDS = 20.0
@@ -163,6 +175,37 @@ class ServiceProcess:
     def logs(self) -> str:
         return _tail(self._log)
 
+    def ingest(
+        self,
+        *,
+        mode: str = "incremental",
+        sources: Iterable[str] | None = None,
+        package: dict[str, str] | None = None,
+        tenant_id: str = TENANT_ID,
+    ) -> httpx.Response:
+        """POST the ingest job as the deployment's `ingest` container does (§9.2).
+
+        A `fde-jobs` token, no `run_id` (the maintenance surface is not Run-scoped), and
+        the package revision the ledger and the lock name. The request body is the
+        contract's, so a job the real CLI would send is the one the tests send.
+        """
+        body: dict[str, object] = {
+            "package": package
+            or {
+                "name": REFERENCE_PACKAGE_NAME,
+                "version": REFERENCE_PACKAGE_VERSION,
+                "digest": REFERENCE_PACKAGE_DIGEST,
+            },
+            "mode": mode,
+        }
+        if sources is not None:
+            body["sources"] = list(sources)
+        return self.post(
+            "/internal/v1/jobs/ingest",
+            json=body,
+            headers=self.authorized(issuer="fde-jobs", tenant_id=tenant_id, run_id=None),
+        )
+
     @classmethod
     def start(
         cls,
@@ -171,6 +214,7 @@ class ServiceProcess:
         env: dict[str, str] | None = None,
         cwd: Path | None = None,
         migrate: bool = True,
+        context_package: Path | None = None,
     ) -> ServiceProcess:
         """Migrate the volumes, spawn the service, and wait until it is alive.
 
@@ -189,6 +233,11 @@ class ServiceProcess:
         data = data_dir or run_dir / "data"
         (data / "graph").mkdir(parents=True, exist_ok=True)
         (data / "audit").mkdir(parents=True, exist_ok=True)
+        # The package is the bundle's read-only input, not the service's output: it is
+        # copied beside the volumes rather than into one, exactly as the topology mounts
+        # it (`platform/context-service/1.1.0/topology.yaml`).
+        package_root = context_package if context_package is not None else REFERENCE_PACKAGE
+        shutil.copytree(package_root, data / "context-package", dirs_exist_ok=True)
 
         issuers = generate_issuers(DEPLOYMENT_ID)
         port = _free_port()
@@ -201,6 +250,7 @@ class ServiceProcess:
             "GRAPH_BACKEND": "embedded",
             "GRAPH_PATH": str(data / "graph" / "graph.json"),
             "AUDIT_PATH": str(data / "audit" / "audit.sqlite"),
+            "CONTEXT_PACKAGE_PATH": str(data / "context-package"),
             # The two verification halves the topology binds (§5.4, §9.3). The
             # service refuses to start without them, so the harness supplies the
             # configuration a deployment gives it.

@@ -1,6 +1,6 @@
 """The migrate job (`python -m app.migrate`): schema first, then anything else.
 
-`platform/context-service/1.0.0/topology.yaml` runs this before the service and
+`platform/context-service/1.1.0/topology.yaml` runs this before the service and
 makes the service wait on its exit (`dependsOn: [migrate]`), and
 `docs/runtime-contract.md` §9.2 fixes what each side owns:
 

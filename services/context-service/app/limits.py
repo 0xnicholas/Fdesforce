@@ -11,9 +11,9 @@ Two groups:
   `/readyz` reports the same fact so an operator sees it before a caller does. The
   fix is the production index (`docs/research/retrieval-index-selection.md`), not a
   bigger JSON snapshot.
-- **Budget defaults** — what a request that names no budget gets. A Context Recipe
-  sets these per capability (#39); the defaults are the floor, never an override of
-  a caller's smaller budget.
+- **The hop cap v0 can honour** (§4.3) and **how many anchors `resolve` tries** from a
+  query. The budget itself is not here: since #39 the recipe's `budget` stage is the
+  ceiling (§6.2 makes it mandatory), and a caller may only tighten it.
 """
 
 from __future__ import annotations
@@ -50,14 +50,10 @@ def over_ceiling(nodes: int, edges: int) -> bool:
 #: promise the backend cannot keep.
 MAX_SUPPORTED_HOPS = 2
 
-#: The budget a request that names none gets (`RetrieveRequest.budget` is optional).
-DEFAULT_MAX_NODES = 50
-DEFAULT_MAX_TOKENS = 4_000
-DEFAULT_MAX_HOPS = 2
-
-#: How many anchors a 2-hop expansion starts from: the top lexical hits, not every
-#: match. Expanding from ten anchors on a 10k-node graph is work no v0 caller pays
-#: for; two hops from the best five is what §4.3's "lexical + 2-hop" describes.
+#: How many lexical matches `resolve` considers when the caller sent a query instead of
+#: a `filters` key. The stage resolves *one* object (§6.2's `from: resolved`), so this
+#: bounds the search rather than the answer: five candidates is enough to find the
+#: entity a query names without turning the fallback into a second lexical stage.
 MAX_ANCHORS = 5
 
 #: Rough characters per token, for the `max_tokens` budget. Deliberately crude and

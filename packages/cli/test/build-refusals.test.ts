@@ -215,9 +215,9 @@ describe('the license gate', () => {
     const sb = fresh();
     // A comment is not identity (`digestOf` over the parsed document), so move a
     // real field: the composed payload would otherwise describe another bundle.
-    const fragment = parse(sb.read('platform/context-service/1.0.0/topology.yaml')) as Loose;
+    const fragment = parse(sb.read('platform/context-service/1.1.0/topology.yaml')) as Loose;
     fragment['spec']['components'][0]['env'][0]['value'] = 'changed-after-lock';
-    sb.write('platform/context-service/1.0.0/topology.yaml', stringify(fragment));
+    sb.write('platform/context-service/1.1.0/topology.yaml', stringify(fragment));
 
     const result = await sb.run(buildArgs(sb, 'bundle'));
 

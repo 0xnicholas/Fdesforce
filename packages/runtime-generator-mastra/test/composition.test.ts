@@ -43,7 +43,7 @@ describe('the generator fragment composes with the platform fragment', () => {
     expect(result.warnings).toEqual([]);
   });
 
-  it('becomes the v0 split topology: one exposed app, a bundle-internal service, three volumes', () => {
+  it('becomes the v0 split topology: one exposed app, a bundle-internal service, four volumes', () => {
     const { topology } = composed();
     const exposed = topology.spec.components.flatMap((component) =>
       (component.ports ?? []).filter((port) => port.expose === true).map(() => component.name),
@@ -51,7 +51,12 @@ describe('the generator fragment composes with the platform fragment', () => {
 
     expect(exposed).toEqual(['mastra-app']);
     expect(topology.spec.ingress).toEqual({ component: 'mastra-app', port: 4111 });
-    expect(topology.spec.volumes.map((volume) => volume.name).sort()).toEqual(['audit', 'graph', 'mastra-state']);
+    expect(topology.spec.volumes.map((volume) => volume.name).sort()).toEqual([
+      'audit',
+      'context-package',
+      'graph',
+      'mastra-state',
+    ]);
     expect(topology.spec.startupOrder).toEqual(['migrate', 'runtime-migrate', 'context-service', 'mastra-app']);
   });
 

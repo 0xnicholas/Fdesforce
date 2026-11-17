@@ -3,10 +3,11 @@
 
 import type { ApiResult, Transport } from '../transport.js';
 import { send } from '../transport.js';
-import type { Approval, ApprovalCreateRequest, ApprovalDecisionRequest, ApprovalDecisionResponse, ApprovalId, ApprovalList, CapabilityId, DecisionId, DecisionRequest, DecisionResponse, Error, IngestJobRequest, IngestJobResult, ProvenanceResponse, RetrieveRequest, RetrieveResponse, RunId, RuntimeInfo } from './schemas.js';
+import type { Approval, ApprovalCreateRequest, ApprovalDecisionRequest, ApprovalDecisionResponse, ApprovalId, ApprovalList, CapabilityId, ConnectorOperationRequest, ConnectorOperationResponse, DecisionId, DecisionRequest, DecisionResponse, Error, IngestJobRequest, IngestJobResult, ProvenanceResponse, RetrieveRequest, RetrieveResponse, RunId, RuntimeInfo } from './schemas.js';
 
 export const CONTEXT_SERVICE_OPERATIONS = {
   retrieveContext: { method: 'post', path: '/v1/context/retrieve' },
+  invokeConnectorOperation: { method: 'post', path: '/v1/connectors/{connector_id}/operations' },
   recordDecision: { method: 'post', path: '/v1/decisions' },
   getProvenance: { method: 'get', path: '/v1/provenance/{decision_id}' },
   listApprovals: { method: 'get', path: '/v1/approvals' },
@@ -22,6 +23,7 @@ export const CONTEXT_SERVICE_OPERATIONS = {
 export type ContextServiceOperation = keyof typeof CONTEXT_SERVICE_OPERATIONS;
 
 export interface ContextServicePathParams {
+  invokeConnectorOperation: { connector_id: string };
   getProvenance: { decision_id: DecisionId };
   decideApproval: { approval_id: ApprovalId };
   consumeApproval: { approval_id: ApprovalId };
@@ -29,6 +31,7 @@ export interface ContextServicePathParams {
 
 export interface ContextServiceHeaders {
   retrieveContext: { traceparent: string };
+  invokeConnectorOperation: { traceparent: string };
   recordDecision: { traceparent: string; 'Idempotency-Key': string };
   getProvenance: { traceparent: string };
   listApprovals: { traceparent: string };
@@ -44,6 +47,7 @@ export interface ContextServiceQuery {
 
 export interface ContextServiceBodies {
   retrieveContext: RetrieveRequest;
+  invokeConnectorOperation: ConnectorOperationRequest;
   recordDecision: DecisionRequest;
   createApproval: ApprovalCreateRequest;
   decideApproval: ApprovalDecisionRequest;
@@ -52,6 +56,7 @@ export interface ContextServiceBodies {
 
 export interface ContextServiceResponses {
   retrieveContext: { 200: RetrieveResponse; 400: Error; 401: Error; 403: Error; 404: Error; 422: Error; 429: Error; 500: Error; 503: Error; 504: Error };
+  invokeConnectorOperation: { 200: ConnectorOperationResponse; 400: Error; 401: Error; 403: Error; 404: Error; 422: Error; 429: Error; 500: Error; 503: Error; 504: Error };
   recordDecision: { 200: DecisionResponse; 201: DecisionResponse; 400: Error; 401: Error; 403: Error; 409: Error; 422: Error; 429: Error; 500: Error; 503: Error; 504: Error };
   getProvenance: { 200: ProvenanceResponse; 401: Error; 403: Error; 404: Error; 429: Error; 500: Error; 503: Error; 504: Error };
   listApprovals: { 200: ApprovalList; 401: Error; 403: Error; 422: Error; 429: Error; 500: Error; 503: Error };
@@ -97,6 +102,10 @@ export class ContextServiceClient {
 
   async retrieveContext(input: { headers: ContextServiceHeaders['retrieveContext']; body: ContextServiceBodies['retrieveContext'] }): Promise<ApiResult<ContextServiceResponses['retrieveContext']>> {
     return this.call('retrieveContext', input);
+  }
+
+  async invokeConnectorOperation(input: { pathParams: ContextServicePathParams['invokeConnectorOperation']; headers: ContextServiceHeaders['invokeConnectorOperation']; body: ContextServiceBodies['invokeConnectorOperation'] }): Promise<ApiResult<ContextServiceResponses['invokeConnectorOperation']>> {
+    return this.call('invokeConnectorOperation', input);
   }
 
   async recordDecision(input: { headers: ContextServiceHeaders['recordDecision']; body: ContextServiceBodies['recordDecision'] }): Promise<ApiResult<ContextServiceResponses['recordDecision']>> {

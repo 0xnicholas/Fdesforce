@@ -45,6 +45,10 @@ class Settings:
     graph_path: str = "./data/graph/graph.json"
     #: Where the append-only audit store lives (`/data/audit` in the bundle).
     audit_path: str = "./data/audit/audit.sqlite"
+    #: The frozen Context Package the service executes (`/data/context-package` in the
+    #: bundle, mounted read-only). Required: a service with no package has no recipe to
+    #: run, and an empty answer is worse than a refusal.
+    context_package_path: str = "./data/context-package"
     #: PEM halves of the two issuer keys (§5.4). Never `None` in a running
     #: service: `JwtVerifier.from_settings` refuses to build without both.
     execution_context_public_key: str | None = None
@@ -60,7 +64,7 @@ class Settings:
         """The stores only, for a maintenance job (`python -m app.migrate`).
 
         The migrate job holds no identity surface: the topology gives it the graph
-        and audit paths and no issuer keys (`platform/context-service/1.0.0/
+        and audit paths and no issuer keys (`platform/context-service/1.1.0/
         topology.yaml` → `jobs.migrate`). Building the service's settings there
         would make a job that only writes schema demand the keys of a caller it
         never authenticates.
@@ -95,6 +99,7 @@ class Settings:
             audit_backend=audit_backend,
             graph_path=source.get("GRAPH_PATH", cls.graph_path),
             audit_path=source.get("AUDIT_PATH", cls.audit_path),
+            context_package_path=source.get("CONTEXT_PACKAGE_PATH", cls.context_package_path),
             execution_context_public_key=source.get("EXECUTION_CONTEXT_PUBLIC_KEY"),
             fde_jobs_public_key=source.get("FDE_JOBS_PUBLIC_KEY"),
         )

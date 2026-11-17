@@ -194,6 +194,58 @@ SCHEMAS: dict[str, dict[str, Any]] = {
                          'required': ['error'],
                          'properties': {'error': {'$ref': '#/$defs/ErrorDetail'}},
                          'additionalProperties': False}}},
+    'connector.schema.json': {'$schema': 'https://json-schema.org/draft/2020-12/schema',
+     '$id': 'https://fde.dev/contracts/schemas/connector.schema.json',
+     'title': 'Connector Typed Operation',
+     'description': 'Request and response shapes for POST /v1/connectors/{connector_id}/operations. A '
+                    'Connector-backed Tool has exactly one seam: the typed operation. The Tool never reaches the '
+                    "customer's data source itself (docs/runtime-adapter.md D6), so the operation name, its "
+                    'input and its result are the whole contract between the Solution and the Connector — and '
+                    'every call is authorized, tenant-scoped and recorded by context-service rather than by the '
+                    'runtime app.',
+     '$defs': {'ConnectorOperationRequest': {'type': 'object',
+                                             'required': ['connector_id', 'operation', 'input'],
+                                             'properties': {'connector_id': {'type': 'string',
+                                                                             'description': "The Connector's "
+                                                                                            'name from the '
+                                                                                            'Customer-level '
+                                                                                            'manifest; it must '
+                                                                                            'equal the path '
+                                                                                            'parameter.',
+                                                                             'pattern': '^[a-z0-9][a-z0-9-]{1,62}$'},
+                                                            'operation': {'type': 'string',
+                                                                          'description': 'The typed operation, '
+                                                                                         'as the Connector '
+                                                                                         'manifest declares it '
+                                                                                         '(camelCase in v0: '
+                                                                                         '`lookupClaim`).',
+                                                                          'pattern': '^[a-z][A-Za-z0-9]{1,62}$'},
+                                                            'input': {'type': 'object',
+                                                                      'description': "The operation's arguments, "
+                                                                                     'validated against the '
+                                                                                     'input schema the Tool '
+                                                                                     'pinned.',
+                                                                      'additionalProperties': True}},
+                                             'additionalProperties': False},
+               'ConnectorOperationResponse': {'type': 'object',
+                                              'required': ['connector_id',
+                                                           'operation',
+                                                           'result',
+                                                           'output_digest',
+                                                           'trace_id'],
+                                              'properties': {'connector_id': {'type': 'string',
+                                                                              'pattern': '^[a-z0-9][a-z0-9-]{1,62}$'},
+                                                             'operation': {'type': 'string',
+                                                                           'pattern': '^[a-z][A-Za-z0-9]{1,62}$'},
+                                                             'result': {'type': 'object',
+                                                                        'description': "The operation's output, "
+                                                                                       'shaped by the output '
+                                                                                       'schema the Tool pinned.',
+                                                                        'additionalProperties': True},
+                                                             'output_digest': {'$ref': './common.schema.json#/$defs/Digest'},
+                                                             'classification': {'$ref': './common.schema.json#/$defs/Classification'},
+                                                             'trace_id': {'$ref': './common.schema.json#/$defs/TraceId'}},
+                                              'additionalProperties': False}}},
     'decision.schema.json': {'$schema': 'https://json-schema.org/draft/2020-12/schema',
      '$id': 'https://fde.dev/contracts/schemas/decision.schema.json',
      'title': 'Decision and Provenance',

@@ -20,7 +20,7 @@ import pytest
 
 from app.settings import Settings
 from conformance.documents import ContractDocuments
-from conformance.harness import DEPLOYMENT_ID, ServiceProcess
+from conformance.harness import DEPLOYMENT_ID, REFERENCE_PACKAGE, ServiceProcess
 from conformance.identity import Issuer, generate_issuers
 
 
@@ -46,4 +46,7 @@ def app_settings(deployment_keys: dict[str, Issuer]) -> Settings:
     return Settings(
         execution_context_public_key=deployment_keys["mastra-app"].public_pem,
         fde_jobs_public_key=deployment_keys["fde-jobs"].public_pem,
+        # The service executes a package, so an in-process app needs one too: the
+        # reference Acme package, read where the repository keeps it.
+        context_package_path=str(REFERENCE_PACKAGE),
     )

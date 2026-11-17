@@ -1,0 +1,114 @@
+{
+  "_comment": "The synthetic claims-db dataset (docs/semantic-modeling.md \u00a75.1). Rows carry the columns the package's mappings declare, the `updated_at` watermark, and the pre-joined relation keys (`ic:*`) a real SQL Connector would produce with the mapping's `join`. The claim ids, policy, coverage and fraud flag are the Acme golden questions' (examples/semantic/acme/evals/claims-context.golden.yaml).",
+  "datasets": {
+    "public.claims": [
+      {
+        "key": "C-1001",
+        "updated_at": "2026-01-02T10:00:00Z",
+        "claim_id": "C-1001",
+        "policy_number": "P-2001",
+        "coverage_id": "COV-1",
+        "customer_id": "CU-42",
+        "status": "review",
+        "amount": 12000,
+        "incident_date": "2025-12-28",
+        "ic:hasPolicy": [
+          "P-2001"
+        ],
+        "ic:hasCoverage": [
+          "COV-1"
+        ],
+        "ic:forCustomer": [
+          "CU-42"
+        ],
+        "ic:hasFraudFlag": [
+          "FF-7"
+        ]
+      },
+      {
+        "key": "C-1002",
+        "updated_at": "2026-01-04T09:30:00Z",
+        "claim_id": "C-1002",
+        "policy_number": "P-2002",
+        "coverage_id": "COV-2",
+        "customer_id": "CU-43",
+        "status": "open",
+        "amount": 4500,
+        "incident_date": "2026-01-03",
+        "ic:hasPolicy": [
+          "P-2002"
+        ],
+        "ic:hasCoverage": [
+          "COV-2"
+        ],
+        "ic:forCustomer": [
+          "CU-43"
+        ],
+        "ic:hasFraudFlag": []
+      }
+    ],
+    "public.policies": [
+      {
+        "key": "P-2001",
+        "updated_at": "2025-11-30T12:00:00Z",
+        "policy_number": "P-2001",
+        "status": "active",
+        "customer_id": "CU-42",
+        "ic:forCustomer": [
+          "CU-42"
+        ]
+      },
+      {
+        "key": "P-2002",
+        "updated_at": "2025-12-12T12:00:00Z",
+        "policy_number": "P-2002",
+        "status": "active",
+        "customer_id": "CU-43",
+        "ic:forCustomer": [
+          "CU-43"
+        ]
+      }
+    ],
+    "public.coverages": [
+      {
+        "key": "COV-1",
+        "updated_at": "2025-11-30T12:00:00Z",
+        "coverage_type": "contents",
+        "coverage_limit": 25000,
+        "coverage_id": "COV-1"
+      },
+      {
+        "key": "COV-2",
+        "updated_at": "2025-12-12T12:00:00Z",
+        "coverage_type": "liability",
+        "coverage_limit": 50000,
+        "coverage_id": "COV-2"
+      }
+    ],
+    "public.customers": [
+      {
+        "key": "CU-42",
+        "updated_at": "2025-10-01T08:00:00Z",
+        "customer_id": "CU-42",
+        "name": "Ada Byron",
+        "email": "ada.byron@example.com"
+      },
+      {
+        "key": "CU-43",
+        "updated_at": "2025-10-01T08:00:00Z",
+        "customer_id": "CU-43",
+        "name": "Grace Hopper",
+        "email": "grace.hopper@example.com"
+      }
+    ],
+    "public.fraud_flags": [
+      {
+        "key": "FF-7",
+        "updated_at": "2025-06-14T07:15:00Z",
+        "flag_id": "FF-7",
+        "claim_id": "C-1001",
+        "is_fraud": false
+      }
+    ]
+  }
+}

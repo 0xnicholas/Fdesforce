@@ -72,7 +72,16 @@ and the `fde-jobs` private key as a mount for the ingest job. `kid` is not a bin
 the service derives the RFC 7638 thumbprint from each key (`docs/runtime-contract.md`
 §5.4). The `mastra-app` private key is the runtime fragment's single binding, so it
 lands in the app container and nowhere else; `fde install keys` (#34) generates the
-pairs and `fde install verify` checks that the composed bundle still binds them. `@fde/bundle` composes it with the generator's
+pairs and `fde install verify` checks that the composed bundle still binds them.
+
+`context-service/1.1.0` is additive on top of it: the frozen Context Package as a
+read-only fourth volume (the service executes a recipe from it and the ingest job
+mounts the same files — `CONTEXT_PACKAGE_PATH`), and the two deployment facts a
+maintenance token must claim, `FDE_DEPLOYMENT_ID` and `FDE_SOLUTION_ID`, as
+install-time variables. It is a separate directory rather than an edit because a
+published fragment is immutable once a lock has pinned its digest.
+
+`@fde/bundle` composes it with the generator's
 `RuntimeTopology` into the single `BundleTopology` a renderer consumes.
 `toolchain.yaml` names the fragment version (`spec.contextServiceTopology`), and
 `fde spec lock` pins its version **and** parsed-document digest in

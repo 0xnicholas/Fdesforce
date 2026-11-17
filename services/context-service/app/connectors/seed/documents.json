@@ -1,0 +1,19 @@
+{
+  "_comment": "The synthetic sharepoint-claims corpus, pre-chunked by heading (see app/connectors/documents.py). The refund and approval sentences are docs/runtime-contract.md §3.3's own example and the golden questions' policy fact; `etag` is what a citation's version comes from.",
+  "source": "sharepoint-claims",
+  "dataset": "sites/claims",
+  "documents": [
+    {
+      "path": "claims/policies/refund.md",
+      "etag": "e-7781",
+      "updated_at": "2026-01-05T08:00:00Z",
+      "body": "# Refund policy\nRefund requests are reviewed by the claims team within five business days.\n\n## Premium customers\nPremium customers may receive a refund within 30 days.\n"
+    },
+    {
+      "path": "claims/policies/approval.md",
+      "etag": "e-7804",
+      "updated_at": "2025-12-20T16:45:00Z",
+      "body": "# Approval policy\nClaims above the adjuster's authority need a second signature.\n\n## Large refunds\nRefund requests over 100000 require manual approval by a claims manager.\n"
+    }
+  ]
+}
