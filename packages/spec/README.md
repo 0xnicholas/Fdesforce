@@ -73,7 +73,7 @@ one lives now:
 | Context Package + recipe bindings resolve and versions match | `checkSolution` (`context_package_invalid`, `unresolved_reference`) |
 | Eval Suite ↔ dataset digest ↔ lock `evalDatasets` | `checkSolution` (`lock_pin_mismatch`) |
 | Compose services/volumes/ports/`depends_on`/startup order, ingress exposure | now a topology invariant in `checkTopology` (`topology.test.ts`) — the renderer consumes `BundleTopology`, so the rules live where all three renderers inherit them |
-| generated tree: `GENERATED.yaml` sources, Mastra version pin | **deferred**: needs the generator (#27/#30) |
+| generated tree: `GENERATED.yaml` sources, Mastra version pin | **deferred**: `GENERATED.yaml` is still a proposed artifact (`prototype/11-solution-spec/GAPS.md`); emitting it is build provenance (#33) |
 | packaging: `docker compose config`, `helm template` | **deferred**: the renderers do not exist yet (#32 / #41) |
 | policy/eval/CCP artifact *schemas* (metric catalog ids, policy parameter types) | **deferred**: those artifacts are governance assets, owned by #10 / #25; only the cross-reference rules are here |
 

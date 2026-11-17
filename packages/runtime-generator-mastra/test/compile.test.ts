@@ -120,22 +120,70 @@ const sources = readdirSync(sourceDir)
 
 const read = (name: string): string => readFileSync(join(sourceDir, name), 'utf8');
 
-/** Comments talk about the runtime and about the generated code; only code can depend on it. */
-const code = (name: string): string =>
-  read(name)
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\/\/.*$/gm, '');
-
 /**
- * The generated files are emitted as string and template literals, so their text
- * is *data*, not the generator's own behaviour. Blank the literals before
- * scanning, and scan the emitted app separately (`determinism.test.ts`).
+ * Blank everything that is not the generator's own code: comments (they *talk*
+ * about the runtime and about the generated text) and literals (the emitted tree
+ * is data, and it is scanned separately — `determinism.test.ts` for the app,
+ * `runtime-info.test.ts` for the handshake).
+ *
+ * A character walk, not a stack of regexes. The regex version blanked comments
+ * first — which deletes the rest of a line that *contains* `//` inside a string,
+ * such as an emitted `'// …'` banner — and then blanked template literals before
+ * strings, which ate the backticks inside an emitted `'… fetch(`${url}`) …'`. Both
+ * left emitted code looking like the generator's own, and the same desync could
+ * hide a real `process.env` just as easily.
+ *
+ * Template literals are skipped wholesale, `${…}` interpolations included: this
+ * scan needs to know what is inside a literal, not to parse the expression in it.
  */
-const generatorCode = (name: string): string =>
-  code(name)
-    .replace(/`(?:[^`\\]|\\.)*`/gs, '""')
-    .replace(/'(?:[^'\\]|\\.)*'/gs, '""')
-    .replace(/"(?:[^"\\]|\\.)*"/gs, '""');
+function withoutCommentsOrLiterals(source: string): string {
+  const out: string[] = [];
+  let index = 0;
+
+  const blank = (from: number, to: number): void => {
+    out.push(source.slice(index, from), source.slice(from, to).replace(/[^\n]/g, ' '));
+    index = to;
+  };
+
+  while (index < source.length) {
+    const char = source[index] ?? '';
+    const next = source[index + 1] ?? '';
+
+    if (char === '/' && next === '/') {
+      const end = source.indexOf('\n', index);
+      blank(index, end < 0 ? source.length : end);
+      continue;
+    }
+    if (char === '/' && next === '*') {
+      const end = source.indexOf('*/', index + 2);
+      blank(index, end < 0 ? source.length : end + 2);
+      continue;
+    }
+    if (char === "'" || char === '"' || char === '`') {
+      let cursor = index + 1;
+      while (cursor < source.length) {
+        if (source[cursor] === '\\') {
+          cursor += 2;
+          continue;
+        }
+        if (source[cursor] === char) {
+          cursor += 1;
+          break;
+        }
+        cursor += 1;
+      }
+      blank(index, Math.min(cursor, source.length));
+      continue;
+    }
+
+    out.push(char);
+    index += 1;
+  }
+
+  return out.join('');
+}
+
+const generatorCode = (name: string): string => withoutCommentsOrLiterals(read(name));
 
 const FORBIDDEN_APIS: ReadonlyArray<{ pattern: RegExp; why: string }> = [
   { pattern: /\bprocess\.(env|argv|cwd)\b/, why: 'process state (the output would depend on the machine)' },

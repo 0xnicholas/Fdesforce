@@ -10,6 +10,9 @@
 import { execFile, spawn } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import { mkdirSync, symlinkSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -23,6 +26,69 @@ interface Running {
   baseUrl: string;
   stop(): Promise<void>;
 }
+
+/**
+ * context-service of this release, as far as the handshake can tell: its own
+ * runtime-info and nothing else (§9.1). A real bundle is deployed *after*
+ * context-service is ready (§8.3), so every boot here has one — the fail-closed
+ * cases point the app at a peer that disagrees, or at nothing at all.
+ */
+interface Peer {
+  url: string;
+  /** Every request the app made, so "it reached context-service" is observed, not inferred. */
+  requests: Array<{ method: string; path: string; authorization: string; traceparent: string }>;
+  stop(): Promise<void>;
+}
+
+const CONTEXT_SERVICE_INFO = {
+  contract_version: '1.4.0',
+  service: 'context-service',
+  service_version: '0.1.0',
+  graph_schema_version: '1',
+  audit_schema_version: '1',
+  backend: { graph: 'embedded', audit: 'sqlite' },
+  capabilities: ['shared-graph', 'semantic-ingest'],
+  limits: { max_nodes: 10_000, max_edges: 50_000, max_request_timeout_ms: 30_000, max_run_deadline_ms: 1_800_000 },
+  components: [{ name: 'context-service', version: '0.1.0', contract_version: '1.4.0', status: 'ready' }],
+  started_at: '2026-11-15T09:00:00.000Z',
+};
+
+const startPeer = async (document: Record<string, unknown> = CONTEXT_SERVICE_INFO): Promise<Peer> => {
+  const requests: Peer['requests'] = [];
+  const server: Server = createServer((request, response) => {
+    requests.push({
+      method: request.method ?? 'GET',
+      path: request.url ?? '/',
+      authorization: String(request.headers['authorization'] ?? ''),
+      traceparent: String(request.headers['traceparent'] ?? ''),
+    });
+    if (request.url === '/v1/runtime-info') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify(document));
+      return;
+    }
+    response.writeHead(404, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ error: { code: 'not_found' } }));
+  });
+  server.listen(0, '127.0.0.1');
+  await new Promise<void>((resolve) => server.once('listening', () => resolve()));
+
+  return {
+    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    requests,
+    stop: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
+};
+
+/** A port nothing is listening on: the handshake is then `unavailable`, not a mismatch. */
+const closedPort = async (): Promise<string> => {
+  const server = createServer();
+  server.listen(0, '127.0.0.1');
+  await new Promise<void>((resolve) => server.once('listening', () => resolve()));
+  const { port } = server.address() as AddressInfo;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return `http://127.0.0.1:${port}`;
+};
 
 const DEPLOYMENT_ID = 'dep_01ARZ3NDEKTSV4RRFFQ69G5FAV';
 
@@ -79,10 +145,20 @@ const migrate = async (): Promise<string> => {
   return dbPath;
 };
 
-const boot = async (dbPath: string, extraEnv: Record<string, string> = identityEnv()): Promise<Running> => {
+const boot = async (
+  dbPath: string,
+  extraEnv: Record<string, string> = identityEnv(),
+  contextServiceUrl = 'http://127.0.0.1:1',
+): Promise<Running> => {
   const child = spawn(process.execPath, ['--experimental-strip-types', 'src/index.ts'], {
     cwd: tree.root,
-    env: { ...process.env, FDE_STATE_STORE_PATH: dbPath, FDE_PORT: '0', ...extraEnv },
+    env: {
+      ...process.env,
+      FDE_STATE_STORE_PATH: dbPath,
+      FDE_PORT: '0',
+      FDE_CONTEXT_SERVICE_URL: contextServiceUrl,
+      ...extraEnv,
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -133,13 +209,30 @@ const exitOf = async (extraEnv: Record<string, string>): Promise<{ code: number 
 };
 
 describe('the generated app boots', () => {
-  it('serves liveness after the migration job, and starts a Run that reaches context-service', { timeout: 60_000 }, async () => {
+  it('serves liveness and readiness after the migration job, and starts a Run that reaches context-service', { timeout: 60_000 }, async () => {
     const dbPath = await migrate();
-    const app = await boot(dbPath);
+    const peer = await startPeer();
+    const app = await boot(dbPath, identityEnv(), peer.url);
     try {
       const health = await fetch(`${app.baseUrl}/healthz`);
       expect(health.status).toBe(200);
       expect(await health.json()).toEqual({ status: 'ok' });
+
+      // The handshake ran before the listener bound (§9.3), so readiness is already
+      // `ready` — and the aggregate is context-service's document plus this app's.
+      const ready = await fetch(`${app.baseUrl}/readyz`);
+      expect(ready.status).toBe(200);
+      expect(await ready.json()).toEqual({ status: 'ready', reasons: [] });
+
+      const info = (await (await fetch(`${app.baseUrl}/v1/runtime-info`)).json()) as Record<string, any>;
+      expect(info['service']).toBe('runtime-app');
+      expect(info['runtime']).toMatchObject({ family: 'mastra', language: 'typescript', state_store: 'sqlite' });
+      expect(info['capability_details']['hitl.consume']).toEqual({ support: 'adapter' });
+      expect((info['components'] as Array<{ name: string }>).map((component) => component.name)).toEqual([
+        'runtime-app',
+        'runtime-state',
+        'context-service',
+      ]);
 
       const created = await fetch(`${app.baseUrl}/v1/runs`, {
         method: 'POST',
@@ -157,15 +250,69 @@ describe('the generated app boots', () => {
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
 
-      // The Run was minted an ExecutionContext and got as far as `POST
-      // /v1/context/retrieve`; there is no context-service in this test, so the
-      // transport failure is what proves issuance worked. Before #29 the same Run
-      // failed with `unavailable` *because* issuance was the seam.
+      // The Run was minted an ExecutionContext and got as far as context-service: the
+      // peer here answers `runtime-info` and 404s everything else, so what proves
+      // issuance worked is the request it *received*, not the failure it caused.
       expect(status['status']).toBe('failed');
-      // Asserted on the message, not the code: how a workflow failure is mapped onto
+      const retrieve = peer.requests.filter((entry) => entry.path === '/v1/context/retrieve');
+      expect(retrieve).toHaveLength(1);
+      expect(retrieve[0]?.method).toBe('POST');
+      // §5.1/§5.3: a bearer ExecutionContext, and a `traceparent` carrying the Run trace.
+      expect(retrieve[0]?.authorization).toMatch(/^Bearer [\w-]+\.[\w-]+\.[\w-]+$/);
+      expect(retrieve[0]?.traceparent.split('-')[1]).toBe(run.trace_id);
+      // Asserted on the trace id, not the code: how a workflow failure is mapped onto
       // the error table is the executor's (#28/#37), and this test is about identity.
-      expect((status['error'] as { message: string }).message).toMatch(/\/v1\/context\/retrieve did not answer/);
       expect((status['error'] as { trace_id: string }).trace_id).toBe(run.trace_id);
+    } finally {
+      await app.stop();
+      await peer.stop();
+    }
+  });
+
+  it('refuses to serve when context-service is on another contract major', { timeout: 60_000 }, async () => {
+    const dbPath = await migrate();
+    const peer = await startPeer({ ...CONTEXT_SERVICE_INFO, contract_version: '2.0.0' });
+    const app = await boot(dbPath, identityEnv(), peer.url);
+    try {
+      const ready = await fetch(`${app.baseUrl}/readyz`);
+      expect(ready.status).toBe(503);
+      const report = (await ready.json()) as { status: string; reasons: string[] };
+      expect(report.status).toBe('not_ready');
+      expect(report.reasons[0]).toMatch(/^contract_mismatch: .*v2.*v1/);
+
+      // Fail closed: the Run API does not serve, and says which mismatch it was.
+      const created = await fetch(`${app.baseUrl}/v1/runs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'Idempotency-Key': 'mismatch-0123456789abcdef' },
+        body: JSON.stringify({ capability_id: 'document-triage', input: {} }),
+      });
+      expect(created.status).toBe(503);
+      const envelope = (await created.json()) as { error: { code: string; retryable: boolean; details: any } };
+      expect(envelope.error.code).toBe('contract_mismatch');
+      expect(envelope.error.retryable).toBe(false);
+      expect(envelope.error.details.reason).toBe('contract_major_mismatch');
+
+      const info = await fetch(`${app.baseUrl}/v1/runtime-info`);
+      expect(info.status).toBe(503);
+      expect(((await info.json()) as { error: { code: string } }).error.code).toBe('contract_mismatch');
+
+      // Liveness still answers: a container that cannot report why it is not ready is
+      // a container nobody can debug.
+      expect((await fetch(`${app.baseUrl}/healthz`)).status).toBe(200);
+    } finally {
+      await app.stop();
+      await peer.stop();
+    }
+  });
+
+  it('refuses to serve when context-service never answers', { timeout: 60_000 }, async () => {
+    const dbPath = await migrate();
+    const app = await boot(dbPath, identityEnv(), await closedPort());
+    try {
+      const ready = await fetch(`${app.baseUrl}/readyz`);
+      expect(ready.status).toBe(503);
+      const report = (await ready.json()) as { status: string; reasons: string[] };
+      expect(report.reasons[0]).toMatch(/^unavailable: GET http:\/\/.+\/v1\/runtime-info did not answer/);
     } finally {
       await app.stop();
     }
@@ -173,7 +320,8 @@ describe('the generated app boots', () => {
 
   it('passes the emitted A2/A5 contract tests against the real bundle', { timeout: 90_000 }, async () => {
     const dbPath = await migrate();
-    const app = await boot(dbPath);
+    const peer = await startPeer();
+    const app = await boot(dbPath, identityEnv(), peer.url);
     try {
       const script = join(tree.bundle, 'contract-tests/run-api-smoke.mjs');
       for (const caseId of ['A2', 'A5']) {
@@ -182,6 +330,7 @@ describe('the generated app boots', () => {
       }
     } finally {
       await app.stop();
+      await peer.stop();
     }
   });
 

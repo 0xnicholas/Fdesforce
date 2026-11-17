@@ -51,7 +51,7 @@ export interface RuntimeApiResponses {
   cancelRun: { 202: RunStatus; 401: Error; 403: Error; 404: Error; 409: Error; 500: Error; 503: Error };
   listApprovals: { 200: ApprovalList; 401: Error; 403: Error; 422: Error; 429: Error; 500: Error; 503: Error };
   decideApproval: { 200: ApprovalDecisionResponse; 400: Error; 401: Error; 403: Error; 404: Error; 409: Error; 422: Error; 429: Error; 500: Error; 503: Error; 504: Error };
-  getRuntimeInfo: { 200: RuntimeInfo };
+  getRuntimeInfo: { 200: RuntimeInfo; 503: Error };
   healthz: { 200: {
   status: "ok";
 } };

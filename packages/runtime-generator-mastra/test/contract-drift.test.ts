@@ -129,7 +129,7 @@ const openapi = parse(readFileSync(join(repoRoot, 'contracts/runtime-api-v1.open
 const operations = Object.values(RUN_API_OPERATIONS);
 
 describe('the Run API catalogue is the contract', () => {
-  it('names the four operations with the contract method, path and statuses', () => {
+  it('names every operation with the contract method, path and statuses', () => {
     for (const operation of operations) {
       const declared = openapi.paths[operation.path]?.[operation.method];
       expect(declared, `${operation.method.toUpperCase()} ${operation.path}`).toBeDefined();

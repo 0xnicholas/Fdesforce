@@ -53,6 +53,7 @@ contract-derived client, the `fde spec init/validate/lock` command chain (#25), 
 capability gate (#26), and the v0 Mastra generator: the app skeleton and grammar
 gate (#27), then the Run API (`POST /v1/runs` under an `Idempotency-Key`, SSE,
 cancel), the context client's retry policy, the libsql/SQLite state store and the
-three remaining port methods (#28). Identity issuance (#29), `/readyz` and the
-startup handshake (#30), the Compose renderer and context-service are separate
+three remaining port methods (#28), identity issuance (#29), and the startup
+handshake: `runtime/runtime-info.ts`, `/readyz` and the aggregated
+`/v1/runtime-info` (#30). The Compose renderer and context-service are separate
 tickets.

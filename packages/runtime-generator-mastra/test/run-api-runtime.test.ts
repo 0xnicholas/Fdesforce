@@ -101,14 +101,19 @@ describe('canonical digests', () => {
 });
 
 describe('the Run API contract copy', () => {
-  it('carries the four operations, the slice event subset and the error table', async () => {
+  it('carries every operation, the slice event subset and the error table', async () => {
     const wire = await tree.load<Wire>('runtime/wire.ts');
 
+    // The four Run operations, then the three `ops` routes the handshake added: the
+    // app can only declare a route the contract has an operation for.
     expect(wire.RUN_API_OPERATIONS.map((operation) => operation.operationId)).toEqual([
       'createRun',
       'getRun',
       'streamRun',
       'cancelRun',
+      'getRuntimeInfo',
+      'healthz',
+      'readyz',
     ]);
     expect(wire.SLICE_EVENT_TYPES).toEqual([
       'run.started',

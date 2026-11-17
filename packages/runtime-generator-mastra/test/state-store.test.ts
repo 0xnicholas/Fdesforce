@@ -284,6 +284,7 @@ describe('the deployment configuration', () => {
     expect(config.loadConfig({})).toEqual({
       tenantId: 'acme',
       port: 4111,
+      contextServiceUrl: 'http://context-service:8011',
       stateStorePath: './state/mastra.db',
       runDeadlineMs: config.DEFAULT_RUN_DEADLINE_MS,
       heartbeatIntervalMs: expect.any(Number),

@@ -64,6 +64,7 @@ describe('the file set', () => {
       'mastra-app/src/runtime/router.ts',
       'mastra-app/src/runtime/run-registry.ts',
       'mastra-app/src/runtime/run-service.ts',
+      'mastra-app/src/runtime/runtime-info.ts',
       'mastra-app/src/runtime/sse.ts',
       'mastra-app/src/runtime/state-store.ts',
       'mastra-app/src/runtime/wire.ts',
@@ -147,7 +148,8 @@ describe('the emitted app', () => {
         role: 'runtime-app',
         image: { build: { context: 'mastra-app', dockerfile: 'Dockerfile' } },
         ports: [{ name: 'http', containerPort: 4111, expose: true }],
-        healthCheck: { path: '/healthz', port: 4111 },
+        // Readiness, not liveness: the container is checked against the handshake (§9.3).
+        healthCheck: { path: '/readyz', port: 4111 },
       },
     ]);
   });
@@ -254,10 +256,14 @@ describe('the tools', () => {
 
   it('keeps every call behind one context-service client, so the seam stays single', () => {
     const client = content(app().files, 'mastra-app/src/runtime/context-client.ts');
+    const config = content(app().files, 'mastra-app/src/runtime/config.ts');
 
     expect(client).toMatch(/\/v1\/context\/retrieve/);
     expect(client).toMatch(/\/v1\/connectors\//);
-    expect(client).toMatch(/const CONTEXT_SERVICE_URL = 'http:\/\/context-service:8011'/);
+    // The address lives in `config.ts`, because the handshake and the data plane must
+    // resolve the same one (`FDE_CONTEXT_SERVICE_URL` moves both or neither).
+    expect(config).toMatch(/export const CONTEXT_SERVICE_URL = 'http:\/\/context-service:8011'/);
+    expect(client).toMatch(/this\.baseUrl = options\.baseUrl \?\? loadConfig\(\)\.contextServiceUrl/);
   });
 });
 

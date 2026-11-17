@@ -71,12 +71,13 @@ describe('the runtime app component', () => {
     const app = mastraGenerator.generateApp(generateInput());
     const [component] = spec().components;
 
-    // The handshake slice (#30) switches this to `/readyz`; until then the
-    // container must be checked against a route that exists — and the route the
-    // emitted router actually serves, not a path the topology invented.
-    expect(component?.healthCheck).toEqual({ path: '/healthz', port: 4111 });
+    // Readiness, not liveness: a container that is alive but failed the startup
+    // handshake must not be sent traffic (§9.3). And the path is the one the emitted
+    // router actually serves, not one the topology invented.
+    expect(component?.healthCheck).toEqual({ path: '/readyz', port: 4111 });
     const router = app.files.find((entry) => entry.path === 'mastra-app/src/runtime/router.ts')?.content ?? '';
-    expect(router).toContain(`export const PROBE_PATH = '${component?.healthCheck?.path}';`);
+    expect(router).toContain(`export const READY_PATH = '${component?.healthCheck?.path}';`);
+    expect(router).toContain("export const LIVENESS_PATH = '/healthz';");
     expect(router).toContain('export const RUNS_PATH');
   });
 

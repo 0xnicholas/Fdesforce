@@ -10,10 +10,10 @@ import { ERROR_CODES, RUN_API_OPERATIONS, SLICE_EVENT_TYPES } from './run-api.js
  * The generator maps the A-cases its app can be held to onto a command and the
  * fixtures that command reads; it does not implement a runner (`contracts/conformance/adapter-cases.md`,
  * "Runner and CI"). Only the cases this slice's app can actually satisfy are
- * listed: A2 (Run API parity), A5 (SSE envelope), A8 (tenant/trace propagation) and
- * A11 (deterministic generation). A3/A4/A6/A7/A9/A10/A12 belong to HITL,
- * record-before-act, restart resume, extension loading, offline install and memory;
- * A1's runtime half belongs to the handshake (#30). A plan that listed them would
+ * listed: A1 (the runtime capability handshake), A2 (Run API parity), A5 (SSE
+ * envelope), A8 (tenant/trace propagation) and A11 (deterministic generation).
+ * A3/A4/A6/A7/A9/A10/A12 belong to HITL, record-before-act, restart resume,
+ * extension loading, offline install and memory. A plan that listed them would
  * claim conformance the generated app cannot deliver.
  *
  * A8 is claimed for the app's half only: the tenant, the trace and the scopes a token
@@ -36,6 +36,20 @@ export const PARITY_FIXTURE = `${CONTRACT_TEST_DIR}/fixtures/run-api-parity.json
  * because there is no HTTP surface for a token and no fixture can prove a signature.
  */
 export const IDENTITY_SMOKE_SCRIPT = `${CONTRACT_TEST_DIR}/identity-smoke.mjs`;
+
+/**
+ * The A1 smoke: the handshake, executed against the emitted module. It is a
+ * separate script from the HTTP one because half of A1 is not an HTTP claim — a
+ * mismatched *build* refuses before any request is made, and the fixture-driven
+ * half has to call `handshake` with mutated blocks rather than over a socket.
+ */
+export const RUNTIME_INFO_SMOKE_SCRIPT = `${CONTRACT_TEST_DIR}/runtime-info-smoke.mjs`;
+
+/** What context-service of this release answers: its own component info (§9.1). */
+export const RUNTIME_INFO_FIXTURE = `${CONTRACT_TEST_DIR}/fixtures/runtime-info.json`;
+
+/** The fail-closed cases: each mutation, and the code and reason it must produce. */
+export const RUNTIME_INFO_MISMATCH_FIXTURE = `${CONTRACT_TEST_DIR}/fixtures/runtime-info-mismatch.json`;
 
 /**
  * The parity fixture is the contract as data: A2 compares the running surface
@@ -504,6 +518,336 @@ function identitySmokeScript(generatorVersion: string): GeneratedFile {
   };
 }
 
+/**
+ * A1's peer document: what `context-service` answers for `GET /v1/runtime-info`.
+ *
+ * It reports only itself (§9.1) — its own component, the stores it owns and the
+ * schema versions the lock pins — which is what makes the runtime side of A1
+ * assertable at all: the app has to compare *two* documents, not read its own.
+ */
+function runtimeInfoFixture(input: RuntimeGenerateInput): GeneratedFile {
+  return {
+    path: RUNTIME_INFO_FIXTURE,
+    mode: GENERATED_FILE_MODE,
+    content: canonicalJsonFile({
+      contract_version: input.lock.runtime.contractVersion,
+      service: 'context-service',
+      service_version: input.lock.runtime.contextService,
+      graph_schema_version: String(input.lock.runtime.graphSchema),
+      audit_schema_version: String(input.lock.runtime.auditSchema),
+      backend: { graph: 'embedded', audit: 'sqlite' },
+      capabilities: ['shared-graph', 'semantic-ingest', 'audit-append'],
+      limits: {
+        max_edges: 50_000,
+        max_nodes: 10_000,
+        max_request_timeout_ms: 30_000,
+        max_run_deadline_ms: 1_800_000,
+      },
+      components: [
+        {
+          name: 'context-service',
+          version: input.lock.runtime.contextService,
+          contract_version: input.lock.runtime.contractVersion,
+          status: 'ready',
+        },
+        {
+          name: 'graph-store',
+          version: input.lock.runtime.semantica,
+          contract_version: input.lock.runtime.contractVersion,
+          status: 'ready',
+        },
+        {
+          name: 'audit-store',
+          version: input.lock.runtime.contextService,
+          contract_version: input.lock.runtime.contractVersion,
+          status: 'ready',
+        },
+      ],
+      started_at: '2026-01-01T00:00:00.000Z',
+    }),
+  };
+}
+
+/**
+ * Every way the handshake must refuse, as data (A1, C9).
+ *
+ * Two mutation kinds, because the checks have two sides: `peer` patches
+ * context-service's document, `build` patches the blocks this tree baked. `null`
+ * removes a field, so "the Profile does not declare the capability at all" is
+ * expressible. Each case names the contract code *and* the check, because the code
+ * is what a client reads and the reason is what an operator acts on.
+ *
+ * The smoke applies these to the real module, so a check that stops firing — or a
+ * reason string that drifts — fails the case instead of quietly passing.
+ */
+export const RUNTIME_INFO_MISMATCHES: ReadonlyArray<{
+  name: string;
+  expect: { code: string; reason: string };
+  /** A patch over context-service's document. */
+  peer?: Record<string, unknown>;
+  /** A patch over the blocks this tree baked. */
+  build?: Record<string, unknown>;
+  /** The HTTP status the peer answers with, when the case is about the answer itself. */
+  peerStatus?: number;
+}> = [
+  {
+    name: 'contract-major',
+    expect: { code: 'contract_mismatch', reason: 'contract_major_mismatch' },
+    peer: { contract_version: '2.0.0' },
+  },
+  {
+    name: 'graph-schema',
+    expect: { code: 'contract_mismatch', reason: 'graph_schema_mismatch' },
+    peer: { graph_schema_version: '2' },
+  },
+  {
+    name: 'audit-schema',
+    expect: { code: 'contract_mismatch', reason: 'audit_schema_mismatch' },
+    peer: { audit_schema_version: '2' },
+  },
+  {
+    name: 'peer-identity',
+    expect: { code: 'contract_mismatch', reason: 'context_service_identity' },
+    // §9.1: context-service reports only itself. A peer claiming to be the runtime is a
+    // wiring mistake, and aggregating it would publish a document with two runtimes.
+    peer: { service: 'runtime-app' },
+  },
+  {
+    name: 'peer-document',
+    expect: { code: 'contract_mismatch', reason: 'runtime_info_invalid' },
+    peer: { limits: null },
+  },
+  {
+    name: 'profile-digest',
+    expect: { code: 'runtime_capability_mismatch', reason: 'runtime_profile_mismatch' },
+    build: { runtime: { profile_digest: `sha256:${'0'.repeat(64)}` } },
+  },
+  {
+    name: 'runtime-version',
+    expect: { code: 'runtime_capability_mismatch', reason: 'runtime_version_mismatch' },
+    build: { runtime: { version: '9.9.9' } },
+  },
+  {
+    name: 'runtime-family',
+    expect: { code: 'runtime_capability_mismatch', reason: 'runtime_family_mismatch' },
+    build: { runtime: { family: 'langgraph' } },
+  },
+  {
+    name: 'runtime-language',
+    expect: { code: 'runtime_capability_mismatch', reason: 'runtime_language_mismatch' },
+    build: { runtime: { language: 'python' } },
+  },
+  {
+    name: 'generator-version',
+    expect: { code: 'runtime_capability_mismatch', reason: 'runtime_generator_mismatch' },
+    build: { runtime: { generator_version: '0.0.1' } },
+  },
+  {
+    name: 'state-store',
+    expect: { code: 'runtime_capability_mismatch', reason: 'runtime_state_store_mismatch' },
+    build: { runtime: { state_store: 'postgres' } },
+  },
+  {
+    name: 'must-degraded',
+    expect: { code: 'runtime_capability_mismatch', reason: 'runtime_capability_degraded' },
+    build: { details: { streaming: { support: 'degraded', limitations: ['token streaming unverified'] } } },
+  },
+  {
+    name: 'must-missing',
+    expect: { code: 'runtime_capability_mismatch', reason: 'runtime_capability_missing' },
+    build: { details: { extensions: null } },
+  },
+  {
+    name: 'offline-egress',
+    expect: { code: 'runtime_capability_mismatch', reason: 'runtime_license_blocked' },
+    build: { runtime: { licensing: { egress: true } } },
+  },
+  {
+    name: 'offline-license-key',
+    expect: { code: 'runtime_capability_mismatch', reason: 'runtime_license_blocked' },
+    build: { runtime: { licensing: { requiresLicenseKey: true } } },
+  },
+  {
+    name: 'peer-missing-route',
+    expect: { code: 'contract_mismatch', reason: 'runtime_info_missing' },
+    // A peer that answers 404 is up and refusing the route: the two sides disagree about
+    // what `runtime-info` is. Only a 5xx or a transport failure is `unavailable`.
+    peerStatus: 404,
+  },
+];
+
+function runtimeInfoMismatchFixture(generatorVersion: string): GeneratedFile {
+  return {
+    path: RUNTIME_INFO_MISMATCH_FIXTURE,
+    mode: GENERATED_FILE_MODE,
+    content: canonicalJsonFile({
+      cases: RUNTIME_INFO_MISMATCHES,
+      casesVersion: 'A1',
+      contractVersionNote:
+        'Each case mutates the peer document (`peer`) or the build blocks this tree carries (`build`); null removes a field.',
+      generatorVersion,
+    }),
+  };
+}
+
+/**
+ * `contract-tests/runtime-info-smoke.mjs` — A1, the runtime half (C9).
+ *
+ * Two halves, because A1 has two: the *deployed* claim (`/readyz` is ready and
+ * `/v1/runtime-info` reports `service: runtime-app` with an aggregated
+ * `components[]`) and the *fail-closed* claim (every mismatch in the fixture is
+ * refused with the code and reason it names). The second half cannot be an HTTP
+ * assertion — a mismatched build never serves — so the script imports the app's
+ * own module and drives it, which also means the fixture is applied to the code
+ * the bundle ships rather than to a copy of it.
+ */
+function runtimeInfoSmokeScript(generatorVersion: string): GeneratedFile {
+  return {
+    path: RUNTIME_INFO_SMOKE_SCRIPT,
+    mode: GENERATED_FILE_MODE,
+    content: [
+      '#!/usr/bin/env node',
+      generatedHeader(generatorVersion, 'contracts/conformance/adapter-cases.md A1 + docs/runtime-adapter.md §9.3').trimEnd(),
+      '//',
+      '// A1 / C9 — the runtime capability handshake.',
+      '//',
+      '//   node --experimental-strip-types contract-tests/runtime-info-smoke.mjs --base-url http://127.0.0.1:4111',
+      '//',
+      '// Without `--base-url` only the fail-closed half runs: a build that is not the one',
+      '// the lock describes refuses before it ever speaks to a peer, so that half needs no',
+      '// deployment — just the module and the fixtures.',
+      "import { readFileSync } from 'node:fs';",
+      '',
+      "import { BUILD, SERVICE, handshake, readiness } from '../mastra-app/src/runtime/runtime-info.ts';",
+      '',
+      'const fixture = (name) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), \'utf8\'));',
+      '',
+      'const args = process.argv.slice(2);',
+      'const option = (name, fallback) => {',
+      '  const index = args.indexOf(`--${name}`);',
+      '  return index >= 0 && index + 1 < args.length ? args[index + 1] : fallback;',
+      '};',
+      '',
+      'let failures = 0;',
+      'const check = (label, condition, detail) => {',
+      '  if (condition) {',
+      '    console.log(`ok   ${label}`);',
+      '    return;',
+      '  }',
+      '  failures += 1;',
+      "  console.error(`FAIL ${label}${detail === undefined ? '' : `: ${detail}`}`);",
+      '};',
+      '',
+      'const isPlainObject = (value) => typeof value === \'object\' && value !== null && !Array.isArray(value);',
+      '',
+      '/** A document or a build block with these fields changed; `null` removes one. */',
+      'const merge = (base, patch) => {',
+      '  if (!isPlainObject(base) || !isPlainObject(patch)) return patch;',
+      '  const merged = { ...base };',
+      '  for (const [key, value] of Object.entries(patch)) {',
+      '    if (value === null) delete merged[key];',
+      '    else merged[key] = merge(base[key], value);',
+      '  }',
+      '  return merged;',
+      '};',
+      '',
+      'const answering = (document, status = 200) => async () =>',
+      "  new Response(JSON.stringify(document), { status, headers: { 'content-type': 'application/json' } });",
+      '',
+      '// --- a matching deployment handshakes ----------------------------------------',
+      "const peer = fixture('runtime-info.json');",
+      'const matched = await handshake({ fetch: answering(peer) });',
+      "check('a matching context-service satisfies the handshake', matched.ready === true, matched.ready ? '' : JSON.stringify(matched.failure));",
+      'if (matched.ready) {',
+      "  check('deployed document: service is runtime-app', matched.info.service === SERVICE, matched.info.service);",
+      '  check(',
+      "    'deployed document: runtime descriptor present',",
+      '    isPlainObject(matched.info.runtime) && typeof matched.info.runtime.profile_digest === \'string\',',
+      '  );',
+      '  check(',
+      "    'deployed document: capability_details present',",
+      '    isPlainObject(matched.info.capability_details) && Object.keys(matched.info.capability_details).length > 0,',
+      '  );',
+      '  check(',
+      "    'deployed document: components aggregate the peer',",
+      "    (matched.info.components ?? []).some((component) => component.name === 'context-service'),",
+      '  );',
+      '  check(',
+      "    'deployed document: contract version is the locked one',",
+      '    matched.info.contract_version === BUILD.lock.contractVersion,',
+      '    matched.info.contract_version,',
+      '  );',
+      "  check('/readyz: ready', readiness(matched).status === 'ready', readiness(matched).status);",
+      '}',
+      '',
+      '// --- every mismatch fails closed ---------------------------------------------',
+      "const { cases } = fixture('runtime-info-mismatch.json');",
+      "check('the mismatch fixture lists cases', Array.isArray(cases) && cases.length > 0);",
+      '',
+      'for (const entry of cases ?? []) {',
+      '  const build = entry.build === undefined ? BUILD : merge(BUILD, entry.build);',
+      '  const document = entry.peer === undefined ? peer : merge(peer, entry.peer);',
+      '  const state = await handshake({ build, fetch: answering(document, entry.peerStatus ?? 200) });',
+      '  const report = readiness(state);',
+      '',
+      '  check(`${entry.name}: refused`, state.ready === false, \'the handshake accepted it\');',
+      '  if (state.ready) continue;',
+      '  check(',
+      '    `${entry.name}: ${entry.expect.code}/${entry.expect.reason}` ,',
+      '    state.failure.code === entry.expect.code && state.failure.reason === entry.expect.reason,',
+      '    `${state.failure.code}/${state.failure.reason}` ,',
+      '  );',
+      "  check(`${entry.name}: /readyz is not_ready`, report.status === 'not_ready' && report.reasons.length > 0, report.status);",
+      '}',
+      '',
+      '// --- what a deployed bundle answers ------------------------------------------',
+      "const baseUrl = (option('base-url', process.env.FDE_SMOKE_BASE_URL ?? '')).replace(/\\/+$/, '');",
+      "if (baseUrl === '') {",
+      "  console.log('runtime-info-smoke: no --base-url, skipped the deployed-bundle half of A1');",
+      '} else {',
+      '  const readyz = await fetch(`${baseUrl}/readyz`);',
+      "  check('deployed: /readyz 200', readyz.status === 200, `got ${readyz.status}`);",
+      '  const report = await readyz.json();',
+      "  check('deployed: /readyz is ready or degraded', report.status === 'ready' || report.status === 'degraded', report.status);",
+      '  check(',
+      "    'deployed: /readyz reasons is a list',",
+      '    Array.isArray(report.reasons),',
+      '  );',
+      '',
+      '  const response = await fetch(`${baseUrl}/v1/runtime-info`);',
+      "  check('deployed: /v1/runtime-info 200', response.status === 200, `got ${response.status}`);",
+      '  const info = await response.json();',
+      "  check('deployed: service is runtime-app', info.service === 'runtime-app', info.service);",
+      '  check(',
+      "    'deployed: runtime descriptor present',",
+      '    isPlainObject(info.runtime) && typeof info.runtime.profile_digest === \'string\',',
+      '  );',
+      '  check(',
+      "    'deployed: runtime family is the one this build reports',",
+      '    isPlainObject(info.runtime) && info.runtime.family === BUILD.runtime.family,',
+      '    isPlainObject(info.runtime) ? info.runtime.family : String(info.runtime),',
+      '  );',
+      '  check(',
+      "    'deployed: components aggregate the peer',",
+      "    (info.components ?? []).some((component) => component.name === 'context-service'),",
+      '  );',
+      '  check(',
+      "    'deployed: contract major matches the lock',",
+      '    String(info.contract_version ?? \'\').split(\'.\')[0] === String(BUILD.lock.contractVersion).split(\'.\')[0],',
+      '    info.contract_version,',
+      '  );',
+      '}',
+      '',
+      'if (failures > 0) {',
+      '  console.error(`A1: ${failures} check(s) failed`);',
+      '  process.exit(1);',
+      '}',
+      "console.log('A1: ok');",
+      '',
+    ].join('\n'),
+  };
+}
+
 export function generateContractTests(input: RuntimeGenerateInput): TestPlan {
   // The capabilities this build can start, in a stable order: the smoke script reads
   // one of them, so the case is about *this* Solution rather than the reference one.
@@ -514,6 +858,14 @@ export function generateContractTests(input: RuntimeGenerateInput): TestPlan {
 
   return {
     cases: [
+      {
+        caseId: 'A1',
+        tier: 'smoke',
+        command: ['node', '--experimental-strip-types', RUNTIME_INFO_SMOKE_SCRIPT],
+        fixtures: [RUNTIME_INFO_FIXTURE, RUNTIME_INFO_MISMATCH_FIXTURE],
+        notes:
+          'Runtime capability handshake: the deployed app reports service runtime-app with an aggregated components[], and every mismatch in the fixture fails closed with contract_mismatch or runtime_capability_mismatch. Build side (profile digest, must capabilities) is the same fixture against the same module; the context-service half of C9 is #32.',
+      },
       {
         caseId: 'A2',
         tier: 'smoke',
@@ -546,7 +898,10 @@ export function generateContractTests(input: RuntimeGenerateInput): TestPlan {
     ],
     generatedFiles: sortedFiles([
       parityFixture(capabilities),
+      runtimeInfoFixture(input),
+      runtimeInfoMismatchFixture(input.profile.spec.generator.version),
       smokeScript(input.profile.spec.generator.version),
+      runtimeInfoSmokeScript(input.profile.spec.generator.version),
       identitySmokeScript(input.profile.spec.generator.version),
     ]),
   };

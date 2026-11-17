@@ -52,13 +52,22 @@ interface ExecuteInput {
 
 type Execute = (input: ExecuteInput, registry: Registry) => Promise<void>;
 
+interface ReadyState {
+  ready: true;
+  info: Record<string, unknown>;
+  degradations: Array<{ capability: string; support: string; source: string }>;
+}
+
 interface ServerModule {
-  PROBE_PATH: string;
+  LIVENESS_PATH: string;
+  READY_PATH: string;
+  RUNTIME_INFO_PATH: string;
   createRuntimeServer(options: {
     registry: Registry;
     tenantId: string;
     capabilities: string[];
     execute: Execute;
+    runtimeInfo: ReadyState | { ready: false; failure: Record<string, unknown>; failures: unknown[] };
     maxBodyBytes?: number;
   }): Server;
 }
@@ -102,7 +111,47 @@ let runtime: Runtime | undefined;
  */
 const run = promisify(execFile);
 
-const start = async (execute: Execute, options: { heartbeatIntervalMs?: number; runDeadlineMs?: number } = {}): Promise<Runtime> => {
+/**
+ * What context-service of this release answers (§9.1: its own component info). The
+ * router needs a readiness state, and the honest way to get one is to run the real
+ * handshake against a stub peer rather than to hand-build the state shape.
+ */
+const CONTEXT_SERVICE_INFO = {
+  contract_version: '1.4.0',
+  service: 'context-service',
+  service_version: '0.1.0',
+  graph_schema_version: '1',
+  audit_schema_version: '1',
+  backend: { graph: 'embedded', audit: 'sqlite' },
+  capabilities: ['shared-graph'],
+  limits: { max_nodes: 10_000, max_edges: 50_000, max_request_timeout_ms: 30_000, max_run_deadline_ms: 1_800_000 },
+  components: [
+    { name: 'context-service', version: '0.1.0', contract_version: '1.4.0', status: 'ready' },
+  ],
+  started_at: '2026-11-15T09:00:00.000Z',
+};
+
+interface RuntimeInfoModule {
+  handshake(options: { fetch: typeof fetch }): Promise<ReadyState | { ready: false }>;
+}
+
+const readyState = async (tree: MaterializedTree): Promise<ReadyState> => {
+  const module = await tree.load<RuntimeInfoModule>('runtime/runtime-info.ts');
+  const answer = (async () =>
+    new Response(JSON.stringify(CONTEXT_SERVICE_INFO), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })) as unknown as typeof fetch;
+
+  const state = await module.handshake({ fetch: answer });
+  if (!state.ready) throw new Error('the stub context-service did not satisfy the handshake');
+  return state;
+};
+
+const start = async (
+  execute: Execute,
+  options: { heartbeatIntervalMs?: number; runDeadlineMs?: number; ready?: boolean; degraded?: boolean } = {},
+): Promise<Runtime> => {
   const tree = materialize();
   const serverModule = await tree.load<ServerModule>('runtime/router.ts');
   const registryModule = await tree.load<RegistryModule>('runtime/run-registry.ts');
@@ -117,6 +166,30 @@ const start = async (execute: Execute, options: { heartbeatIntervalMs?: number; 
     heartbeatIntervalMs: options.heartbeatIntervalMs ?? 10_000,
   });
 
+  const notReady = {
+    ready: false as const,
+    failures: [
+      {
+        code: 'contract_mismatch',
+        reason: 'contract_major_mismatch',
+        message: 'context-service speaks fde.runtime/v2, and this app speaks v1',
+        details: { expected: '1.4.0', actual: '2.0.0' },
+      },
+    ],
+    failure: {
+      code: 'contract_mismatch',
+      reason: 'contract_major_mismatch',
+      message: 'context-service speaks fde.runtime/v2, and this app speaks v1',
+      details: { expected: '1.4.0', actual: '2.0.0' },
+    },
+  };
+
+  const runtimeInfo = options.ready === false ? notReady : await readyState(tree);
+  if (options.degraded === true && runtimeInfo.ready) {
+    // A `should` the Profile cannot fully provide: the deployment serves, degraded (§7.3).
+    runtimeInfo.degradations = [{ capability: 'observability', support: 'degraded', source: 'build:observability' }];
+  }
+
   const requests: ExecuteInput[] = [];
   const server = serverModule.createRuntimeServer({
     registry,
@@ -126,6 +199,7 @@ const start = async (execute: Execute, options: { heartbeatIntervalMs?: number; 
       requests.push(input);
       await execute(input, registry);
     },
+    runtimeInfo,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -531,11 +605,49 @@ describe('the surface itself', () => {
     runtime = await start(async () => {});
     const serverModule = await runtime.tree.load<ServerModule>('runtime/router.ts');
 
-    const health = await call(runtime, serverModule.PROBE_PATH);
+    const health = await call(runtime, serverModule.LIVENESS_PATH);
 
-    expect(serverModule.PROBE_PATH).toBe('/healthz');
+    expect(serverModule.LIVENESS_PATH).toBe('/healthz');
     expect(health.status).toBe(200);
     expect(health.json).toEqual({ status: 'ok' });
+  });
+
+  it('reports readiness and the aggregated runtime-info once the handshake passed', async () => {
+    runtime = await start(async () => {});
+    const serverModule = await runtime.tree.load<ServerModule>('runtime/router.ts');
+
+    const ready = await call(runtime, serverModule.READY_PATH);
+    expect(serverModule.READY_PATH).toBe('/readyz');
+    expect(ready.status).toBe(200);
+    expect(ready.json).toEqual({ status: 'ready', reasons: [] });
+
+    const info = await call(runtime, serverModule.RUNTIME_INFO_PATH);
+    expect(serverModule.RUNTIME_INFO_PATH).toBe('/v1/runtime-info');
+    expect(info.status).toBe(200);
+    expect(info.json['service']).toBe('runtime-app');
+    expect(info.json['runtime']).toMatchObject({ family: 'mastra', topology: 'split' });
+    expect((info.json['components'] as Array<{ name: string }>).map((entry) => entry.name)).toEqual([
+      'runtime-app',
+      'runtime-state',
+      'context-service',
+    ]);
+  });
+
+  it('serves degraded — and still serves Runs — when only a `should` capability is missing', async () => {
+    runtime = await start(async ({ run }, registry) => {
+      registry.finish(run.run_id, 'succeeded', { output: {} });
+    }, { degraded: true });
+    const serverModule = await runtime.tree.load<ServerModule>('runtime/router.ts');
+
+    // §7.3: a `should` loss is reported, not fatal. `/readyz` says so and the Run API
+    // keeps working — the ticket's "Run API 不服务" is about a *failed* handshake.
+    const ready = await call(runtime, serverModule.READY_PATH);
+    expect(ready.status).toBe(200);
+    expect(ready.json['status']).toBe('degraded');
+    expect(ready.json['reasons']).toEqual(['observability is degraded, which build:observability only asks for']);
+
+    expect((await create(runtime)).status).toBe(201);
+    expect((await call(runtime, serverModule.RUNTIME_INFO_PATH)).status).toBe(200);
   });
 
   it('answers every unknown route with the error envelope', async () => {
@@ -547,6 +659,41 @@ describe('the surface itself', () => {
       expect(response.json['error']).toMatchObject({ code: 'not_found', retryable: false });
       expect(response.json['error']?.['trace_id']).toMatch(/^[0-9a-f]{32}$/);
     }
+  });
+});
+
+describe('the startup handshake gate (#30)', () => {
+  it('keeps liveness, reports readiness 503 and refuses every Run route', async () => {
+    runtime = await start(async () => {}, { ready: false });
+    const serverModule = await runtime.tree.load<ServerModule>('runtime/router.ts');
+
+    const health = await call(runtime, serverModule.LIVENESS_PATH);
+    expect(health.status).toBe(200);
+
+    const ready = await call(runtime, serverModule.READY_PATH);
+    expect(ready.status).toBe(503);
+    expect(ready.json['status']).toBe('not_ready');
+    expect(ready.json['reasons']).toEqual([
+      'contract_mismatch: context-service speaks fde.runtime/v2, and this app speaks v1',
+    ]);
+
+    // The Run API does not serve: not on create, and not on a read of an unknown Run
+    // either — a 404 there would read as "no such Run" instead of "not this build".
+    for (const path of ['/v1/runs', '/v1/runs/run_00000000000000000000000000']) {
+      const response = await call(runtime, path, path === '/v1/runs' ? { method: 'POST', body: '{}' } : {});
+      expect(response.status, path).toBe(503);
+      expect(response.json['error']).toMatchObject({
+        code: 'contract_mismatch',
+        retryable: false,
+        details: { reason: 'contract_major_mismatch', readiness: 'not_ready' },
+      });
+      expect(response.json['error']?.['trace_id']).toMatch(/^[0-9a-f]{32}$/);
+    }
+
+    // And the aggregated document is not served either: there is nothing to aggregate.
+    const info = await call(runtime, serverModule.RUNTIME_INFO_PATH);
+    expect(info.status).toBe(503);
+    expect(info.json['error']?.['code']).toBe('contract_mismatch');
   });
 });
 

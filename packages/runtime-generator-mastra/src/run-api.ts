@@ -21,8 +21,11 @@ export interface ContractOperation {
 }
 
 /**
- * The four operations this slice serves. `POST /v1/approvals…` is the
- * context-service proxy (#29/#40), not a Run API route the app owns.
+ * Every route this slice serves: the four Run operations plus the three `ops`
+ * routes the handshake added (#30). `/readyz` and `/v1/runtime-info` declare a 503
+ * because the startup handshake can fail closed (§9.3); `/healthz` never does.
+ * `POST /v1/approvals…` is the context-service proxy (#29/#40), not a Run API route
+ * the app owns.
  */
 export const RUN_API_OPERATIONS: ReadonlyArray<ContractOperation> = [
   {
@@ -55,6 +58,30 @@ export const RUN_API_OPERATIONS: ReadonlyArray<ContractOperation> = [
     path: '/v1/runs/{run_id}/cancel',
     success: [202],
     errors: [401, 403, 404, 409, 500, 503],
+    idempotencyKey: false,
+  },
+  {
+    operationId: 'getRuntimeInfo',
+    method: 'get',
+    path: '/v1/runtime-info',
+    success: [200],
+    errors: [503],
+    idempotencyKey: false,
+  },
+  {
+    operationId: 'healthz',
+    method: 'get',
+    path: '/healthz',
+    success: [200],
+    errors: [],
+    idempotencyKey: false,
+  },
+  {
+    operationId: 'readyz',
+    method: 'get',
+    path: '/readyz',
+    success: [200],
+    errors: [503],
     idempotencyKey: false,
   },
 ];

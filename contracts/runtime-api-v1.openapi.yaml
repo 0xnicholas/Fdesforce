@@ -278,6 +278,12 @@ paths:
             application/json:
               schema:
                 $ref: './schemas/runtime-info.schema.json#/$defs/RuntimeInfo'
+        # The startup handshake (§9.3) can fail closed: until it passes, the app
+        # cannot aggregate a document, and a 200 would have to invent one. The code
+        # is `contract_mismatch` or `runtime_capability_mismatch` on a mismatch, and
+        # `unavailable` when context-service did not answer.
+        '503':
+          $ref: '#/components/responses/Unavailable'
   /healthz:
     get:
       tags: [ops]

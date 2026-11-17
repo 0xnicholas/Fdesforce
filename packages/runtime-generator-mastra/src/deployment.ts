@@ -14,6 +14,17 @@ export const APP_PORT = 4111;
 /** Bundle-relative directory of the generated tree; also the image build context. */
 export const APP_DIR = 'mastra-app';
 
+/**
+ * The runtime family and language this generator emits.
+ *
+ * Two artifacts report them and must not disagree: the generator's own identity
+ * (what emitted the tree) and the `runtime` descriptor in `runtime-info` (what
+ * this app is). A single pair of constants is what keeps the handshake's
+ * `runtime_family_mismatch` check meaningful rather than self-satisfying.
+ */
+export const RUNTIME_FAMILY = 'mastra';
+export const RUNTIME_LANGUAGE = 'typescript' as const;
+
 /** The runtime state store volume and where it is mounted inside the app. */
 export const STATE_VOLUME = 'mastra-state';
 export const STATE_MOUNT_PATH = '/app/state';
@@ -27,8 +38,22 @@ export const MIGRATE_ENTRYPOINT: ReadonlyArray<string> = ['node', '--experimenta
 /** The platform-owned component the runtime app depends on. Composed by the platform (#32). */
 export const CONTEXT_SERVICE_COMPONENT = 'context-service';
 
-/** Liveness probe: the process is alive. `/readyz` (readiness + handshake) is #30. */
-export const PROBE_PATH = '/healthz';
+/**
+ * Liveness probe: the process is alive. It answers even when the startup handshake
+ * failed, because a container that cannot report *why* it is not ready is a
+ * container nobody can debug (#30).
+ */
+export const LIVENESS_PATH = '/healthz';
+
+/**
+ * Readiness probe: the startup handshake passed, so the Run API serves. This is the
+ * probe the topology checks and the orchestrator routes on, because "the process
+ * started" and "this deployment can serve a Run" are different claims (§9.3).
+ */
+export const READY_PATH = '/readyz';
+
+/** How a deployment asks the app what it is and what it can do (`runtime-info` v1.3). */
+export const RUNTIME_INFO_PATH = '/v1/runtime-info';
 
 /**
  * The environment variables the deployment injects for identity (#29). Named here

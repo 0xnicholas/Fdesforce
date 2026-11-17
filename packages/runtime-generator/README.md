@@ -219,7 +219,10 @@ into the tree — it names people.
 `runtime_schema_mismatch` (graph/audit schema) and the generation codes
 (`runtime_generation_nondeterministic`, `runtime_manifest_invalid`) are decided by
 `fde build` (#33) — the port has no platform schema pin to compare against. The
-runtime-side handshake codes belong to the generated app (#30).
+runtime-side handshake codes are not here either: the generated app answers with
+the contract's own `contract_mismatch` / `runtime_capability_mismatch` /
+`unavailable` (`docs/runtime-adapter.md` §9.3), because a diagnostic the build
+never printed is not a build diagnostic.
 
 An Environment that selects no state store is left to the platform default
 (libsql/SQLite, user story 38); only an explicit selection is checked against the

@@ -9,6 +9,7 @@ import type {
 
 import { APP_DIR, APP_PORT, DOCKERFILE_PATH, entrypoint, generateAppFiles } from './app.js';
 import { generateContractTests } from './contract-tests.js';
+import { READY_PATH, RUNTIME_FAMILY } from './deployment.js';
 import { unsupportedGrammar, unsupportedStateStore } from './grammar.js';
 import { generateMigrations, generateTopology } from './topology.js';
 
@@ -23,7 +24,7 @@ import { generateMigrations, generateTopology } from './topology.js';
  * in it, and an empty migration plan starts a store with no schema.
  */
 
-export const MASTRA_FAMILY = 'mastra';
+export const MASTRA_FAMILY = RUNTIME_FAMILY;
 
 /**
  * The generator's `validate`: the shared capability gate, then the grammar gate.
@@ -97,7 +98,9 @@ function generateApp(input: RuntimeGenerateInput, version: string): GeneratedApp
         role: 'runtime-app',
         image: { build: { context: APP_DIR, dockerfile: 'Dockerfile' } },
         ports: [{ name: 'http', containerPort: APP_PORT, expose: true }],
-        healthCheck: { path: '/healthz', port: APP_PORT },
+        // The probe the topology also checks: readiness, not liveness. A container that
+        // is alive but failed the handshake must not be sent traffic (§9.3).
+        healthCheck: { path: READY_PATH, port: APP_PORT },
       },
     ],
     sourceDigest: sourceDigest(files),

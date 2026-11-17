@@ -580,11 +580,16 @@ runtime app 启动时：
 5. 校验 `licensing.egress` / `requiresLicenseKey` 与离线目标一致。
 6. 聚合 `components[]`，对外返回 `/v1/runtime-info`。
 
-失败时 `/readyz` 返回 503，Run API 不服务：
+失败时 `/readyz` 返回 503（`{"status":"not_ready","reasons":["<code>: <message>", …]}`），Run API 不服务，`/v1/runtime-info` 也返回 503 错误信封：
 
-- 契约/schema 不匹配 → `contract_mismatch`。
-- 能力/Profile 不匹配 → `runtime_capability_mismatch`（503，non-retryable，新增）。
-- profile digest/版本不匹配 → `contract_mismatch`，details 带 `runtime_profile_mismatch`。
+- 契约/schema 不匹配 → `contract_mismatch`：contract major、graph schema、audit schema、对端不是 context-service 或文档形状不合法。
+- 能力/Profile 不匹配 → `runtime_capability_mismatch`（503，non-retryable，新增）：profile digest 与 lock 不一致（details 带 `runtime_profile_mismatch`）、family/language/version 不一致、`state_store` 与 Environment 不一致、`must` 能力缺失或 `degraded`、离线目标下 `licensing` 需要 egress/许可证密钥。
+- context-service 答 4xx（它不提供 `/v1/runtime-info`）→ `contract_mismatch`，details 带 `runtime_info_missing`：对端在跑却拒绝该路由，说明两侧对 `runtime-info` 的理解不一致。
+- context-service 连不上、5xx 或超时 → `unavailable`（503，retryable）：这不是错配，而是依赖没就绪；按 §8.3 的启动顺序它应当先 ready，重试或重启即可。
+
+两个错配码分别表示"这套 artifact 不是 lock 描述的构建"与"对端的线上契约/存储 schema 不是同一版"，客户端只读 `code`，运维读 `details.reason`。握手在 `listen` 之前只跑一次：失败即 fail closed，恢复手段是重启或修好部署，而不是等待自愈。`/readyz` 是拓扑的 healthCheck（`/healthz` 只表示进程活着）。
+
+握手在生成侧同样可执行：`generateContractTests` 的 A1 用例把匹配与错配的 context-service 文档都作为 fixture 交给生成的 `runtime/runtime-info.ts`，错配必须按上表 fail closed。
 
 ## 10. Conformance
 
@@ -700,10 +705,10 @@ spec:
 |---|---|
 | `capabilities` | 解析 Profile，返回规范化能力；校验 10 组必填。 |
 | `validate` | 推导 durable/HITL/streaming/memory/tools/extensions/offline 要求；检查 `ts-package`、SQLite/Postgres、split、OTel；`should` 产生 warning。 |
-| `generateApp` | 生成 `src/agents`、`src/workflows`、`src/tools`、`src/runtime/{context-client,execution-context,retrieval,roles,wire,errors,ids,canonical,sse,state-store,run-registry,router,run-service,config,identity}.ts`、`index.ts`、`migrate.ts`、`Dockerfile`；Node 22 entrypoint。`identity.ts` 是 #29 的签发链：挂载的静态身份源 → 平台/业务角色映射 → ES256 `ExecutionContext`；`roles.ts` 是随 Bundle 发布的平台角色词表与 scope 矩阵。`record-before-act.ts`、`approvals.ts` 归 Slice 2。`/readyz` 与握手在 #30 落地，拓扑的 healthCheck 随之切换。 |
-| `generateTopology` | `mastra-app` + `mastra-state` 卷 + `runtime-migrate` 作业；端口 4111 暴露；依赖 context-service；health `/healthz`（`/readyz` 与握手在 #30 落地后切换）。 |
+| `generateApp` | 生成 `src/agents`、`src/workflows`、`src/tools`、`src/runtime/{context-client,execution-context,retrieval,roles,wire,errors,ids,canonical,sse,state-store,run-registry,router,run-service,config,identity,runtime-info}.ts`、`index.ts`、`migrate.ts`、`Dockerfile`；Node 22 entrypoint。`identity.ts` 是 #29 的签发链：挂载的静态身份源 → 平台/业务角色映射 → ES256 `ExecutionContext`；`roles.ts` 是随 Bundle 发布的平台角色词表与 scope 矩阵。`runtime-info.ts` 是 #30 的握手：烘入的 lock/Profile/Environment 块互相校验，再与 context-service 的 `/v1/runtime-info` 对齐，`/readyz` 与 `/v1/runtime-info` 由 `router.ts` 服务。`record-before-act.ts`、`approvals.ts` 归 Slice 2。 |
+| `generateTopology` | `mastra-app` + `mastra-state` 卷 + `runtime-migrate` 作业；端口 4111 暴露；依赖 context-service；health `/readyz`（就绪即握手通过，`/healthz` 只表示进程活着）。 |
 | `generateMigrations` | libsql/SQLite state store 初始化；不生成 context-service graph/audit 迁移。 |
-| `generateContractTests` | 本切片映射 A2/A5（smoke，`contract-tests/run-api-smoke.mjs` 从 parity fixture 读 capability/操作/事件/错误表）、A8（smoke，`contract-tests/identity-smoke.mjs` 验签并断言 tenant/trace/roles/scopes，context-service 侧的强制归 #32）与 A11（static，比较 `sourceDigest`）；A1/A3/A4/A6/A7/A9/A10/A12 随各自切片接线。 |
+| `generateContractTests` | 本切片映射 A1（smoke，`contract-tests/runtime-info-smoke.mjs` 用匹配/错配 fixture 驱动生成的握手模块：错配必须按 §9.3 fail closed；context-service 侧归 #32）、A2/A5（smoke，`contract-tests/run-api-smoke.mjs` 从 parity fixture 读 capability/操作/事件/错误表）、A8（smoke，`contract-tests/identity-smoke.mjs` 验签并断言 tenant/trace/roles/scopes，context-service 侧的强制归 #32）与 A11（static，比较 `sourceDigest`）；A3/A4/A6/A7/A9/A10/A12 随各自切片接线。 |
 
 ### 12.3 能力与缺口
 
