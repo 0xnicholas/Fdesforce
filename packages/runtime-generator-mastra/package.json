@@ -23,6 +23,7 @@
     "@fde/spec": "workspace:*"
   },
   "devDependencies": {
+    "@fde/bundle": "workspace:*",
     "@mastra/core": "1.83.0",
     "@types/node": "^26.6.6",
     "typescript": "5.9.3",

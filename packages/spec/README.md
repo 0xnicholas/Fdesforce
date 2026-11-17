@@ -15,7 +15,8 @@ src/
   crossref.ts                 cross-document validation (references, pins, freshness, gates)
   context.ts                  Context Package reference rules (terms, pipeline, digests,
                               frozen revisions) + `digestContextPackage`
-  topology.ts                 topology invariants the renderers rely on (exposure, order, volumes)
+  topology.ts                 topology invariants the renderers rely on (exposure, order, volumes,
+                              single writers, secret bindings, networks)
   canonical.ts                canonical JSON + content digests (`spec.files`, `spec.digest`)
   report.ts                   the errors/warnings report shape both checkers append to
   documents.ts                exported JSON Schema, one artifact per document kind
@@ -28,14 +29,15 @@ src/
 | --- | --- |
 | `parseSolutionSpec` / `parseSolutionLock` | is this document shaped correctly? |
 | `parseRuntimeProfile` / `parseRuntimeCapabilities` | does the profile declare the ten capability groups consistently? |
-| `parseRuntimeTopology` / `parseBundleTopology` | is this one of the two topology documents? |
+| `parseRuntimeTopology` / `parseBundleTopology` | is this the generator's fragment, or the composed bundle? |
+| `parseContextServiceTopology` | is this the platform's half of a bundle: its components, volumes, jobs, secret bindings and networks, without the composed fields? |
 | `parseModelProfile` | is the model pinned, and is an embedding profile internally consistent? |
 | `parseIdentityProfile` | is this the Environment's identity source, and does it have the subjects it needs? |
 | `parseContextPackage` / `parseSemanticModel` / `parseContextSource` / `parseMapping` / `parseContextRecipe` / `parsePermissionProfile` / `parseContextEvalSuite` / `parseContextPackageRevision` | is this Context Package document shaped correctly? |
 | `checkSolution` | do the documents agree: references resolve, inputs are pinned, the lock is fresh, gates are safe? |
 | `checkContextPackage` | does the package agree with itself: files exist, terms/sources/recipes resolve, the recipe pipeline is ordered and masked, the baseline annotates real terms, the revision still describes the content? |
 | `digestContextPackage` | what is a package's content: every file but `revisions/**` and hidden debris? |
-| `checkTopology` | can a renderer build this: one exposed runtime app, no dangling references, distinct graph/audit volumes, deployment-derived names? |
+| `checkTopology` | can a renderer build this: one exposed runtime app, one writer per singleton role, no dangling references or colliding names, distinct graph/audit volumes, every secret resolved to a binding, deployment-derived names? |
 | `digestFiles` / `canonicalJson` | is a rebuild byte-identical? |
 | `diffContractShape` | do `@fde/spec` and `contracts/` still describe the same document? |
 
@@ -61,7 +63,7 @@ Tests live at the same public seams, nowhere else:
 4. `test/crossref.test.ts` — cross-document rules, each demonstrated by a real diagnostic.
 5. `test/canonical.test.ts` — digests pinned to values computed outside this codebase (`shasum`, Python `hashlib`).
 6. `test/contract-drift.test.ts` — structural comparison plus the differential corpus that pins the rules a structural comparison cannot see.
-7. `test/topology.test.ts` — the topology invariants the Compose/Helm renderers will rely on.
+7. `test/topology.test.ts` — the topology invariants the Compose/Helm renderers rely on (#32).
 8. `test/context-schema.test.ts` — the Context Package grammar: strictness, the fail-closed
    permission default, prefixed terms, bounded graph hops, candidate-only extraction.
 9. `test/context-package.test.ts` — `checkContextPackage`: one case per reference rule, the

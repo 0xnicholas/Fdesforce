@@ -60,6 +60,12 @@ const EnvVarSchema = z
 const HealthCheckSchema = z.strictObject({
   path: z.string().regex(new RegExp('^/[A-Za-z0-9._/-]{0,200}$')),
   port: z.number().int().min(1).max(65535),
+  /**
+   * Exec form of the probe, for renderers whose health gate runs a command in the
+   * container (Compose's `test`). `path` + `port` stay the portable statement — a
+   * renderer with native HTTP probes (Helm) uses those and ignores this.
+   */
+  command: z.array(z.string().min(1)).min(1).optional(),
   initialDelaySeconds: z.number().int().min(0).optional(),
   periodSeconds: z.number().int().min(1).optional(),
   timeoutSeconds: z.number().int().min(1).optional(),
@@ -124,6 +130,8 @@ export const JobSchema = z.strictObject({
   owner: z.enum(['context-service', 'runtime', 'platform']),
   steps: z.array(JobStepSchema).min(1),
   volumes: z.array(VolumeMountSchema).refine(unique, { message: 'volume mounts must be unique' }).optional(),
+  /** Non-secret configuration the job reads; same presence-exclusive shape as a component's. */
+  env: z.array(EnvVarSchema).refine(unique, { message: 'env entries must be unique' }).optional(),
   secretRefs: z.array(SecretRefSchema).refine(unique, { message: 'secret refs must be unique' }).optional(),
 });
 
@@ -198,11 +206,43 @@ export const BundleTopologySchema = z.strictObject({
 /** Either topology document; the `kind` discriminates. */
 export const TopologySchema = z.union([RuntimeTopologySchema, BundleTopologySchema]);
 
+/**
+ * `ContextServiceTopology` — the platform's half of a bundle (§8.1).
+ *
+ * It is the counterpart of the generator's `RuntimeTopology`: components, volumes,
+ * jobs, secret bindings and networks that the platform owns (context-service, the
+ * graph and audit volumes, the migrate and ingest jobs), and nothing that belongs
+ * to the composed bundle. `startupOrder`, `deploymentNaming` and `ingress` are
+ * deliberately absent — the compose step decides those once, for the whole bundle,
+ * so a fragment cannot ship a second opinion about the order.
+ */
+export const ContextServiceTopologySpecSchema = z.strictObject({
+  components: z.array(ComponentSchema).min(1),
+  volumes: z.array(VolumeSchema).refine(unique, { message: 'volumes must be unique' }),
+  jobs: z.array(JobSchema),
+  secretBindings: z.array(SecretBindingSchema),
+  networks: z.array(NetworkSchema).min(1),
+});
+
+export const ContextServiceTopologySchema = z.strictObject({
+  apiVersion: z.literal('fde.dev/v0'),
+  kind: z.literal('ContextServiceTopology'),
+  metadata: z.strictObject({
+    name: NameSchema,
+    version: SemverSchema,
+    description: z.string().max(300).optional(),
+  }),
+  spec: ContextServiceTopologySpecSchema,
+});
+
 export type Component = z.infer<typeof ComponentSchema>;
 export type Volume = z.infer<typeof VolumeSchema>;
 export type Job = z.infer<typeof JobSchema>;
+export type EnvVar = z.infer<typeof EnvVarSchema>;
 export type SecretBinding = z.infer<typeof SecretBindingSchema>;
 export type RuntimeTopology = z.infer<typeof RuntimeTopologySchema>;
 export type BundleTopology = z.infer<typeof BundleTopologySchema>;
+export type ContextServiceTopology = z.infer<typeof ContextServiceTopologySchema>;
+export type ContextServiceTopologySpec = z.infer<typeof ContextServiceTopologySpecSchema>;
 export type Topology = z.infer<typeof TopologySchema>;
 export type BundleTopologySpec = z.infer<typeof BundleTopologySpecSchema>;

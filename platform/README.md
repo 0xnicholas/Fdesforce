@@ -15,6 +15,7 @@ overlays/<name>/<version>/**              Overlay (derivation provenance)
 extensions/<name>/<version>/**            Extension artifact
 model-profiles/<name>.yaml                platform-owned ModelProfile
 runtime-profiles/<name>.yaml              platform-owned RuntimeProfile
+context-service/<version>/topology.yaml   ContextServiceTopology — the platform's half of a bundle
 toolchain.yaml                            toolchain identity + pinned cross-runtime versions
 toolchain/Dockerfile                      the toolchain image contents
 ```
@@ -37,6 +38,11 @@ The descriptor file and expected `kind`:
 | `deployment-profile` | `deployment-profile.yaml` | `DeploymentProfileTemplate` |
 | overlay | `overlay.yaml` | `Overlay` |
 | extension | `extension.yaml` | `Extension` |
+| context-service | `topology.yaml` | `ContextServiceTopology` |
+
+Every directory here is content-addressed by its files; `context-service/<version>`
+is the platform's half of `BundleTopology` (`docs/runtime-adapter.md` §8.1), and the
+loader refuses a fragment whose `metadata.version` disagrees with its directory.
 
 Only identity fields (`apiVersion`, `kind`, `metadata.name`,
 `metadata.version`) are enforced today; the document bodies are platform assets
@@ -51,9 +57,15 @@ exception: its `solution.yaml` must parse as a `SolutionSpec`, because
 | Template / overlay / extension directory | `digestFiles()` over every file, path-relative to the version directory |
 | Model Profile | `sha256` of the LF-normalized file |
 | Runtime Profile | `digestOf()` the parsed document (canonical JSON), so comments and formatting are not identity |
+| ContextServiceTopology | the same: `digestOf()` the parsed document |
 | Toolchain image | `sha256` of `toolchain/Dockerfile` until the published image digest replaces it (#33) |
 
 ## The Acme reference path
+
+`context-service/1.0.0` is the v0 platform fragment: context-service on the internal
+bundle network, the graph and audit volumes, the migrate and ingest jobs, and the
+secret bindings they resolve. `@fde/bundle` composes it with the generator's
+`RuntimeTopology` into the single `BundleTopology` a renderer consumes.
 
 `templates/solution/fde-solution/1.2.0` is the only Solution Template in this
 slice and it materializes the Acme claims-triage read-only Spec, byte for byte.

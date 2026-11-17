@@ -10,6 +10,7 @@ export default defineConfig({
       '@fde/spec': resolve(import.meta.dirname, 'packages/spec/src/index.ts'),
       '@fde/contracts-client': resolve(import.meta.dirname, 'packages/contracts-client/src/index.ts'),
       '@fde/runtime-generator': resolve(import.meta.dirname, 'packages/runtime-generator/src/index.ts'),
+      '@fde/bundle': resolve(import.meta.dirname, 'packages/bundle/src/index.ts'),
     },
   },
   test: {

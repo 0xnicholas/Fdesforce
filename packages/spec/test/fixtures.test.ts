@@ -8,6 +8,7 @@ import {
   digestFiles,
   parseContextPackage,
   parseContextPackageRevision,
+  parseContextServiceTopology,
   parseIdentityProfile,
   parseModelProfile,
   parsePermissionProfile,
@@ -116,6 +117,23 @@ describe('Platform example artifacts', () => {
     const result = parseRuntimeProfile(readYaml(paths.exampleRuntimeProfile));
 
     expect(result.ok, result.ok ? '' : describeErrors(result.errors)).toBe(true);
+  });
+
+  it('validates the context-service ContextServiceTopology fragment', () => {
+    const result = parseContextServiceTopology(readYaml(paths.exampleContextServiceTopology));
+
+    expect(result.ok, result.ok ? '' : describeErrors(result.errors)).toBe(true);
+  });
+
+  it('declares the three volumes the split topology asks for, graph and audit separate', () => {
+    const result = parseContextServiceTopology(readYaml(paths.exampleContextServiceTopology));
+    if (!result.ok) throw new Error(describeErrors(result.errors));
+
+    // The runtime's `mastra-state` is the generator's; these two are the platform's.
+    // Sharing one would give graph facts and audit evidence the same backup and
+    // retention semantics (`docs/runtime-adapter.md` §8.3).
+    expect(result.value.spec.volumes.map((volume) => volume.name).sort()).toEqual(['audit', 'graph']);
+    expect(result.value.spec.volumes.find((volume) => volume.name === 'audit')?.backup).toBe(true);
   });
 
   it('validates the chat model profile and its fallback', () => {

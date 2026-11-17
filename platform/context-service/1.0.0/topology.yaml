@@ -1,0 +1,113 @@
+# Platform artifact — the platform's half of the v0 split topology.
+#
+# `docs/runtime-adapter.md` §8.1: the generator declares only the runtime it owns,
+# and the platform declares context-service, the graph and audit volumes and the
+# migrate/ingest jobs. `composeTopology` (in `@fde/bundle`) merges the two into the
+# single `BundleTopology` a renderer consumes; this fragment never declares the
+# startup order, the deployment naming or the ingress, because those belong to the
+# composed bundle rather than to one of its halves.
+#
+# Nothing here is a step value: component images are build contexts until the
+# release chain pins digests (#33), and every secret is a `secretRef` — the
+# install-time resolver reads the named secret from the customer's store (§9.3).
+#
+# Schema: packages/spec/src/schema/bundle-topology.ts
+
+apiVersion: fde.dev/v0
+kind: ContextServiceTopology
+metadata:
+  name: context-service
+  version: 1.0.0
+  description: context-service 0.1.0 — embedded Context Graph + SQLite audit, split topology (v0).
+
+spec:
+  components:
+    - name: context-service
+      role: context-service
+      image:
+        build:
+          context: context-service
+          dockerfile: Dockerfile
+      # Internal only. No `expose`, so the composition never routes the ingress here
+      # and the renderer publishes no host port for it.
+      ports:
+        - { name: internal, containerPort: 8011 }
+      volumes:
+        - { name: graph, mountPath: /data/graph }
+        - { name: audit, mountPath: /data/audit }
+      env:
+        - { name: GRAPH_BACKEND, value: embedded }
+        - { name: GRAPH_PATH, value: /data/graph/graph.json }
+        - { name: AUDIT_PATH, value: /data/audit/audit.sqlite }
+      secretRefs:
+        - { store: customer, key: fde/execution-context-public-key }
+      # Readiness, not liveness: `/readyz` answers 200 only once the graph is loaded,
+      # the audit store is writable and the schema versions match (§9.2). A 503 raises
+      # in `urlopen`, so the probe exits non-zero and the dependents wait.
+      healthCheck:
+        path: /readyz
+        port: 8011
+        command:
+          - python
+          - -c
+          - import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8011/readyz').status == 200 else 1)
+      dependsOn: [migrate]
+      resources: { cpu: "0.5", memory: 1Gi }
+
+  volumes:
+    - name: graph
+      size: 20Gi
+      description: Context Graph snapshot (embedded backend) — rebuilt from Context Sources, never the system of record for audit.
+    - name: audit
+      size: 10Gi
+      backup: true
+      description: append-only audit store with its chain head. Backed up separately from graph and mastra-state (§9.5).
+
+  jobs:
+    - name: migrate
+      owner: context-service
+      steps:
+        - id: schema
+          command: [python, -m, app.migrate]
+          runBefore: [context-service]
+      volumes:
+        - { name: graph, mountPath: /data/graph }
+        - { name: audit, mountPath: /data/audit }
+      env:
+        - { name: GRAPH_PATH, value: /data/graph/graph.json }
+        - { name: AUDIT_PATH, value: /data/audit/audit.sqlite }
+    - name: ingest
+      owner: context-service
+      steps:
+        # Not `runBefore` anything: ingest materializes the Context Graph after the
+        # service is up and never blocks readiness (§9.2). Until it finishes, retrieve
+        # answers `degraded=true, reason=partial`.
+        - id: ingest
+          command: [python, -m, app.ingest]
+          runAfter: [migrate, context-service]
+      env:
+        # Bundle-internal address; the renderer gives every service its topology name
+        # as a network alias, so the deployment prefix does not change this URL.
+        - { name: CONTEXT_SERVICE_URL, value: "http://context-service:8011" }
+      secretRefs:
+        - { store: customer, key: fde/jobs/signing-key }
+
+  secretBindings:
+    # The `mastra-app` issuer's public key: context-service verifies, the runtime signs.
+    - secretRef: { store: customer, key: fde/execution-context-public-key }
+      target: env
+      name: EXECUTION_CONTEXT_PUBLIC_KEY
+      required: true
+    # The `fde-jobs` issuer's private key: mounted into the maintenance jobs only.
+    - secretRef: { store: customer, key: fde/jobs/signing-key }
+      target: file
+      name: /run/secrets/fde-jobs-signing-key
+      required: true
+
+  networks:
+    # `bundle` is internal: no container on it can be reached from the host or reach
+    # out. `edge` is the one non-internal network; the renderer attaches only the
+    # ingress component to it, so the runtime app can still reach its model endpoint
+    # while context-service stays bundle-local.
+    - { name: bundle, internal: true }
+    - { name: edge, internal: false }

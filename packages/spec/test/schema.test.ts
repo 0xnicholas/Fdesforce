@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   parseBundleTopology,
+  parseContextServiceTopology,
   parseModelProfile,
   parseRuntimeProfile,
   parseSolutionLock,
@@ -429,5 +430,115 @@ describe('Bundle Topology shape', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(pathOf(result.errors)).toContain('spec.startupOrder');
+  });
+
+  it('accepts a health check with the probe command the container can run', () => {
+    const result = parseBundleTopology(
+      topologyWith((spec) => {
+        spec['components'] = [
+          {
+            name: 'mastra-app',
+            role: 'runtime-app',
+            image: { image: 'ghcr.io/acme/fde-mastra@sha256:abc' },
+            healthCheck: { path: '/readyz', port: 4111, command: ['node', '-e', "fetch('http://127.0.0.1:4111/readyz')"] },
+          },
+        ];
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects an empty health check command', () => {
+    // An empty exec form is not "no probe": it is a probe that always fails, so the
+    // renderer would gate the whole startup order on a container that never gets healthy.
+    const result = parseBundleTopology(
+      topologyWith((spec) => {
+        spec['components'] = [
+          {
+            name: 'mastra-app',
+            role: 'runtime-app',
+            image: { image: 'ghcr.io/acme/fde-mastra@sha256:abc' },
+            healthCheck: { path: '/readyz', port: 4111, command: [] },
+          },
+        ];
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(pathOf(result.errors)).toContain('spec.components[0].healthCheck.command');
+  });
+});
+
+describe('ContextServiceTopology shape', () => {
+  const fragment = {
+    apiVersion: 'fde.dev/v0',
+    kind: 'ContextServiceTopology',
+    metadata: { name: 'context-service', version: '1.0.0' },
+    spec: {
+      components: [
+        {
+          name: 'context-service',
+          role: 'context-service',
+          image: { build: { context: 'context-service', dockerfile: 'Dockerfile' } },
+          ports: [{ name: 'internal', containerPort: 8011 }],
+        },
+      ],
+      volumes: [{ name: 'graph' }, { name: 'audit', backup: true }],
+      jobs: [{ name: 'migrate', owner: 'context-service', steps: [{ id: 'schema', command: ['python', '-m', 'app.migrate'] }] }],
+      secretBindings: [],
+      networks: [{ name: 'bundle', internal: true }],
+    },
+  };
+
+  /** The valid fragment with its `spec` section patched. */
+  const fragmentWith = (patch: (spec: Loose) => void): unknown => {
+    const spec = structuredClone(fragment.spec) as Loose;
+    patch(spec);
+    return { ...fragment, spec };
+  };
+
+  it('accepts the platform fragment the generator fragment is composed with', () => {
+    const result = parseContextServiceTopology(fragment);
+
+    expect(result.ok, result.ok ? '' : JSON.stringify(result.errors)).toBe(true);
+  });
+
+  it('rejects a fragment that declares the composed fields itself', () => {
+    // `startupOrder`, `deploymentNaming` and `ingress` are properties of the composed
+    // bundle: a fragment that carried them would be a second topology, and the compose
+    // step could no longer be the only place the order is decided.
+    for (const field of ['startupOrder', 'deploymentNaming', 'ingress', 'networks2']) {
+      const result = parseContextServiceTopology(
+        fragmentWith((spec) => {
+          spec[field] = field === 'startupOrder' ? ['context-service'] : {};
+        }),
+      );
+
+      expect(result.ok, field).toBe(false);
+    }
+  });
+
+  it('rejects a fragment with no network to place its components on', () => {
+    const result = parseContextServiceTopology(
+      fragmentWith((spec) => {
+        spec['networks'] = [];
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(pathOf(result.errors)).toContain('spec.networks');
+  });
+
+  it('leaves reference integrity to checkTopology, not to the grammar', () => {
+    // A fragment can be shaped correctly and still be an unusable half of a bundle:
+    // `context-service` mounts `audit`, which this fragment forgot to declare.
+    const result = parseContextServiceTopology(
+      fragmentWith((spec) => {
+        spec['volumes'] = [{ name: 'graph' }];
+      }),
+    );
+
+    expect(result.ok).toBe(true);
   });
 });

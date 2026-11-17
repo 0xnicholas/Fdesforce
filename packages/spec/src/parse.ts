@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
-import { BundleTopologySchema, RuntimeTopologySchema, TopologySchema } from './schema/bundle-topology.js';
+import {
+  BundleTopologySchema,
+  ContextServiceTopologySchema,
+  RuntimeTopologySchema,
+  TopologySchema,
+} from './schema/bundle-topology.js';
 import { ContextEvalSuiteSchema } from './schema/context-eval-suite.js';
 import { ContextPackageRevisionSchema, ContextPackageSchema } from './schema/context-package.js';
 import { ContextRecipeSchema } from './schema/context-recipe.js';
@@ -120,6 +125,12 @@ export function parseBundleTopology(input: unknown): ParseResult<z.infer<typeof 
 
 export function parseTopology(input: unknown): ParseResult<z.infer<typeof TopologySchema>> {
   return parseWith(TopologySchema, input, 'topology_invalid');
+}
+
+export function parseContextServiceTopology(
+  input: unknown,
+): ParseResult<z.infer<typeof ContextServiceTopologySchema>> {
+  return parseWith(ContextServiceTopologySchema, input, 'context_service_topology_invalid');
 }
 
 // ---------------------------------------------------------------------------

@@ -20,6 +20,7 @@ crosses a process boundary.
 | `packages/spec` | `@fde/spec` — Solution Spec / lock / Runtime Profile / Capabilities / Bundle Topology / Model Profile / Identity Profile schemas (Zod), the platform role vocabulary and its scope matrix, the exported JSON Schema, cross-document validation and topology invariants. |
 | `packages/runtime-generator` | `@fde/runtime-generator` — the build-time `RuntimeGenerator` port, Runtime Profile content addressing, `must/should` derivation and the fail-closed capability and identity gate. |
 | `packages/runtime-generator-mastra` | `@fde/runtime-generator-mastra` — the v0 Mastra generator: the mastra-app source tree with its Run API and SSE transport, the libsql/SQLite state store, the context client's retry policy, the ES256 `ExecutionContext` issuer, the topology fragment, the state migration and the A-case plan. |
+| `packages/bundle` | `@fde/bundle` — the platform side of a bundle: the `ContextServiceTopology` fragment, `composeTopology` (fragment + fragment → the single `BundleTopology`), deployment-instance naming/ports and the v0 Compose renderer. |
 | `packages/cli` | `@fde/cli` — the `fde` command: `spec init`, `spec validate`, `spec lock`, `spec lock --check`, and the `context init / validate / freeze / ingest` chain over a Customer Context Package. |
 | `packages/contracts-client` | `@fde/contracts-client` — TypeScript wire types and clients generated from `contracts/`. Nothing in `src/generated/` is hand-written. |
 
@@ -61,7 +62,10 @@ capability gate (#26), the v0 Mastra generator: the app skeleton and grammar gat
 the context client's retry policy, the libsql/SQLite state store and the three
 remaining port methods (#28), identity issuance (#29), the startup handshake:
 `runtime/runtime-info.ts`, `/readyz` and the aggregated `/v1/runtime-info` (#30),
-and the `fde context` toolchain with the Acme Customer Context Package: the CCP
+the `fde context` toolchain with the Acme Customer Context Package: the CCP
 document schemas, `checkContextPackage`, `context init / validate / freeze`, and
-`context ingest` over the internal job endpoint (#31). The Compose renderer and
-the context-service implementation are separate tickets.
+`context ingest` over the internal job endpoint (#31), and the bundle side of the
+deployment: the two topology halves, `checkTopology`'s invariants (single writer,
+secret bindings, name and port conflicts, networks), `composeTopology`,
+deployment-derived naming and the v0 Compose renderer (#32). The context-service
+implementation and `fde build` are separate tickets (#35–#40, #33).

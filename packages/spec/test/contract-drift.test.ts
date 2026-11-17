@@ -89,6 +89,7 @@ describe('exported JSON Schema documents', () => {
       'RuntimeCapabilities',
       'RuntimeTopology',
       'BundleTopology',
+      'ContextServiceTopology',
       'ModelProfile',
       'IdentityProfile',
       'CustomerContextPackage',
@@ -119,6 +120,7 @@ describe('exported JSON Schema documents', () => {
       'context-eval-suite.schema.json',
       'context-package-revision.schema.json',
       'context-recipe.schema.json',
+      'context-service-topology.schema.json',
       'context-source.schema.json',
       'customer-context-package.schema.json',
       'document-mapping.schema.json',
@@ -203,8 +205,9 @@ describe('structural drift: @fde/spec vs contracts/', () => {
       shape(RuntimeTopologySchema, 'bundle-topology.schema.json', '#/$defs/RuntimeTopology'),
       contractDocs,
     ).stripped;
-    // `EnvVar` and `ImageSpec` express "exactly one of" as a `oneOf`.
-    expect(topology.filter((rule) => rule.rule === 'presence-oneOf')).toHaveLength(2);
+    // `EnvVar` (component env, job env) and `ImageSpec` express "exactly one of"
+    // as a `oneOf`.
+    expect(topology.filter((rule) => rule.rule === 'presence-oneOf')).toHaveLength(3);
   });
 });
 
@@ -411,6 +414,34 @@ const cases: Case[] = [
     document: (() => {
       const document = topologyDocument() as Mutable;
       (document['spec'] as Mutable)['startupOrder'] = ['mastra-app', 'mastra-app'];
+      return document;
+    })(),
+    parse: parseRuntimeTopology,
+    contract: () => contractValidator('bundle-topology.schema.json', '#/$defs/RuntimeTopology') as (data: unknown) => boolean,
+  },
+  {
+    name: 'runtime topology: health check with an exec probe',
+    document: (() => {
+      const document = topologyDocument() as Mutable;
+      (((document['spec'] as Mutable)['components'] as Mutable[])[0] as Mutable)['healthCheck'] = {
+        path: '/readyz',
+        port: 4111,
+        command: ['node', '-e', "fetch('http://127.0.0.1:4111/readyz')"],
+      };
+      return document;
+    })(),
+    parse: parseRuntimeTopology,
+    contract: () => contractValidator('bundle-topology.schema.json', '#/$defs/RuntimeTopology') as (data: unknown) => boolean,
+  },
+  {
+    name: 'runtime topology: empty health check command (minItems)',
+    document: (() => {
+      const document = topologyDocument() as Mutable;
+      (((document['spec'] as Mutable)['components'] as Mutable[])[0] as Mutable)['healthCheck'] = {
+        path: '/readyz',
+        port: 4111,
+        command: [],
+      };
       return document;
     })(),
     parse: parseRuntimeTopology,

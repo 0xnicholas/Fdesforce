@@ -148,8 +148,17 @@ describe('the emitted app', () => {
         role: 'runtime-app',
         image: { build: { context: 'mastra-app', dockerfile: 'Dockerfile' } },
         ports: [{ name: 'http', containerPort: 4111, expose: true }],
-        // Readiness, not liveness: the container is checked against the handshake (§9.3).
-        healthCheck: { path: '/readyz', port: 4111 },
+        // Readiness, not liveness: the container is checked against the handshake (§9.3),
+        // with the probe command the image's own runtime can execute.
+        healthCheck: {
+          path: '/readyz',
+          port: 4111,
+          command: [
+            'node',
+            '-e',
+            "fetch('http://127.0.0.1:4111/readyz').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+          ],
+        },
       },
     ]);
   });

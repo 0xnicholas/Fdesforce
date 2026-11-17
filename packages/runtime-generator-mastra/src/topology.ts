@@ -10,6 +10,7 @@ import {
   MIGRATE_ENTRYPOINT,
   MIGRATE_JOB,
   READY_PATH,
+  READY_PROBE,
   RESERVED_ENV,
   STATE_MIGRATION_STEP,
   STATE_MOUNT_PATH,
@@ -82,7 +83,7 @@ export function generateTopology(input: RuntimeGenerateInput): RuntimeTopology {
           ports: [{ name: 'http', containerPort: APP_PORT, expose: true }],
           volumes: [{ name: STATE_VOLUME, mountPath: STATE_MOUNT_PATH }],
           env: appEnvironment(input),
-          healthCheck: { path: READY_PATH, port: APP_PORT },
+          healthCheck: { path: READY_PATH, port: APP_PORT, command: [...READY_PROBE] },
           dependsOn: [CONTEXT_SERVICE_COMPONENT],
           resources: { cpu: '1', memory: '1Gi' },
         },
@@ -107,6 +108,9 @@ export function generateTopology(input: RuntimeGenerateInput): RuntimeTopology {
             },
           ],
           volumes: [{ name: STATE_VOLUME, mountPath: STATE_MOUNT_PATH }],
+          // The job and the app must open the same file; the app's own env is the
+          // single source of that path (RESERVED_ENV), not a second literal here.
+          env: [{ name: 'FDE_STATE_STORE_PATH', value: RESERVED_ENV.FDE_STATE_STORE_PATH }],
         },
       ],
       startupOrder: [MIGRATE_JOB, APP_DIR],

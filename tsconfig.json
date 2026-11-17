@@ -4,6 +4,7 @@
     { "path": "./packages/spec" },
     { "path": "./packages/runtime-generator" },
     { "path": "./packages/runtime-generator-mastra" },
+    { "path": "./packages/bundle" },
     { "path": "./packages/contracts-client" },
     { "path": "./packages/cli" }
   ]

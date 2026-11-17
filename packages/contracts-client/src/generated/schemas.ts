@@ -91,6 +91,7 @@ export type EnvVar = unknown | unknown;
 export interface HealthCheck {
   path: string;
   port: number;
+  command?: Array<string>;
   initialDelaySeconds?: number;
   periodSeconds?: number;
   timeoutSeconds?: number;
@@ -150,6 +151,7 @@ export interface Job {
   owner: "context-service" | "runtime" | "platform";
   steps: Array<JobStep>;
   volumes?: Array<VolumeMount>;
+  env?: Array<EnvVar>;
   secretRefs?: Array<SecretRef>;
 }
 

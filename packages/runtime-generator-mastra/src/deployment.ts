@@ -52,6 +52,21 @@ export const LIVENESS_PATH = '/healthz';
  */
 export const READY_PATH = '/readyz';
 
+/**
+ * The exec-form probe a renderer runs inside the container to answer "is this app
+ * ready?". It uses only what the image has — Node, which is the entrypoint's
+ * runtime — and the port the topology declares.
+ *
+ * The renderer cannot infer this from the image (§8.1): a Compose health gate needs
+ * a command, and a command guessed from the image's name is a container that never
+ * turns healthy. So the fragment that owns the app owns its probe.
+ */
+export const READY_PROBE: ReadonlyArray<string> = [
+  'node',
+  '-e',
+  `fetch('http://127.0.0.1:${APP_PORT}${READY_PATH}').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))`,
+];
+
 /** How a deployment asks the app what it is and what it can do (`runtime-info` v1.3). */
 export const RUNTIME_INFO_PATH = '/v1/runtime-info';
 

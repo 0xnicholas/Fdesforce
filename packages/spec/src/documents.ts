@@ -1,5 +1,5 @@
 import { emitJsonSchema } from './schema-emit.js';
-import { BundleTopologySchema, RuntimeTopologySchema } from './schema/bundle-topology.js';
+import { BundleTopologySchema, ContextServiceTopologySchema, RuntimeTopologySchema } from './schema/bundle-topology.js';
 import { ContextEvalSuiteSchema } from './schema/context-eval-suite.js';
 import { ContextPackageRevisionSchema, ContextPackageSchema } from './schema/context-package.js';
 import { ContextRecipeSchema } from './schema/context-recipe.js';
@@ -38,6 +38,7 @@ export function documentSchemas(): DocumentSchema[] {
     ['RuntimeCapabilities', 'runtime-capabilities.schema.json', RuntimeCapabilitiesSchema],
     ['RuntimeTopology', 'runtime-topology.schema.json', RuntimeTopologySchema],
     ['BundleTopology', 'bundle-topology.schema.json', BundleTopologySchema],
+    ['ContextServiceTopology', 'context-service-topology.schema.json', ContextServiceTopologySchema],
     ['ModelProfile', 'model-profile.schema.json', ModelProfileSchema],
     ['IdentityProfile', 'identity-profile.schema.json', IdentityProfileSchema],
     ['CustomerContextPackage', 'customer-context-package.schema.json', ContextPackageSchema],

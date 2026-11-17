@@ -67,11 +67,12 @@ packages/
   contracts-client/        # contracts/ 生成的 wire 类型与薄客户端；不手写 wire 类型
   runtime-generator/       # 端口、输入/输出类型、validation 结果、共享工具
   runtime-generator-mastra/# v0 实现；生成 Mastra app / topology / migrations / tests
+  bundle/                  # 平台侧：ContextServiceTopology 片段、composeTopology、部署实例命名、v0 Compose 渲染
   cli/                     # fde build / verify / deploy plan
 ```
 
 - `@fde/contracts-client` 是生成物：OpenAPI + JSON Schema → TS 类型与客户端，CI 校验生成结果与 `contracts/` 一致；generator 与 CLI 消费它，不各自手写 wire 类型。
-- `@fde/runtime-generator` 只依赖 `@fde/spec` 的类型与纯工具；不依赖 Mastra、LangGraph、Node 运行时或 Python。
+- `@fde/runtime-generator` 只依赖 `@fde/spec` 的类型与纯工具；不依赖 Mastra、LangGraph、Node 运行时或 Python。`@fde/bundle` 同样只依赖 `@fde/spec`，不读 generator 代码（§8.1）。
 - 具体 generator 可以在构建时依赖自己的模板/代码生成器，但不得执行 runtime 代码、联网或写盘。
 - 未来 Python generator 通过一个 JSON/CLI shim 实现同一端口；v0 不要求，但输入/输出必须保持 JSON 可序列化。
 
@@ -486,7 +487,10 @@ spec:
         - { name: NODE_ENV, value: production }
       secretRefs:
         - { store: vault, key: claims-triage/mastra-app, version: "3" }
-      healthCheck: { path: /readyz, port: 4111 }
+      healthCheck:                 # path/port 是原生 HTTP probe 的表述；command 是容器内可执行的 exec probe
+        path: /readyz
+        port: 4111
+        command: ["node", "-e", "fetch('http://127.0.0.1:4111/readyz').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       dependsOn: [context-service]
       resources: { cpu: "1", memory: 1Gi }
   volumes:
@@ -517,7 +521,15 @@ spec:
 - **secret**：拓扑只含 `secretRef`；Environment 提供 store/key/version；不写 secret 值。
 - **卷**：`graph` 与 `audit` 必须不同卷；`audit` 单独备份；runtime state store 单独卷，切换 runtime 时不迁移。
 
-build 在合成后校验引用完整性：`dependsOn` / `runBefore` / `runAfter` / `startupOrder` 必须指向存在的组件或作业；端口和卷名不冲突；只有标记 `expose: true` 的 runtime app 端口进入 ingress。
+build 在合成后校验引用完整性：`dependsOn` / `runBefore` / `runAfter` / `startupOrder` 必须指向存在的组件或作业；端口和卷名不冲突；只有标记 `expose: true` 的 runtime app 端口进入 ingress。此外：每个单写者角色（`context-service`、`state-store`、`graph-store`、`audit-store`）在 Bundle 内最多一个组件；组件/作业的 `secretRefs` 必须被某条 `secretBindings` 解析（内联 env 的 `secretRef` 自带名字与 target）；`networks` 里恰好一个非 internal 网络（ingress 组件的落脚点与唯一出口）。这些规则在 `checkTopology`（`@fde/spec`）里，对应错误码 `topology_single_writer_invalid` / `topology_secret_binding_missing` / `topology_ingress_network_invalid` / `topology_port_conflict` / `topology_volume_conflict`。
+
+### 8.4 实现位置
+
+- 平台片段是离线平台仓里的版本化 artifact：`platform/context-service/<version>/topology.yaml`（`kind: ContextServiceTopology`：组件、卷、作业、secret 绑定、networks；**不含** `startupOrder` / `deploymentNaming` / `ingress`）。
+- `composeTopology` 在 `@fde/bundle`：合成两个片段、派生启动顺序与 ingress、拿 runtime 片段的 Profile 身份，再跑一次 `parseBundleTopology` + `checkTopology` 才返回。
+- `deploymentInstance(topology, deployment_id)` 派生全部具体名字与唯一对外 host 端口（`30000 + sha256(deployment_id)[0..4] % 20000`，绑 loopback）；渲染器只消费它，不自行推导。
+- `renderCompose` 是 v0 唯一渲染目标；Helm/airgap 在 Slice 2.6 从同一 `BundleTopology` 渲染。渲染器不猜：多步作业（`renderer_multistep_job`）、没有 exec `command` 的健康检查（`renderer_probe_missing`）、没有可继承镜像的作业 owner（`renderer_job_image_missing`）、暴露端口与 ingress 不一致（`renderer_ingress_ambiguous`）都 fail closed。
+- `HealthCheck.command`（exec 形式）与 `Job.env` 是这次实现补齐的两个 additive 字段：Compose 的健康门禁要跑命令（path/port 仍是 Helm 原生 probe 的表述），一次性作业也需要非 secret 配置（`GRAPH_PATH`、`FDE_STATE_STORE_PATH`）。
 
 ## 9. `runtime-info` v1.3 握手
 

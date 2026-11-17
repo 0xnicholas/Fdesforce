@@ -9,7 +9,7 @@ import type {
 
 import { APP_DIR, APP_PORT, DOCKERFILE_PATH, entrypoint, generateAppFiles } from './app.js';
 import { generateContractTests } from './contract-tests.js';
-import { READY_PATH, RUNTIME_FAMILY } from './deployment.js';
+import { READY_PATH, READY_PROBE, RUNTIME_FAMILY } from './deployment.js';
 import { unsupportedGrammar, unsupportedStateStore } from './grammar.js';
 import { generateMigrations, generateTopology } from './topology.js';
 
@@ -100,7 +100,7 @@ function generateApp(input: RuntimeGenerateInput, version: string): GeneratedApp
         ports: [{ name: 'http', containerPort: APP_PORT, expose: true }],
         // The probe the topology also checks: readiness, not liveness. A container that
         // is alive but failed the handshake must not be sent traffic (§9.3).
-        healthCheck: { path: READY_PATH, port: APP_PORT },
+        healthCheck: { path: READY_PATH, port: APP_PORT, command: [...READY_PROBE] },
       },
     ],
     sourceDigest: sourceDigest(files),

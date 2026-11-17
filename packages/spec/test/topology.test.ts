@@ -72,7 +72,10 @@ const document = (): Record<string, unknown> => ({
       componentNameTemplate: 'fde-{{deployment_id}}-{{component}}',
       namespaceTemplate: 'fde-{{deployment_id}}',
     },
-    networks: [{ name: 'internal', internal: true }],
+    networks: [
+      { name: 'bundle', internal: true },
+      { name: 'edge', internal: false },
+    ],
     ingress: { component: 'mastra-app', port: 4111, hostTemplate: '{{host}}', tls: true },
   },
 });
@@ -105,8 +108,22 @@ describe('split topology for the read-only slice', () => {
     const report = checkTopology(topology());
 
     expect(report.errors, JSON.stringify(report.errors, null, 2)).toEqual([]);
-    // `ingest` is deliberately not in the startup order: it must not block readiness.
-    expect(report.warnings.map((warning) => warning.code)).toEqual(['topology_startup_order_incomplete']);
+    // `ingest` is deliberately not in the startup order: it runs after the service is
+    // up and must not block readiness — so it is not a missing startup step.
+    expect(report.warnings).toEqual([]);
+  });
+
+  it('warns about a component that never starts and a migration that gates one', () => {
+    const report = checkTopology(
+      mutate((document) => {
+        (spec(document)['startupOrder'] as string[]) = ['context-service', 'mastra-app'];
+      }),
+    );
+
+    // `graph-migrate` runs `runBefore: context-service`, so leaving it out of the order
+    // is a migration the deployment may never run. `ingest` only declares `runAfter`.
+    expect(report.warnings.map((warning) => warning.path)).toEqual(['spec.startupOrder']);
+    expect(report.warnings[0]?.message).toContain('graph-migrate');
   });
 });
 
@@ -213,6 +230,158 @@ describe('reference integrity', () => {
     );
 
     expect(codes(report)).toContain('topology_reference_cycle');
+  });
+});
+
+describe('single writer', () => {
+  it('rejects a second context-service', () => {
+    // `backend.graph: embedded` is a single-writer store: a second replica is a second
+    // writer on one graph snapshot. The topology has no replica knob, so the way to
+    // express it is a second component — and that is what this refuses.
+    const report = checkTopology(
+      mutate((document) => {
+        components(document).push({ ...components(document)[1]!, name: 'context-service-2' });
+        (spec(document)['startupOrder'] as string[]).push('context-service-2');
+      }),
+    );
+
+    expect(codes(report)).toContain('topology_single_writer_invalid');
+  });
+
+  it('rejects a second graph store or audit store', () => {
+    for (const role of ['graph-store', 'audit-store', 'state-store']) {
+      const report = checkTopology(
+        mutate((document) => {
+          components(document).push(
+            { name: `${role}-1`, role, image: { image: 'x' } },
+            { name: `${role}-2`, role, image: { image: 'x' } },
+          );
+          (spec(document)['startupOrder'] as string[]).push(`${role}-1`, `${role}-2`);
+        }),
+      );
+
+      expect(codes(report), role).toContain('topology_single_writer_invalid');
+    }
+  });
+
+  it('accepts one component per store role', () => {
+    const report = checkTopology(
+      mutate((document) => {
+        components(document).push(
+          { name: 'graph-db', role: 'graph-store', image: { image: 'x' } },
+          { name: 'audit-db', role: 'audit-store', image: { image: 'x' } },
+        );
+        (spec(document)['startupOrder'] as string[]).push('graph-db', 'audit-db');
+      }),
+    );
+
+    expect(codes(report)).toEqual([]);
+  });
+});
+
+describe('port and volume names', () => {
+  it('rejects a volume name declared twice', () => {
+    // `unique` in the schema compares whole objects, so two definitions of one name
+    // get through it — and the renderer would emit two volumes with one name.
+    const report = checkTopology(
+      mutate((document) => {
+        (spec(document)['volumes'] as Mutable[]).push({ name: 'graph', size: '99Gi' });
+      }),
+    );
+
+    expect(codes(report)).toContain('topology_name_conflict');
+  });
+
+  it('rejects two ports with one name on a component', () => {
+    const report = checkTopology(
+      mutate((document) => {
+        (components(document)[0]!['ports'] as Mutable[]).push({ name: 'http', containerPort: 4112 });
+      }),
+    );
+
+    expect(codes(report)).toContain('topology_port_conflict');
+  });
+
+  it('rejects two volumes mounted at one path', () => {
+    const report = checkTopology(
+      mutate((document) => {
+        (components(document)[1]!['volumes'] as Mutable[]).push({ name: 'audit', mountPath: '/data/graph' });
+      }),
+    );
+
+    expect(codes(report)).toContain('topology_volume_conflict');
+  });
+});
+
+describe('secrets', () => {
+  it('rejects a secret a component needs but no binding resolves', () => {
+    const report = checkTopology(
+      mutate((document) => {
+        (components(document)[1]!['secretRefs'] as Mutable[]) = [{ store: 'customer', key: 'graph-encryption-key' }];
+      }),
+    );
+
+    expect(codes(report)).toEqual(['topology_secret_binding_missing']);
+  });
+
+  it('accepts a secret declared inline as an env var', () => {
+    // The env entry names the variable and the secret; no document-level binding is
+    // needed, which is why the app's own `CONTEXT_TOKEN` is not reported missing.
+    const report = checkTopology(
+      mutate((document) => {
+        (spec(document)['secretBindings'] as Mutable) = [];
+      }),
+    );
+
+    expect(codes(report)).toEqual([]);
+  });
+
+  it('warns about a binding nothing needs', () => {
+    const report = checkTopology(
+      mutate((document) => {
+        (spec(document)['secretBindings'] as Mutable[]).push({
+          secretRef: { store: 'customer', key: 'unused' },
+          target: 'env',
+          name: 'UNUSED',
+        });
+      }),
+    );
+
+    expect(report.warnings.map((warning) => warning.code)).toEqual(['topology_secret_unused']);
+  });
+});
+
+describe('networks', () => {
+  it('rejects a bundle whose published port has no network to publish it on', () => {
+    // Every network internal means no container can be reached from the host and none
+    // can reach its model endpoint — a bundle that renders and then cannot serve.
+    const report = checkTopology(
+      mutate((document) => {
+        (spec(document)['networks'] as Mutable[]) = [{ name: 'bundle', internal: true }];
+      }),
+    );
+
+    expect(codes(report)).toContain('topology_ingress_network_invalid');
+  });
+
+  it('rejects two non-internal networks, because the ingress has one home', () => {
+    const report = checkTopology(
+      mutate((document) => {
+        (spec(document)['networks'] as Mutable[]).push({ name: 'edge-2', internal: false });
+      }),
+    );
+
+    expect(codes(report)).toContain('topology_ingress_network_invalid');
+  });
+
+  it('rejects a network name declared twice', () => {
+    const report = checkTopology(
+      mutate((document) => {
+        (spec(document)['networks'] as Mutable[]).push({ name: 'edge', internal: false });
+      }),
+    );
+
+    expect(codes(report)).toContain('topology_name_conflict');
   });
 });
 

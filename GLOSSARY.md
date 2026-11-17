@@ -80,6 +80,10 @@ _Avoid_: Package, Artifact, Build
 Bundle 内组件、端口、卷、作业、启动依赖、健康检查和 secret 绑定的唯一部署拓扑声明；Compose/Helm/airgap 从它渲染。
 _Avoid_: Deployment manifest, Compose file
 
+**Context Service Topology**:
+平台维护的 Bundle Topology 片段：context-service、graph/audit 卷和 migrate/ingest 作业；与 generator 的 `RuntimeTopology` 合成唯一 `BundleTopology`，本身不含启动顺序、命名模板和 ingress。
+_Avoid_: context-service manifest, platform compose
+
 **Release**:
 对一个 Bundle 的批准和签署记录，按 Solution 全局唯一、不可变，是部署的单位。
 _Avoid_: Version, Build

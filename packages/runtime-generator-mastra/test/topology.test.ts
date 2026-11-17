@@ -74,11 +74,31 @@ describe('the runtime app component', () => {
     // Readiness, not liveness: a container that is alive but failed the startup
     // handshake must not be sent traffic (§9.3). And the path is the one the emitted
     // router actually serves, not one the topology invented.
-    expect(component?.healthCheck).toEqual({ path: '/readyz', port: 4111 });
+    expect(component?.healthCheck).toEqual({
+      path: '/readyz',
+      port: 4111,
+      command: [
+        'node',
+        '-e',
+        "fetch('http://127.0.0.1:4111/readyz').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+      ],
+    });
     const router = app.files.find((entry) => entry.path === 'mastra-app/src/runtime/router.ts')?.content ?? '';
     expect(router).toContain(`export const READY_PATH = '${component?.healthCheck?.path}';`);
     expect(router).toContain("export const LIVENESS_PATH = '/healthz';");
     expect(router).toContain('export const RUNS_PATH');
+  });
+
+  it('probes the readiness path on the port the app listens on, in the app\'s own runtime', () => {
+    // The probe is exec form run inside the container, so it can only use what the
+    // image has: a Node entrypoint and the port the topology declares. A probe that
+    // names another runtime or another port is a container that never turns healthy,
+    // which turns the whole startup order into a timeout.
+    const command = spec().components[0]?.healthCheck?.command ?? [];
+
+    expect(command[0]).toBe('node');
+    expect(command[1]).toBe('-e');
+    expect(command.slice(2).join(' ')).toContain('http://127.0.0.1:4111/readyz');
   });
 
   it('reserves the resource envelope the contract states for the runtime app', () => {
@@ -144,6 +164,16 @@ describe('the state volume and the migration job', () => {
     expect(command).toEqual(['node', '--experimental-strip-types', 'src/migrate.ts']);
     expect(generated.files.map((entry) => entry.path)).toContain('mastra-app/src/migrate.ts');
     expect(generated.entrypoint).toEqual(['node', '--experimental-strip-types', 'src/index.ts']);
+  });
+
+  it('migrates the state store the app opens, not whatever the image defaults to', () => {
+    // The job and the app must agree on the file: a migration that created its schema
+    // in `./state/mastra.db` while the app opens `/app/state/mastra.db` is a deployment
+    // that starts and then fails every Run.
+    const appStorePath = spec().components[0]?.env?.find((entry) => entry.name === 'FDE_STATE_STORE_PATH');
+
+    expect(spec().jobs[0]?.env).toEqual([appStorePath]);
+    expect(appStorePath).toEqual({ name: 'FDE_STATE_STORE_PATH', value: '/app/state/mastra.db' });
   });
 
   it('puts the job first in the startup order', () => {
