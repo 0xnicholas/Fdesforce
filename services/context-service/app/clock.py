@@ -15,5 +15,5 @@ def utc_now() -> datetime:
 
 
 def isoformat_z(moment: datetime) -> str:
-    """`2026-01-01T00:00:00Z` — UTC, `Z` suffix, no `+00:00`."""
+    """`2026-01-01T00:00:00.000Z` — UTC, `Z` suffix, no `+00:00`."""
     return moment.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")

@@ -1,3 +1,1 @@
-"""The ops tag: probes a deployment's orchestrator calls (`/healthz`, `/readyz`)."""
-
-from __future__ import annotations
+"""One module per OpenAPI tag: ops, context, decisions, approvals, jobs."""

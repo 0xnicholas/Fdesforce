@@ -22,6 +22,7 @@ from jsonschema.exceptions import SchemaError
 from referencing.exceptions import Unresolvable
 
 from conformance.documents import ContractDocuments
+from conformance.embedded_examples import embedded_example_failures
 from conformance.examples import Example, parse_examples
 from conformance.harness import ServiceProcess
 
@@ -155,9 +156,9 @@ def run_c1(context: CaseContext) -> tuple[str, ...]:
     documents = context.documents
     failures: list[str] = []
 
-    parsed = {path: parse_examples(path) for path in example_documents(documents.root)}
-    examples = [example for found in parsed.values() for example in found.examples]
-    for found in parsed.values():
+    parsed = [parse_examples(path) for path in example_documents(documents.root)]
+    examples = [example for found in parsed for example in found.examples]
+    for found in parsed:
         failures.extend(
             f"{unmarked.source}:{unmarked.line}: a ```json example has no `<!-- schema: ... -->` marker"
             for unmarked in found.unmarked
@@ -168,11 +169,13 @@ def run_c1(context: CaseContext) -> tuple[str, ...]:
         failures.append("no marked ```json examples were found in the contract docs")
     for example in examples:
         failures.extend(
-            f"{example.label}: {problem}" for problem in documents.problems(example.instance, example.schema)
+            f"{example.label} ({example.schema}): {problem}"
+            for problem in documents.problems(example.instance, example.schema)
         )
 
     failures.extend(_schema_ref_failures(documents))
     failures.extend(_openapi_failures(documents))
+    failures.extend(embedded_example_failures(documents))
     minor, minor_failures = _contract_minor(documents)
     failures.extend(minor_failures)
 
@@ -199,15 +202,25 @@ _PATH_IDS = {
 _PATH_PARAM = re.compile(r"\{([a-z_]+)\}")
 
 
-def body_operations(documents: ContractDocuments) -> list[tuple[str, str, str]]:
+def body_operations(openapi: dict) -> list[tuple[str, str, str]]:
     """Every contract operation with a request body: (method, path, operationId)."""
     found = []
-    for path, item in (documents.openapi().get("paths") or {}).items():
+    for path, item in (openapi.get("paths") or {}).items():
         for method in ("get", "post", "put", "patch", "delete"):
             operation = item.get(method)
             if operation is not None and operation.get("requestBody") is not None:
                 found.append((method.upper(), path, str(operation.get("operationId"))))
     return found
+
+
+def declared_statuses(openapi: dict, operation_id: str) -> set[int]:
+    """The statuses the contract declares for one operation."""
+    for item in (openapi.get("paths") or {}).values():
+        for method in ("get", "post", "put", "patch", "delete"):
+            operation = item.get(method)
+            if operation is not None and operation.get("operationId") == operation_id:
+                return {int(status) for status in (operation.get("responses") or {}) if str(status).isdigit()}
+    return set()
 
 
 def concrete_path(path: str) -> str:
@@ -236,13 +249,19 @@ def run_c10(context: CaseContext) -> tuple[str, ...]:
     documents = context.documents
     failures: list[str] = []
 
-    operations = body_operations(documents)
+    openapi = documents.openapi()
+    operations = body_operations(openapi)
     for method, path, operation_id in operations:
         label = f"{operation_id} ({method} {path})"
+        declared = declared_statuses(openapi, operation_id)
         response = service.request(method, concrete_path(path), json={})
         if response.status_code != 422:
             failures.append(f"{label}: an invalid body answered {response.status_code}, expected 422")
             continue
+        if 422 not in declared:
+            # An enveloped 422 the operation never declared is still a broken
+            # contract: the client was promised a different status set.
+            failures.append(f"{label}: 422 is not among the operation's declared responses {sorted(declared)}")
         error = _error_envelope(documents, response, label)
         if error["code"] != "validation_failed":
             failures.append(f"{label}: code is {error['code']!r}, expected 'validation_failed'")
@@ -276,6 +295,8 @@ def run_c10(context: CaseContext) -> tuple[str, ...]:
         accepted = service.post("/v1/context/retrieve", json=valid.instance)
         if accepted.status_code == 422:
             failures.append("a contract-valid RetrieveRequest was rejected with 422")
+        elif accepted.status_code >= 400 and accepted.status_code not in declared_statuses(openapi, "retrieveContext"):
+            failures.append(f"a stub answered {accepted.status_code}, which retrieveContext does not declare")
 
     if failures:
         raise CaseFailure(failures)

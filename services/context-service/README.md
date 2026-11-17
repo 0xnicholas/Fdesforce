@@ -106,10 +106,20 @@ preceded by a marker naming the schema it satisfies:
 ```
 
 C1 fails on a JSON fence without a marker, on a marker that does not resolve, and
-on an example that does not validate. C1 also checks that every schema document
-is valid JSON Schema 2020-12, that every `$ref` in both OpenAPI documents
-resolves, and that `contracts/README.md` and `docs/runtime-contract.md` state the
-same contract minor.
+on an example that does not validate. Examples embedded in the machine-readable
+contract — a schema's `example`/`examples` keyword, an OpenAPI media-type or
+parameter `example`/`examples` — are validated against the schema around them.
+C1 also checks that every schema document is valid JSON Schema 2020-12, that every
+`$ref` in both OpenAPI documents resolves, and that `contracts/README.md` and
+`docs/runtime-contract.md` state the same contract minor.
+
+`tests/test_c1.py` plants each failure in a temporary copy of the contract, so the
+checks are known to be able to fail: an unmarked example, an invalid doc example,
+an invalid schema-embedded example, an invalid OpenAPI-embedded example, a moved
+contract minor and a dangling `$ref`.
+
+C10 makes the same demand of the service's status codes: an enveloped `422` is not
+enough if the operation never declared it.
 
 ## What is real in this slice
 

@@ -23,7 +23,7 @@ import secrets
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 import jwt
 from cryptography.hazmat.primitives import serialization
@@ -61,10 +61,16 @@ def rfc7638_thumbprint(public_key: ec.EllipticCurvePublicKey) -> str:
     return _b64url(hashlib.sha256(canonical).digest())
 
 
+#: The two issuer kinds. A `runtime` token authorizes user-facing calls; a `jobs`
+#: token authorizes the maintenance surface and nothing else (§5.1).
+IssuerKind = Literal["runtime", "jobs"]
+
+
 @dataclass(frozen=True)
 class Issuer:
     """One issuer's key pair and the `iss` it signs under."""
 
+    kind: IssuerKind
     name: str
     iss: str
     kid: str
@@ -82,7 +88,7 @@ class Issuer:
         )
 
 
-def _issuer(name: str, iss: str) -> Issuer:
+def _issuer(name: str, kind: IssuerKind, iss: str) -> Issuer:
     private_key = ec.generate_private_key(ec.SECP256R1())
     private_pem = private_key.private_bytes(
         encoding=serialization.Encoding.PEM,
@@ -95,6 +101,7 @@ def _issuer(name: str, iss: str) -> Issuer:
         .decode("ascii")
     )
     return Issuer(
+        kind=kind,
         name=name,
         iss=iss,
         kid=rfc7638_thumbprint(private_key.public_key()),
@@ -106,8 +113,8 @@ def _issuer(name: str, iss: str) -> Issuer:
 def generate_issuers(deployment_id: str) -> dict[str, Issuer]:
     """A fresh pair of issuer key pairs for one deployment."""
     return {
-        "mastra-app": _issuer("mastra-app", f"fde://{deployment_id}"),
-        "fde-jobs": _issuer("fde-jobs", f"fde://{deployment_id}/jobs"),
+        "mastra-app": _issuer("mastra-app", "runtime", f"fde://{deployment_id}"),
+        "fde-jobs": _issuer("fde-jobs", "jobs", f"fde://{deployment_id}/jobs"),
     }
 
 
@@ -133,7 +140,7 @@ def mint(
     it minted what it claims to have minted.
     """
     issued_at = int(time.time()) if now is None else now
-    is_jobs = issuer.name == "fde-jobs"
+    is_jobs = issuer.kind == "jobs"
     claims: dict[str, Any] = {
         "iss": issuer.iss,
         "aud": AUDIENCE,

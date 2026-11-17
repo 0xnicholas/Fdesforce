@@ -11,13 +11,11 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
 
-from app.contract import read_json_body
-from app.routes.stubs import unimplemented
+from app.routes.stubs import unimplemented_after_validation
 
 router = APIRouter(tags=["context"])
 
 
 @router.post("/v1/context/retrieve", response_model=None)
 async def retrieve_context(request: Request) -> JSONResponse:
-    await read_json_body(request)
-    raise unimplemented(request)
+    await unimplemented_after_validation(request)

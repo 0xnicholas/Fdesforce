@@ -101,7 +101,3 @@ class Operation:
     #: The 2xx response schema: a named schema or an inline one, never both.
     response_ref: SchemaRef | None
     response_inline: Mapping[str, Any] | None = field(default=None)
-
-
-#: `get`, `post`, … in contract order; used to name an operation's method.
-HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")

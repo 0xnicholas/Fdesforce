@@ -9,13 +9,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from app.contract import read_json_body
-from app.routes.stubs import unimplemented
+from app.routes.stubs import unimplemented_after_validation
 
 router = APIRouter(tags=["jobs"])
 
 
 @router.post("/internal/v1/jobs/ingest", response_model=None)
 async def start_ingest_job(request: Request) -> JSONResponse:
-    await read_json_body(request)
-    raise unimplemented(request)
+    await unimplemented_after_validation(request)

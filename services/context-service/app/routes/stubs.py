@@ -19,7 +19,7 @@ from typing import NoReturn
 
 from starlette.requests import Request
 
-from app.contract import operation_for
+from app.contract import operation_for, read_json_body
 from app.errors import FdeError
 
 #: `operationId` → the ticket that replaces this handler.
@@ -51,3 +51,9 @@ def unimplemented(request: Request) -> NoReturn:
         f"{operation.operation_id} is not implemented in this build of context-service",
         details={"reason": "not_implemented", "ticket": owner},
     )
+
+
+async def unimplemented_after_validation(request: Request) -> NoReturn:
+    """Validate the body against the contract, then refuse (C10 needs both halves)."""
+    await read_json_body(request)
+    unimplemented(request)

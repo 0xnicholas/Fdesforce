@@ -39,6 +39,8 @@ Metric Catalog, Eval Suite, Eval Dataset, Evaluation, and Acceptance Report are 
 - OpenAPI files are YAML 1.2; parse them with any YAML 1.2 parser before merging.
 - A fenced JSON example in `docs/runtime-contract.md` or `contracts/**/*.md` must
   be preceded by `<!-- schema: contracts/schemas/<file>#<pointer> -->` naming the
-  schema it satisfies. The C1 conformance case fails on an unmarked example, a
+  schema it satisfies.
+- A schema `example`/`examples` keyword, and an OpenAPI media-type or parameter
+  `example`/`examples` value, is validated against the schema around it. The C1 conformance case fails on an unmarked example, a
   marker that does not resolve, or an example that does not validate
   (`services/context-service/conformance/cases.py`).

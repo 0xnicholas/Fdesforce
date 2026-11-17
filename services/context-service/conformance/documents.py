@@ -19,8 +19,6 @@ from referencing import Registry
 from app.schema_registry import build_registry, problems, validator_for
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-SCHEMAS_DIR = REPO_ROOT / "contracts" / "schemas"
-CONTRACTS_DIR = REPO_ROOT / "contracts"
 
 
 class ContractDocuments:
@@ -57,7 +55,7 @@ class ContractDocuments:
     # -- OpenAPI ----------------------------------------------------------
 
     def openapi(self, name: str = "context-service-v1.openapi.yaml") -> dict[str, Any]:
-        document = yaml.safe_load((CONTRACTS_DIR / name).read_text(encoding="utf-8"))
+        document = yaml.safe_load((self.root / "contracts" / name).read_text(encoding="utf-8"))
         if not isinstance(document, dict):
             raise TypeError(f"contracts/{name} is not an OpenAPI document")
         return document
