@@ -1,8 +1,9 @@
 # `@fde/cli` — the `fde` command
 
 Slice 1's authoring chain: materialize a Solution from a versioned Template,
-validate it in one pass, generate the lock that pins every build input, and
-compile the Customer Context Package into a frozen, content-addressed artifact.
+validate it in one pass, generate the lock that pins every build input, compile
+the Customer Context Package into a frozen, content-addressed artifact, and turn
+the locked inputs into an addressed Bundle (`fde build`).
 
 ```bash
 pnpm build
@@ -24,6 +25,7 @@ The package is private and not published; `main.ts` is the bin entry once built.
 | `fde context validate --package <dir>` | schema, references, recipe pipeline, permission baseline and the frozen record agree | any error in those, including content that moved after a freeze | flags are malformed |
 | `fde context freeze --package <dir> --actor <id>` | `revisions/<version>.yaml` was written, or already matched | the package does not validate, measured nothing, or is still a draft | flags are malformed |
 | `fde context ingest --package <dir> --context-service <url> ...` | the ingest job finished (`succeeded`, or `degraded` with a warning) | the package is not frozen, the endpoint refused the job, the job failed, the key is unusable | flags are malformed |
+| `fde build --spec <dir> --out <dir> [--deployment <dep_id>] [--target compose] [--environment <name>]` | the locked inputs generated, composed, passed the static gates and were written as a Bundle | a digest, capability, grammar, license or manifest gate failed; or the output is not empty | flags are malformed |
 
 `--json` prints one machine-readable object:
 
@@ -166,6 +168,103 @@ The command makes one attempt and does not retry, so it does not mint an
 `incremental`, stable `entity_id` upserts for `backfill`/`rebuild`), which is what
 §5.5 asks of ingest. A retry is an operator decision with a visible second job.
 
+## `fde build`
+
+`build` is the only command that consumes the lock and nothing else. It never
+resolves a floating range, re-reads a Template it did not pin, or reaches the
+network: every reference is an exact `name@version` from `solution.lock`, and
+every digest is checked against the bytes on disk before anything is generated.
+A newer vendored artifact that also satisfies the Spec's range is invisible to a
+build; `solution.lock` is the input. `fde spec validate` remains the freshness
+gate; a build of a stale lock fails on the digest check instead of quietly
+re-locking.
+
+```bash
+fde build --spec examples/spec/acme/claims-triage --out /tmp/bundle \
+  --deployment dep_01ARZ3NDEKTSV4RRFFQ69G5FAV --environment acme-prod \
+  --workspace examples/spec/acme
+```
+
+A bundle is normally built before its Deployment exists. `--deployment` is
+therefore optional: without it the Compose target renders the reserved all-zero
+placeholder instance and `bundle.json` records `deploymentBound: false`, so the
+names in `deploy/compose.yaml` are never mistaken for a deployed identity. Pass
+the id when the bundle is being assembled for a known deployment; the names and
+ingress host port are then derived from it.
+
+The order is fixed (`docs/runtime-adapter.md` §4.4):
+
+1. read the Spec + lock, verify `spec.digest`, every file digest and every
+   Template/Asset/Extension/Model Profile pin;
+2. resolve `build.runtimeProfile` by its exact pin and verify the Profile digest;
+3. `capabilities()` normalizes the ten capability groups;
+4. `validate()` derives `must`/`should`; errors stop the build, warnings are
+   written into build provenance;
+5. `generateApp` / `generateTopology` / `generateMigrations` /
+   `generateContractTests` — twice, because **A11** is checked, not assumed;
+6. the platform composes `BundleTopology` from the runtime fragment and the
+   vendored `ContextServiceTopology`, renders the `compose` target and composes
+   the full migration plan (platform `migrate`, then the runtime state store;
+   `ingest` is not a migration);
+7. static conformance (A1 build side, A9 static, A11) and the license gate.
+
+### What lands in the Bundle
+
+```text
+<out>/
+├── bundle.json                 # digest, payload manifest, license gate, conformance
+├── build-provenance.json       # Profile digest, generator, requirements, warnings, clock
+├── sbom/spdx.json              # SPDX 2.3, one package per bundled component
+├── NOTICE                      # human-readable license notice
+├── deploy/
+│   ├── bundle-topology.json    # the one composed deployment topology
+│   ├── compose.yaml            # rendered v0 Compose file
+│   └── migration-plan.json     # platform migrate + runtime state migration
+├── contract-tests/**           # the A-case plan's assets
+├── context/<ccp>/**            # the frozen Context Package, revision included
+└── mastra-app/**               # the generated runtime app, bundle-root-relative
+```
+
+`bundle.json.digest` addresses the **payload** — the app, contract tests, the
+topology, the Compose file, the migration plan, the frozen CCP and `NOTICE`.
+`bundle.json`, `sbom/spdx.json` and `build-provenance.json` are evidence
+*about* that payload: they carry the build clock (SPDX `created`, `builtAt`), so
+including them would make the address move between two builds of the same
+inputs. The same rule `fde context freeze` applies to `revisions/**`.
+
+A11 is enforced on every build: the generator runs twice and a different byte is
+`runtime_generation_nondeterministic`; a tree whose reported `sourceDigest` does
+not describe it, an unsorted/duplicate file set, a topology that fails its
+schema, or a component the topology does not carry is `runtime_manifest_invalid`.
+
+### License gate
+
+`platform/licenses.yaml` declares the license of every component a bundle may
+carry. `fde build` fails closed when a component is undeclared
+(`license_undeclared`), when its license is on the denylist (`license_blocked`:
+GPL/AGPL/LGPL, SSPL, Elastic License, BUSL), or when Mastra is anything other
+than `@mastra/core` — the `ee/` packages are not Apache-2.0. Semantica must be
+the MIT distribution. The same verdict renders the SPDX document and `NOTICE`,
+so the evidence cannot disagree with the gate.
+
+### Build refusals
+
+| Code | Means |
+| --- | --- |
+| `spec_missing`, `solution_lock_missing`, `solution_lock_invalid`, `lock_incomplete`, `spec_digest_mismatch`, `spec_file_missing`, `spec_file_invalid` | the Spec, the lock shape, or the file set the lock pins is not what is on disk; `lock_incomplete` means the lock predates #33 and pins no platform fragment/catalog |
+| `artifact_digest_mismatch`, `artifact_missing`, `template_missing` | a pinned artifact moved, disappeared, or is not vendored |
+| `platform_fragment_missing`, `platform_fragment_invalid`, `platform_fragment_mismatch`, `license_catalog_mismatch` | the lock's platform fragment or license catalog is missing or moved after the lock |
+| `runtime_profile_missing`, `runtime_profile_mismatch` | the Profile is absent, its digest moved, or it disagrees with the lock/Spec |
+| `runtime_schema_mismatch`, `toolchain_mismatch`, `toolchain_missing` | the lock and the vendored toolchain compile different graph/audit schemas or versions, or the toolchain is absent |
+| `context_package_not_frozen`, `context_package_modified` | the bundle would carry semantics no freeze recorded, or a revision that does not match the content |
+| `license_catalog_missing`, `license_catalog_invalid`, `license_undeclared`, `license_blocked` | the redistribution boundary cannot be established |
+| `environment_missing`, `environment_required`, `environment_unknown`, `deployment_invalid` | the build has no unambiguous target, or the deployment id cannot name one |
+| `runtime_generation_nondeterministic`, `runtime_manifest_invalid` | generation is not a pure function of the inputs, or returned an artifact the contract does not describe |
+| `runtime_capability_*`, `runtime_grammar_unsupported`, `runtime_extension_unsupported`, `runtime_connector_*`, `runtime_identity_*` | the generator's own gate — the same codes `fde spec validate` reports |
+| `runtime_generator_missing` | the Runtime Profile names a family no generator implements |
+| `output_not_empty` | `--out` is not an empty directory; a build never overwrites a bundle |
+| `build_target_unsupported` | v0 renders `compose`; Helm and airgap are Slice 2.6 |
+
 ## Why `validate` and `lock --check` are separate
 
 `validate` is the documented `validated` gate (`docs/domain-model.md` §3.3):
@@ -228,7 +327,8 @@ that satisfies it, and an unvendored range fails with `template_missing`.
 - `overlays`, `extensions`, `modelProfiles`, `evalDatasets`;
 - `runtime`: the Runtime Profile digest, contract/schema versions and every
   cross-runtime version;
-- `toolchain`: generator version and image digest.
+- `toolchain`: generator version, image digest, the composed
+  `ContextServiceTopology` version + digest, and the license catalog digest.
 
 Every pin is an exact version plus a content digest — no ranges. The lock is
 generated and deterministic: object keys and file paths are sorted and the file
@@ -306,6 +406,11 @@ checked-in reference artifacts drifted. The seams are:
 - `context-freeze.test.ts` — the revision digest is the lock pin, re-freezing is a
   no-op, a moved frozen file is refused, the status flip keeps the author's
   comments;
+- `build.test.ts` — the bundle's contents and `--json` output;
+- `build-determinism.test.ts` — A11 through the CLI and through an injected clock
+  and random source, plus the two generation-class refusals;
+- `build-refusals.test.ts` — lock-only resolution (a newer range match is
+  ignored), no network, the license gate, schema/target/environment refusals;
 - `context-ingest.test.ts` — a loopback context-service asserts the internal path,
   the ES256 `fde-jobs` token (signature, issuer, scope, trace), the job body, and
   the refusals that must not reach the runtime;

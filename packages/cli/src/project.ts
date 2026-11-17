@@ -33,6 +33,8 @@ export interface Toolchain {
   dockerfile: string;
   versions: { node: string; python: string; semantica: string; contextService: string };
   schemas: { graph: number | string; audit: number | string };
+  /** Vendored `platform/context-service/<version>/topology.yaml` the build composes. */
+  contextServiceTopology: string;
 }
 
 export interface Project {
@@ -204,6 +206,7 @@ export function loadToolchain(platformRoot: string): { toolchain?: Toolchain; er
       graph: (schemas['graph'] as number | string | undefined) ?? '',
       audit: (schemas['audit'] as number | string | undefined) ?? '',
     },
+    contextServiceTopology: field(spec['contextServiceTopology'], 'contextServiceTopology') ?? '',
   };
 
   if (errors.length > 0) return { errors };

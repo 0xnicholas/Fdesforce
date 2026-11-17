@@ -221,6 +221,8 @@ runtime:
 toolchain:
   generator: 0.1.0
   image: ghcr.io/acme-fde/toolchain@sha256:...
+  contextServiceTopology: { version: 1.0.0, digest: sha256:... }
+  licenseCatalog: { digest: sha256:... }
 ```
 
 规则：

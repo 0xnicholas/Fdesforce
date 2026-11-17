@@ -2,7 +2,7 @@
   "name": "@fde/cli",
   "version": "0.1.0",
   "private": true,
-  "description": "The `fde` workbench CLI: materialize, validate and lock a Solution Spec.",
+  "description": "The `fde` workbench CLI: materialize, validate, lock and build a Solution Spec into an addressed Bundle.",
   "type": "module",
   "bin": {
     "fde": "./dist/main.js"
@@ -22,7 +22,10 @@
     "build": "tsc -b"
   },
   "dependencies": {
+    "@fde/bundle": "workspace:*",
     "@fde/contracts-client": "workspace:*",
+    "@fde/runtime-generator": "workspace:*",
+    "@fde/runtime-generator-mastra": "workspace:*",
     "@fde/spec": "workspace:*",
     "yaml": "^2.9.1"
   }

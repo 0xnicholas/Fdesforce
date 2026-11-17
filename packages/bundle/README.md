@@ -103,6 +103,8 @@ deployment (#41).
   Slice 2.6 (`docs/architecture-synthesis.md` §5). Nothing in this package is
   Compose-specific except `compose.ts`.
 - **Building images, SBOM, signing and writing the bundle** are `fde build`'s (#33).
-  This package produces a document and a manifest; it never writes to disk.
+  `fde build` calls `composeTopology` + `deploymentInstance` + `renderCompose`
+  and writes the payload; this package still produces a document and a manifest
+  and never writes to disk.
 - **context-service itself** is #35–#40. The vendored fragment names a build context
   (`context-service`) rather than a digest until the release chain pins one.

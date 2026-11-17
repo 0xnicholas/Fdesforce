@@ -1,9 +1,18 @@
 import { dirname, join } from 'node:path';
 
-import { normalizeText, parseSolutionLock, sha256, type Digest, type SolutionLock } from '@fde/spec';
+import {
+  digestOf,
+  normalizeText,
+  parseSolutionLock,
+  sha256,
+  type Digest,
+  type SolutionLock,
+} from '@fde/spec';
+import { loadContextServiceTopology } from '@fde/bundle';
 import { stringify } from 'yaml';
 
 import { isFile, readText } from './fsutil.js';
+import { LICENSE_CATALOG_FILE } from './license.js';
 import type { Project } from './project.js';
 import type { Diagnostic } from './types.js';
 
@@ -82,6 +91,40 @@ export function buildLock(project: Project, options: BuildLockOptions = {}): Bui
   }
 
   const solutionTemplates = solutionTemplatePins(project, options, errors);
+
+  // The platform fragment and the license catalog feed the payload, so they are
+  // pinned like every other build input. Both are platform artifacts with a
+  // stable offline address; `fde build` refuses an unpinned one.
+  const platformRoot = dirname(toolchain.file);
+  let fragmentDigest: Digest | undefined;
+  if (toolchain.contextServiceTopology.length === 0) {
+    errors.push({
+      code: 'toolchain_invalid',
+      message: 'toolchain.yaml does not pin spec.contextServiceTopology',
+      path: 'platform/toolchain.yaml#spec.contextServiceTopology',
+      remediation: 'name the vendored context-service fragment version the build composes',
+    });
+  } else {
+    const fragment = loadContextServiceTopology({
+      platformRoot,
+      version: toolchain.contextServiceTopology,
+    });
+    if (!fragment.ok) errors.push(...fragment.errors);
+    else fragmentDigest = digestOf(fragment.topology);
+  }
+
+  const licensePath = join(platformRoot, LICENSE_CATALOG_FILE);
+  let licenseDigest: Digest | undefined;
+  if (!isFile(licensePath)) {
+    errors.push({
+      code: 'license_catalog_missing',
+      message: `the platform store has no ${LICENSE_CATALOG_FILE}; the license gate has nothing to check against`,
+      path: licensePath,
+      remediation: `vendor ${LICENSE_CATALOG_FILE} in the platform store`,
+    });
+  } else {
+    licenseDigest = sha256(normalizeText(readText(licensePath)));
+  }
 
   if (errors.length > 0 || runtime === undefined || mastra === undefined || node === undefined) {
     return { errors };
@@ -203,6 +246,15 @@ export function buildLock(project: Project, options: BuildLockOptions = {}): Bui
     toolchain: {
       generator: toolchain.generator,
       image: `${image}@${sha256(normalizeText(readText(dockerfile)))}`,
+      ...(fragmentDigest === undefined || toolchain.contextServiceTopology.length === 0
+        ? {}
+        : {
+            contextServiceTopology: {
+              version: toolchain.contextServiceTopology,
+              digest: fragmentDigest,
+            },
+          }),
+      ...(licenseDigest === undefined ? {} : { licenseCatalog: { digest: licenseDigest } }),
     },
   };
 

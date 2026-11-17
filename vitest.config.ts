@@ -11,6 +11,7 @@ export default defineConfig({
       '@fde/contracts-client': resolve(import.meta.dirname, 'packages/contracts-client/src/index.ts'),
       '@fde/runtime-generator': resolve(import.meta.dirname, 'packages/runtime-generator/src/index.ts'),
       '@fde/bundle': resolve(import.meta.dirname, 'packages/bundle/src/index.ts'),
+      '@fde/runtime-generator-mastra': resolve(import.meta.dirname, 'packages/runtime-generator-mastra/src/index.ts'),
     },
   },
   test: {

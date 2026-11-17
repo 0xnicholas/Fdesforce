@@ -29,9 +29,18 @@ importers:
 
   packages/cli:
     dependencies:
+      '@fde/bundle':
+        specifier: workspace:*
+        version: link:../bundle
       '@fde/contracts-client':
         specifier: workspace:*
         version: link:../contracts-client
+      '@fde/runtime-generator':
+        specifier: workspace:*
+        version: link:../runtime-generator
+      '@fde/runtime-generator-mastra':
+        specifier: workspace:*
+        version: link:../runtime-generator-mastra
       '@fde/spec':
         specifier: workspace:*
         version: link:../spec

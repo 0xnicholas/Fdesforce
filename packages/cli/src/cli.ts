@@ -4,6 +4,8 @@ import { dirname, join, resolve } from 'node:path';
 import { CommitIdSchema, DeploymentIdSchema, SolutionIdSchema } from '@fde/spec';
 
 import { buildCatalogues } from './artifacts.js';
+import { BUILD_TARGETS, buildBundle, type BuildTarget } from './build.js';
+import { loadLockedBuildInput } from './build-input.js';
 import {
   freezeContextPackage,
   loadContextPackage,
@@ -44,6 +46,8 @@ type Flags = Record<string, string | true>;
 const USAGE = `fde — the FDE workbench CLI
 
 Usage:
+  fde build --spec <dir> --out <dir> [--deployment <dep_id>] [--target compose] [--environment <name>]
+            [--workspace <dir>] [--platform <dir>] [--json]
   fde spec init --template <name@version> --out <dir> [--workspace <dir>] [--platform <dir>] [--json]
   fde spec validate --spec <dir> [--workspace <dir>] [--platform <dir>] [--json]
   fde spec lock [--check] --spec <dir> [--template <name@version>] [--workspace <dir>] [--platform <dir>] [--json]
@@ -55,6 +59,7 @@ Usage:
   fde --help
 
 Commands:
+  build           generate, compose and address a Bundle from the locked inputs
   spec init       materialize a versioned Solution Template into a complete Solution directory
   spec validate   report schema, reference, grammar and artifact errors in one pass
   spec lock       regenerate solution.lock; --check fails on any drift
@@ -66,7 +71,10 @@ Commands:
 Paths:
   --workspace     directory holding fde.workspace.yaml (discovered upward by default)
   --platform      vendored platform artifact store (overrides the workspace manifest)
-  --spec          Solution directory containing solution.yaml and solution.lock`;
+  --spec          Solution directory containing solution.yaml and solution.lock
+  --out           empty directory the Bundle is written to
+  --deployment    deployment instance id (dep_<ULID>) the Compose names are derived from; without it the build is unbound
+  --environment   which spec.environments entry this bundle targets (required when there are several)`;
 
 export async function runCli(argv: readonly string[], io: CliIO = {}): Promise<number> {
   const sink: Sink = {
@@ -89,9 +97,10 @@ async function dispatch(argv: string[], io: Sink): Promise<number> {
     return 0;
   }
   const group = argv[0];
-  if (group !== 'spec' && group !== 'context') {
+  if (group !== 'spec' && group !== 'context' && group !== 'build') {
     return usageError(io, `unknown command "${group ?? ''}"`);
   }
+  if (group === 'build') return buildCommand(argv.slice(1), io);
   const subcommand = argv[1];
   if (subcommand === undefined || subcommand === '--help' || subcommand === '-h') {
     io.out(USAGE);
@@ -646,6 +655,131 @@ function loadContextProject(flags: ParsedFlags, io: Sink, command: string, json:
   const workspace = resolveWorkspace(flags, io, dir, command, json);
   if (workspace === undefined) return undefined;
   return loadContextPackage({ dir, workspace });
+}
+
+// ---------------------------------------------------------------------------
+// fde build
+// ---------------------------------------------------------------------------
+
+function buildCommand(args: string[], io: Sink): number {
+  if (args.includes('--help') || args.includes('-h')) {
+    io.out(USAGE);
+    return 0;
+  }
+  const flags = parseFlags(args, {
+    strings: ['spec', 'out', 'target', 'environment', 'deployment', 'workspace', 'platform'],
+    booleans: ['json'],
+  });
+  if (flags.errors.length > 0) return usageError(io, flags.errors[0] ?? 'invalid arguments');
+  const json = flags.values['json'] === true;
+
+  if (stringFlag(flags, 'spec') === undefined) return usageError(io, 'missing required flag --spec');
+  const outArg = stringFlag(flags, 'out');
+  if (outArg === undefined) return usageError(io, 'missing required flag --out');
+  const deploymentId = stringFlag(flags, 'deployment');
+  if (deploymentId !== undefined && !DeploymentIdSchema.safeParse(deploymentId).success) {
+    return usageError(io, `--deployment must be dep_<ULID> (got "${deploymentId}")`);
+  }
+
+  const targetArg = stringFlag(flags, 'target') ?? 'compose';
+  const target = BUILD_TARGETS.find((candidate) => candidate === targetArg) as BuildTarget | undefined;
+  if (target === undefined) {
+    return emitDiagnostics(
+      'build',
+      {
+        errors: [
+          diagnostic('build_target_unsupported', `v0 builds the compose target only (asked for ${targetArg})`, {
+            path: '--target',
+            remediation: 'pass --target compose; Helm and the airgap bundle are Slice 2.6',
+          }),
+        ],
+        warnings: [],
+      },
+      io,
+      json,
+    );
+  }
+
+  const specDir = resolveSpecDir(flags, io, 'build', json);
+  if (specDir === undefined) return 1;
+
+  const workspace = resolveWorkspace(flags, io, specDir, 'build', json);
+  if (workspace === undefined) return 1;
+
+  const out = resolve(io.cwd, outArg);
+  if (existsSync(out) && (!isDirectory(out) || readdirSync(out).length > 0)) {
+    return emitDiagnostics(
+      'build',
+      {
+        errors: [
+          diagnostic('output_not_empty', `${out} is not an empty directory`, {
+            path: out,
+            remediation: 'choose an empty --out directory; `fde build` never overwrites a bundle',
+          }),
+        ],
+        warnings: [],
+      },
+      io,
+      json,
+    );
+  }
+
+  const environment = stringFlag(flags, 'environment');
+  const loaded = loadLockedBuildInput({
+    specDir,
+    workspace,
+    ...(environment === undefined ? {} : { environment }),
+  });
+  if (!loaded.ok) return emitDiagnostics('build', { errors: loaded.errors, warnings: loaded.warnings }, io, json);
+
+  const built = buildBundle(loaded.value, { ...(deploymentId === undefined ? {} : { deploymentId }), target });
+  if (!built.ok) return emitDiagnostics('build', { errors: built.errors, warnings: built.warnings }, io, json);
+
+  mkdirSync(dirname(out), { recursive: true });
+  const staging = mkdtempSync(join(dirname(out), '.fde-build-'));
+  try {
+    for (const file of built.value.files) {
+      const path = join(staging, file.path);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, file.content, { mode: file.mode });
+    }
+    if (existsSync(out)) rmSync(out, { recursive: true, force: true });
+    renameSync(staging, out);
+  } finally {
+    if (existsSync(staging)) rmSync(staging, { recursive: true, force: true });
+  }
+
+  const manifestPath = join(out, 'bundle.json');
+  if (json) {
+    io.out(
+      JSON.stringify({
+        command: 'build',
+        ok: true,
+        bundle: {
+          digest: built.value.digest,
+          sourceDigest: built.value.sourceDigest,
+          out,
+          manifest: manifestPath,
+          artifacts: built.value.manifest.artifacts.length,
+          licenseGate: built.value.manifest.licenseGate.ok,
+          deploymentBound: built.value.manifest.solution.deploymentBound,
+        },
+        errors: [],
+        warnings: built.value.warnings,
+      }),
+    );
+  } else {
+    for (const warning of built.value.warnings) printDiagnostic(io, 'warning', warning);
+    io.out(
+      `built ${built.value.digest} (source ${built.value.sourceDigest}) -> ${out}; ${count(
+        built.value.manifest.artifacts.length,
+        'artifact',
+      )}, ${count(built.value.warnings.length, 'warning')}${
+        built.value.manifest.solution.deploymentBound ? '' : ' (unbound: placeholder deployment names)'
+      }`,
+    );
+  }
+  return 0;
 }
 
 // ---------------------------------------------------------------------------

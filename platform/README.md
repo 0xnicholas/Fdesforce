@@ -16,6 +16,7 @@ extensions/<name>/<version>/**            Extension artifact
 model-profiles/<name>.yaml                platform-owned ModelProfile
 runtime-profiles/<name>.yaml              platform-owned RuntimeProfile
 context-service/<version>/topology.yaml   ContextServiceTopology — the platform's half of a bundle
+licenses.yaml                             license facts + redistribution denylist for `fde build`
 toolchain.yaml                            toolchain identity + pinned cross-runtime versions
 toolchain/Dockerfile                      the toolchain image contents
 ```
@@ -59,6 +60,7 @@ exception: its `solution.yaml` must parse as a `SolutionSpec`, because
 | Runtime Profile | `digestOf()` the parsed document (canonical JSON), so comments and formatting are not identity |
 | ContextServiceTopology | the same: `digestOf()` the parsed document |
 | Toolchain image | `sha256` of `toolchain/Dockerfile` until the published image digest replaces it (#33) |
+| License catalog | `sha256` of the LF-normalized `licenses.yaml`; `fde spec lock` pins it in `toolchain.licenseCatalog` |
 
 ## The Acme reference path
 
@@ -66,6 +68,18 @@ exception: its `solution.yaml` must parse as a `SolutionSpec`, because
 bundle network, the graph and audit volumes, the migrate and ingest jobs, and the
 secret bindings they resolve. `@fde/bundle` composes it with the generator's
 `RuntimeTopology` into the single `BundleTopology` a renderer consumes.
+`toolchain.yaml` names the fragment version (`spec.contextServiceTopology`), and
+`fde spec lock` pins its version **and** parsed-document digest in
+`toolchain.contextServiceTopology`, so `fde build` never picks "the newest
+directory" for an address a lock is supposed to fix. A comment edit does not
+move that digest; a field edit does.
+
+`licenses.yaml` is the redistribution boundary `fde build` reads: every component
+the bundle may carry needs a declared SPDX license, and the `denied` list names
+GPL/AGPL/LGPL, SSPL, Elastic License and BUSL. Mastra is core-only — a profile
+that adds `@mastra/ee` fails `license_blocked` even if a catalog entry exists.
+The same document renders the SBOM and `NOTICE`, so evidence and gate cannot
+diverge.
 
 `templates/solution/fde-solution/1.2.0` is the only Solution Template in this
 slice and it materializes the Acme claims-triage read-only Spec, byte for byte.

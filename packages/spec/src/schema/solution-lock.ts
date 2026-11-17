@@ -106,9 +106,22 @@ export const RuntimePinBlockSchema = z
     }
   });
 
+/**
+ * Platform artifacts the toolchain composes but a Runtime Profile does not own:
+ * the `ContextServiceTopology` fragment and the license catalog. Both feed the
+ * bundle payload (the composed topology and `NOTICE`), so a lock that did not
+ * pin them would let two builds of the same inputs produce different addresses.
+ *
+ * Optional for locks written before #33; `fde build` refuses a lock without them
+ * rather than resolving "the newest vendored" fragment.
+ */
 export const ToolchainPinSchema = z.strictObject({
   generator: SemverSchema,
   image: z.string().regex(/^[a-z0-9][a-z0-9./_-]{1,200}@sha256:[a-f0-9]{64}$/),
+  contextServiceTopology: z
+    .strictObject({ version: SemverSchema, digest: DigestSchema })
+    .optional(),
+  licenseCatalog: z.strictObject({ digest: DigestSchema }).optional(),
 });
 
 export const SolutionLockSchema = z.strictObject({

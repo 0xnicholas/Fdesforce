@@ -6,5 +6,10 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "include": ["src/**/*.ts"],
-  "references": [{ "path": "../spec" }]
+  "references": [
+    { "path": "../spec" },
+    { "path": "../runtime-generator" },
+    { "path": "../runtime-generator-mastra" },
+    { "path": "../bundle" }
+  ]
 }

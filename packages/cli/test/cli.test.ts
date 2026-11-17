@@ -21,6 +21,7 @@ describe('fde CLI', () => {
     const result = await sb.run(['--help']);
 
     expect(result.code).toBe(0);
+    expect(result.out).toMatch(/fde build/);
     expect(result.out).toMatch(/fde spec init/);
     expect(result.out).toMatch(/fde spec validate/);
     expect(result.out).toMatch(/fde spec lock/);

@@ -7,8 +7,9 @@ This package is what every generator shares. It is **not** a generator: the v0
 Mastra implementation (`generateApp`, `generateTopology`, `generateMigrations`,
 `generateContractTests`) lives in
 [`@fde/runtime-generator-mastra`](../runtime-generator-mastra/README.md) (#27,
-#28), and the CLI that orchestrates a build around it is
-[#33](https://github.com/0xnicholas/Fdesforce/issues/33).
+#28), and `fde build` (`@fde/cli`) orchestrates the locked inputs around it
+(#33): profile resolution, the gate, two-pass generation, topology composition,
+the license gate and the bundle address.
 
 ```text
 src/

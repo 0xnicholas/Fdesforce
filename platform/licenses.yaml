@@ -1,0 +1,44 @@
+# Platform artifact — the license facts the build's SBOM and license gate use.
+#
+# `fde build` will not guess a license: every component it puts in a bundle must
+# be declared here, or the gate fails closed (`license_undeclared`). The
+# `denied` list is the v0 redistribution boundary from
+# `docs/architecture-synthesis.md` §5 (Slice 1) and `docs/domain-model.md` §1:
+# no GPL/AGPL/LGPL, no SSPL, no Elastic License, no BUSL.
+#
+# Mastra is core-only: the `ee/` directory is not Apache-2.0, so the gate refuses
+# any `@mastra/*` package other than `@mastra/core` (see `packages/cli/src/license.ts`).
+# Semantica is MIT; `context-service` is platform code, Apache-2.0.
+
+apiVersion: fde.dev/v0
+kind: LicenseCatalog
+metadata:
+  name: fde-slice1-licenses
+  version: 0.1.0
+spec:
+  denied:
+    - GPL-2.0
+    - GPL-3.0
+    - AGPL-3.0
+    - LGPL-2.1
+    - LGPL-3.0
+    - SSPL-1.0
+    - Elastic-2.0
+    - BUSL-1.1
+  components:
+    "@mastra/core":
+      license: Apache-2.0
+      source: npm
+      url: https://github.com/mastra-ai/mastra
+    node:
+      license: MIT
+      source: runtime
+    python:
+      license: PSF-2.0
+      source: runtime
+    semantica:
+      license: MIT
+      source: pypi
+    context-service:
+      license: Apache-2.0
+      source: platform
