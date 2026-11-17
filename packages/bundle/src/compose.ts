@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 
-import { checkTopology } from '@fde/spec';
+import { checkTopology, exposedPorts } from '@fde/spec';
 import type { BundleTopology, Component, Diagnostic, EnvVar, Job, SecretBinding } from '@fde/spec';
 import { Scalar, stringify as stringifyYaml } from 'yaml';
 
@@ -54,8 +54,8 @@ const ownerRole = (owner: Job['owner']): 'context-service' | 'runtime-app' | und
 
 /**
  * A secret reaches the process as an environment variable the install step resolves
- * (§9.3). `${NAME:?}` is deliberate: an unset secret is a deployment that must stop,
- * not one that starts with an empty signing key.
+ * (`docs/runtime-contract.md` §9.3). `${NAME:?}` is deliberate: an unset secret is a
+ * deployment that must stop, not one that starts with an empty signing key.
  */
 const requiredVariable = (name: string): string => `\${${name}:?}`;
 
@@ -163,9 +163,7 @@ export function renderCompose(topology: BundleTopology, instance: DeploymentInst
 
   // Exactly one exposed port, and it is the ingress. Two would be a second entry
   // nobody named; none would be a bundle the customer cannot call.
-  const exposed = topology.spec.components.flatMap((component) =>
-    (component.ports ?? []).filter((port) => port.expose === true).map((port) => ({ component: component.name, port: port.containerPort })),
-  );
+  const exposed = exposedPorts(topology.spec.components);
   const ingress = topology.spec.ingress;
   if (
     exposed.length !== 1 ||
@@ -194,9 +192,9 @@ export function renderCompose(topology: BundleTopology, instance: DeploymentInst
         ? 'service_started'
         : 'service_healthy';
 
-  // `depends_on` is the startup order in Compose terms (§9.2): a component waits for
-  // what it depends on and for every job that must `runBefore` it; a job waits for
-  // whatever it declares it runs after.
+  // `depends_on` is the startup order in Compose terms (`docs/runtime-contract.md`
+  // §9.2): a component waits for what it depends on and for every job that must
+  // `runBefore` it; a job waits for whatever it declares it runs after.
   const dependencies = new Map<string, Map<string, Condition>>();
   const depend = (from: string, to: string, condition: Condition): void => {
     const edges = dependencies.get(from) ?? new Map<string, Condition>();
@@ -211,13 +209,19 @@ export function renderCompose(topology: BundleTopology, instance: DeploymentInst
     for (const target of step?.runBefore ?? []) depend(target, job.name, 'service_completed_successfully');
     for (const target of step?.runAfter ?? []) depend(job.name, target, conditionTo(target));
   }
-  const dependenciesOf = (name: string): Manifest | undefined => {
-    const edges = dependencies.get(name);
-    if (edges === undefined || edges.size === 0) return undefined;
+  const dependenciesOf = (name: string): Manifest => {
+    const edges = dependencies.get(name) ?? new Map<string, Condition>();
     return Object.fromEntries([...edges].map(([target, condition]) => [serviceName(target), { condition }]));
   };
+  /** `depends_on` only when there is an edge; an empty map would be a validation error. */
+  const dependsOn = (name: string): Manifest => {
+    const edges = dependenciesOf(name);
+    return Object.keys(edges).length === 0 ? {} : { depends_on: edges };
+  };
 
-  const externalNetworks = new Set(topology.spec.networks.filter((network) => !network.internal).map((network) => network.name));
+  const externalNetworks = new Set(
+    topology.spec.networks.filter((network) => !network.internal).map((network) => network.name),
+  );
   const networksOf = (name: string): Manifest =>
     Object.fromEntries(
       topology.spec.networks
@@ -284,9 +288,9 @@ export function renderCompose(topology: BundleTopology, instance: DeploymentInst
       ...resourcesOf(component),
       networks: networksOf(component.name),
       // One container per service: the stores are single-writer, so a Compose replica
-      // is a second writer, not capacity (§9.4).
+      // is a second writer, not capacity (`docs/runtime-contract.md` §9.4).
       restart: restartPolicy('unless-stopped'),
-      ...(dependenciesOf(component.name) === undefined ? {} : { depends_on: dependenciesOf(component.name) }),
+      ...dependsOn(component.name),
     };
     services[serviceName(component.name)] = service;
   }
@@ -296,7 +300,10 @@ export function renderCompose(topology: BundleTopology, instance: DeploymentInst
     const role = ownerRole(job.owner);
     const owner = role === undefined ? undefined : componentByRole(role);
     if (owner === undefined) throw new Error(`job ${job.name} has no owner component to run in`);
-    const resolved = resolveSecrets([...(job.secretRefs ?? []), ...(step?.secretRefs ?? [])], topology.spec.secretBindings);
+    const resolved = resolveSecrets(
+      [...(job.secretRefs ?? []), ...(step?.secretRefs ?? [])],
+      topology.spec.secretBindings,
+    );
     Object.assign(secrets, resolved.manifest);
     const environment = { ...environmentOf(job.env), ...resolved.env };
     const mounts = [...(job.volumes ?? []), ...(step?.volumes ?? [])];
@@ -310,7 +317,7 @@ export function renderCompose(topology: BundleTopology, instance: DeploymentInst
       // `no` is what makes a one-shot job finish: a job that restarts forever is a
       // migration that keeps re-running or an ingest that never completes.
       restart: restartPolicy('no'),
-      ...(dependenciesOf(job.name) === undefined ? {} : { depends_on: dependenciesOf(job.name) }),
+      ...dependsOn(job.name),
     };
     services[serviceName(job.name)] = service;
   }

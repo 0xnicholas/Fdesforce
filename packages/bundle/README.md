@@ -32,11 +32,19 @@ nothing here (`docs/runtime-adapter.md` §8.1).
 | `deploymentInstance(topology, deploymentId)` | what are this deployment's names, and which host port does it publish? |
 | `renderCompose(topology, instance)` | what does `docker compose up` read? |
 
-`composeTopology` returns `{ ok, topology } | { ok: false, errors }` and runs both
-the grammar (`parseBundleTopology`) and the invariants (`checkTopology`) before it
-returns, so a caller cannot hold a bundle whose references only resolve after a
-renderer guessed. `renderCompose` re-runs `checkTopology` and refuses an invalid
-topology for the same reason.
+`composeTopology` returns `{ ok: true, topology, warnings } | { ok: false, errors,
+warnings }` and runs both the grammar (`parseBundleTopology`) and the invariants
+(`checkTopology`) before it returns, so a caller cannot hold a bundle whose
+references only resolve after a renderer guessed. Warnings are carried on both
+branches because they belong in build provenance whether or not a warning was the
+reason to stop. `renderCompose` returns the same union (with `file` instead of
+`topology`) and re-runs `checkTopology` for the same reason.
+
+`deploymentInstance` is the one seam that throws instead of returning a report. Its
+input is not a document to validate but a caller argument — a deployment id — and a
+caller that cannot name its own deployment has nothing to render. The `fde` CLI
+validates the id (`DeploymentIdSchema`) before calling, so the throw is a programmer
+error, not an operator diagnostic.
 
 ## What composition decides
 
@@ -55,7 +63,9 @@ topology for the same reason.
 `deployment_id` is `dep_<ULID>`; a container name is a lowercase DNS label. The
 instance lowercases the id, replaces `_` with `-` and applies
 `deploymentNaming.componentNameTemplate` to every component, job, volume and
-network, and `namespaceTemplate` to the Compose project. The published host port is
+network, and `namespaceTemplate` to the Compose project. `namespaceTemplate` is
+required for that reason — the project name is the deployment's, and a fallback
+invented in the renderer would be a second owner of the naming rule. The published host port is
 derived too — `30000 + sha256(deployment_id)[0..4] % 20000` — because a fixed 4111
 makes two bundles on one customer host contend, and a hand-picked port is a value
 the bundle cannot reproduce. It binds to loopback: the customer terminates TLS and

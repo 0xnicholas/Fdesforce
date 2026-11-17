@@ -60,16 +60,31 @@ function deploymentSlug(deploymentId: string): string {
   return deploymentId.toLowerCase().replaceAll('_', '-');
 }
 
-function derivedName(template: string, slug: string, object: string, what: string): string {
-  const name = template.replaceAll('{{deployment_id}}', slug).replaceAll('{{component}}', object);
+type NamingTemplate = 'componentNameTemplate' | 'namespaceTemplate';
+
+interface NameRequest {
+  template: string;
+  /** Which `deploymentNaming` field it is, for the remediation. */
+  templateField: NamingTemplate;
+  slug: string;
+  /** The `{{component}}` substitution: a component, job, volume or network name. */
+  object?: string;
+  /** What is being named, for the diagnostic. */
+  label: string;
+}
+
+function derivedName({ template, templateField, slug, object, label }: NameRequest): string {
+  const name = template
+    .replaceAll('{{deployment_id}}', slug)
+    .replaceAll('{{component}}', object ?? '');
   if (name.length > 63) {
     return fail(
-      `${what} name ${name} is too long for a container runtime (63 characters); the deployment naming template must shorter or the object renamed`,
+      `${label} name ${name} is too long for a container runtime (63 characters); deploymentNaming.${templateField} must be shorter, or the object renamed`,
     );
   }
   if (!NameSchema.safeParse(name).success) {
     return fail(
-      `${what} name ${name} is not a lowercase hyphen-separated DNS label; fix deploymentNaming.${what === 'project' ? 'namespaceTemplate' : 'componentNameTemplate'}`,
+      `${label} name ${name} is not a lowercase hyphen-separated DNS label; fix deploymentNaming.${templateField}`,
     );
   }
   return name;
@@ -83,7 +98,7 @@ function derivedName(template: string, slug: string, object: string, what: strin
  * cannot reproduce. A collision in a 20 000-port window is a deploy-time `bind`
  * failure the runbook covers, not a silently wrong manifest.
  */
-export function ingressHostPort(deploymentId: string): number {
+function ingressHostPort(deploymentId: string): number {
   const digest = createHash('sha256').update(deploymentId, 'utf8').digest();
   return HOST_PORT_BASE + (digest.readUInt32BE(0) % HOST_PORT_RANGE);
 }
@@ -91,7 +106,13 @@ export function ingressHostPort(deploymentId: string): number {
 export function deploymentInstance(topology: BundleTopology, deploymentId: string): DeploymentInstance {
   const slug = deploymentSlug(deploymentId);
   const { componentNameTemplate, namespaceTemplate } = topology.spec.deploymentNaming;
-  const name = (object: string, what: string): string => derivedName(componentNameTemplate, slug, object, what);
+  if (namespaceTemplate === undefined) {
+    // The project name is the deployment's, not the renderer's: falling back to a
+    // template invented here would make this module a second owner of the naming rule.
+    return fail('deploymentNaming.namespaceTemplate is required to name a deployment; set it on the runtime fragment');
+  }
+  const name = (object: string, label: string): string =>
+    derivedName({ template: componentNameTemplate, templateField: 'componentNameTemplate', slug, object, label });
 
   // One naming rule for every deployment object. v0 has one template for components;
   // volumes and networks are named with it too, so an operator looking at a volume
@@ -104,16 +125,9 @@ export function deploymentInstance(topology: BundleTopology, deploymentId: strin
   for (const volume of topology.spec.volumes) volumes[volume.name] = name(volume.name, 'volume');
 
   const networks: Record<string, string> = {};
-  for (const network of (topology.spec as { networks?: Array<{ name: string }> }).networks ?? []) {
-    networks[network.name] = name(network.name, 'network');
-  }
+  for (const network of topology.spec.networks) networks[network.name] = name(network.name, 'network');
 
-  const project = derivedName(
-    namespaceTemplate ?? 'fde-{{deployment_id}}',
-    slug,
-    'namespace',
-    'project',
-  );
+  const project = derivedName({ template: namespaceTemplate, templateField: 'namespaceTemplate', slug, label: 'project' });
 
   const instance: DeploymentInstance = { deploymentId, project, services, volumes, networks };
   const ingress = topology.spec.ingress;

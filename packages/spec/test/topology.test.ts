@@ -302,6 +302,19 @@ describe('port and volume names', () => {
     expect(codes(report)).toContain('topology_port_conflict');
   });
 
+  it('rejects one volume mounted at two paths, which is one store playing two roles', () => {
+    // The v0 fragment mounts graph and audit on one component, not on graph-store /
+    // audit-store components. One volume at both paths passes every name check and
+    // still puts graph facts and audit evidence in the same file (§8.3).
+    const report = checkTopology(
+      mutate((document) => {
+        (components(document)[1]!['volumes'] as Mutable[])[1] = { name: 'graph', mountPath: '/data/audit' };
+      }),
+    );
+
+    expect(codes(report)).toContain('topology_volume_conflict');
+  });
+
   it('rejects two volumes mounted at one path', () => {
     const report = checkTopology(
       mutate((document) => {

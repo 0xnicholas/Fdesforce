@@ -1,4 +1,4 @@
-import { satisfiesRange } from '@fde/spec';
+import { compareVersions, satisfiesRange } from '@fde/spec';
 
 /** `name@range` — artifact names may contain dots, never `@`. */
 export interface ArtifactRef {
@@ -10,23 +10,6 @@ export function parseRef(ref: string): ArtifactRef {
   const at = ref.indexOf('@');
   if (at < 0) return { name: ref, range: '' };
   return { name: ref.slice(0, at), range: ref.slice(at + 1) };
-}
-
-/** Numeric semver comparison; pre-release suffixes sort before the release. */
-export function compareVersions(a: string, b: string): number {
-  const [aCore = '0', aPre] = a.split('-');
-  const [bCore = '0', bPre] = b.split('-');
-  const aParts = aCore.split('.').map((part) => Number.parseInt(part, 10) || 0);
-  const bParts = bCore.split('.').map((part) => Number.parseInt(part, 10) || 0);
-
-  for (let index = 0; index < Math.max(aParts.length, bParts.length); index += 1) {
-    const difference = (aParts[index] ?? 0) - (bParts[index] ?? 0);
-    if (difference !== 0) return difference;
-  }
-  if (aPre === bPre) return 0;
-  if (aPre === undefined) return 1;
-  if (bPre === undefined) return -1;
-  return aPre < bPre ? -1 : 1;
 }
 
 /**

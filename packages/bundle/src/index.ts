@@ -11,13 +11,13 @@
  * It reads `@fde/spec` types only — never generator code, and never a runtime SDK,
  * so a second generator changes nothing here (§8.1).
  */
-export { composeStartupOrder, composeTopology } from './compose-topology.js';
+export { composeTopology } from './compose-topology.js';
 export type { ComposeTopologyInput, ComposeTopologyResult } from './compose-topology.js';
 
 export { COMPOSE_PATH, renderCompose } from './compose.js';
 export type { RenderedFile, RenderComposeResult } from './compose.js';
 
-export { deploymentInstance, ingressHostPort } from './deployment.js';
+export { deploymentInstance } from './deployment.js';
 export { CONTEXT_SERVICE_TOPOLOGY_DIR, loadContextServiceTopology } from './platform-fragment.js';
 export type { LoadContextServiceTopologyResult } from './platform-fragment.js';
 export type { DeploymentIngress, DeploymentInstance } from './deployment.js';

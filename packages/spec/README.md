@@ -18,6 +18,7 @@ src/
   topology.ts                 topology invariants the renderers rely on (exposure, order, volumes,
                               single writers, secret bindings, networks)
   canonical.ts                canonical JSON + content digests (`spec.files`, `spec.digest`)
+  semver.ts                   version ordering, shared by the lock resolver and the platform store
   report.ts                   the errors/warnings report shape both checkers append to
   documents.ts                exported JSON Schema, one artifact per document kind
   contract-drift.ts           structural comparison against contracts/
@@ -64,6 +65,8 @@ Tests live at the same public seams, nowhere else:
 5. `test/canonical.test.ts` — digests pinned to values computed outside this codebase (`shasum`, Python `hashlib`).
 6. `test/contract-drift.test.ts` — structural comparison plus the differential corpus that pins the rules a structural comparison cannot see.
 7. `test/topology.test.ts` — the topology invariants the Compose/Helm renderers rely on (#32).
+   `test/semver.test.ts` pins the one version ordering `fde spec lock` and the platform
+   store share (numeric, pre-release before its release).
 8. `test/context-schema.test.ts` — the Context Package grammar: strictness, the fail-closed
    permission default, prefixed terms, bounded graph hops, candidate-only extraction.
 9. `test/context-package.test.ts` — `checkContextPackage`: one case per reference rule, the

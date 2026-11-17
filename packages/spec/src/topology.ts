@@ -16,6 +16,34 @@ export interface TopologyReport {
   warnings: Diagnostic[];
 }
 
+/** A port a component publishes: the only shape the ingress and the renderer may use. */
+export interface ExposedPort {
+  component: string;
+  role: string;
+  port: number;
+}
+
+/**
+ * Every `expose: true` port, with the component that declares it.
+ *
+ * The invariant checker, the composition and the renderer all need this answer, and
+ * three slightly different filters is how a port ends up exposed to one of them and
+ * not the others.
+ */
+export function exposedPorts(
+  components: ReadonlyArray<{
+    name: string;
+    role: string;
+    ports?: ReadonlyArray<{ containerPort: number; expose?: boolean }>;
+  }>,
+): ExposedPort[] {
+  return components.flatMap((component) =>
+    (component.ports ?? [])
+      .filter((port) => port.expose === true)
+      .map((port) => ({ component: component.name, role: component.role, port: port.containerPort })),
+  );
+}
+
 interface TopologyView {
   components: Topology['spec']['components'];
   volumes: Topology['spec']['volumes'];
@@ -111,20 +139,33 @@ export function checkTopology(topology: RuntimeTopology | BundleTopology): Topol
   const mountedVolumes = new Set<string>();
   const checkMounts = (mounts: ReadonlyArray<{ name: string; mountPath: string }> | undefined, path: string): void => {
     const paths = new Map<string, string>();
+    const volumes = new Map<string, string>();
     for (const [index, mount] of (mounts ?? []).entries()) {
       mountedVolumes.add(mount.name);
       if (!volumeNames.has(mount.name)) {
         fail('topology_reference_missing', `${path}[${index}].name`, `volume ${mount.name} is mounted but not declared`);
       }
-      const other = paths.get(mount.mountPath);
-      if (other !== undefined) {
+      const otherPath = paths.get(mount.mountPath);
+      if (otherPath !== undefined) {
         fail(
           'topology_volume_conflict',
           `${path}[${index}].mountPath`,
-          `${mount.name} and ${other} are both mounted at ${mount.mountPath}; a container has one filesystem`,
+          `${mount.name} and ${otherPath} are both mounted at ${mount.mountPath}; a container has one filesystem`,
         );
       }
       paths.set(mount.mountPath, mount.name);
+      // One volume at two paths is one store playing two roles — how a bundle ends up
+      // with graph facts and audit evidence in the same file while every name check
+      // passes (§8.3). The mount is a bijection or it is a mistake.
+      const otherVolumePath = volumes.get(mount.name);
+      if (otherVolumePath !== undefined) {
+        fail(
+          'topology_volume_conflict',
+          `${path}[${index}].name`,
+          `volume ${mount.name} is mounted at ${mount.mountPath} and at ${otherVolumePath}; one volume serves one role`,
+        );
+      }
+      volumes.set(mount.name, mount.mountPath);
     }
   };
 
@@ -313,9 +354,7 @@ export function checkTopology(topology: RuntimeTopology | BundleTopology): Topol
     // One non-internal network is the ingress component's home and the only way out
     // of the bundle. None means nothing can be published or reach a model endpoint;
     // two means the renderer has to pick, which is a decision the topology owes it.
-    const publishes = view.ingress !== undefined || view.components.some((component) =>
-      (component.ports ?? []).some((port) => port.expose === true),
-    );
+    const publishes = view.ingress !== undefined || exposedPorts(view.components).length > 0;
     const external = view.networks.filter((network) => !network.internal);
     if (external.length > 1) {
       fail(
@@ -341,11 +380,8 @@ export function checkTopology(topology: RuntimeTopology | BundleTopology): Topol
     } else if (!(target.ports ?? []).some((port) => port.containerPort === view.ingress?.port && port.expose === true)) {
       fail('topology_exposure_invalid', 'spec.ingress.port', `ingress port ${view.ingress.port} is not an exposed port of ${target.name}`);
     }
-  } else if (view.isBundle && runtimeApps.length === 1) {
-    const exposed = (runtimeApps[0]?.ports ?? []).filter((port) => port.expose === true);
-    if (exposed.length === 0) {
-      fail('topology_exposure_invalid', 'spec.components', 'the runtime app exposes no port, so no ingress can reach it');
-    }
+  } else if (view.isBundle && exposedPorts(runtimeApps).length === 0) {
+    fail('topology_exposure_invalid', 'spec.components', 'the runtime app exposes no port, so no ingress can reach it');
   }
 
   return { errors, warnings };

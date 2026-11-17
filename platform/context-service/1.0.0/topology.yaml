@@ -57,7 +57,8 @@ spec:
   volumes:
     - name: graph
       size: 20Gi
-      description: Context Graph snapshot (embedded backend) — rebuilt from Context Sources, never the system of record for audit.
+      backup: true
+      description: Context Graph snapshot (embedded backend) — rebuilt from Context Sources, never the system of record for audit. Backed up separately from audit and mastra-state (§9.5).
     - name: audit
       size: 10Gi
       backup: true

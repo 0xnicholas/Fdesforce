@@ -52,6 +52,16 @@ describe('names derive from the deployment id', () => {
   it('refuses a deployment id the contract would reject', () => {
     expect(() => deployment(bundleTopology(), 'deployment-1')).toThrow(/dep_<ULID>/);
   });
+
+  it('refuses to invent a project name when the topology declares no namespace template', () => {
+    // The project name is the deployment's, and the deployment naming rule belongs to
+    // the topology. A fallback here would be a second owner of that rule, and a
+    // second owner is how `docker compose` stacks start colliding.
+    const topology = bundleTopology();
+    delete topology.spec.deploymentNaming.namespaceTemplate;
+
+    expect(() => deployment(topology, 'dep_01ARZ3NDEKTSV4RRFFQ69G5FAV')).toThrow(/namespaceTemplate/);
+  });
 });
 
 describe('the ingress host port', () => {

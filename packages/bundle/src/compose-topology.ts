@@ -1,4 +1,4 @@
-import { checkTopology, parseBundleTopology } from '@fde/spec';
+import { checkTopology, exposedPorts, parseBundleTopology } from '@fde/spec';
 import type {
   BundleTopology,
   ContextServiceTopology,
@@ -42,7 +42,7 @@ const RUNTIME_APP = 'runtime-app';
 const gatesStartup = (job: Job): boolean => job.steps.some((step) => (step.runBefore ?? []).length > 0);
 
 /**
- * Startup order, derived rather than declared (§9.2).
+ * Startup order, derived rather than declared (`docs/runtime-contract.md` §9.2).
  *
  * Platform migrations, then runtime migrations, then platform components, then
  * runtime components. A job whose steps only declare `runAfter` (ingest) is not in
@@ -51,7 +51,7 @@ const gatesStartup = (job: Job): boolean => job.steps.some((step) => (step.runBe
  * place the order is decided, which is why `ContextServiceTopology` has no
  * `startupOrder` field at all.
  */
-export function composeStartupOrder(input: {
+function composeStartupOrder(input: {
   platform: ContextServiceTopology['spec'];
   runtime: RuntimeTopology['spec'];
 }): string[] {
@@ -71,13 +71,9 @@ export function composeTopology(input: ComposeTopologyInput): ComposeTopologyRes
 
   // The ingress has one entry and one port: an app that exposes two leaves the
   // composition guessing which one the customer is meant to reach.
-  const exposed = runtime.components
-    .filter((component) => component.role === RUNTIME_APP)
-    .flatMap((component) =>
-      (component.ports ?? [])
-        .filter((port) => port.expose === true)
-        .map((port) => ({ component: component.name, port: port.containerPort })),
-    );
+  const exposed = exposedPorts(runtime.components)
+    .filter((entry) => entry.role === RUNTIME_APP)
+    .map((entry) => ({ component: entry.component, port: entry.port }));
   if (exposed.length > 1) {
     errors.push({
       code: 'topology_exposure_invalid',

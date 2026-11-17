@@ -74,10 +74,11 @@ describe('the split topology (v0)', () => {
     expect(names).toContain('graph');
     expect(names).toContain('audit');
     expect(names).toContain('mastra-state');
-    // Only the audit store carries the backup marker: graph facts are rebuildable,
-    // audit evidence is not (§9.5).
+    // Every volume is backed up separately (§9.5): the graph is rebuildable but
+    // expensive, the audit store is not rebuildable at all.
     expect(spec().volumes.filter((volume) => volume.backup === true).map((volume) => volume.name).sort()).toEqual([
       'audit',
+      'graph',
       'mastra-state',
     ]);
   });
@@ -115,6 +116,18 @@ describe('reference integrity after composition', () => {
 
     expect(composed.ok).toBe(false);
     expect(composed.ok ? [] : composed.errors.map((error) => error.code)).toContain('topology_name_conflict');
+  });
+
+  it('refuses a platform fragment that mounts one volume as both graph and audit', () => {
+    const platform = platformFragment();
+    const contextService = platform.spec.components[0];
+    const audit = contextService?.volumes?.find((mount) => mount.name === 'audit');
+    if (audit !== undefined) audit.name = 'graph';
+
+    const composed = compose({ platform });
+
+    expect(composed.ok).toBe(false);
+    expect(composed.ok ? [] : composed.errors.map((error) => error.code)).toContain('topology_volume_conflict');
   });
 
   it('refuses a runtime app that exposes two ports, because the ingress has one entry', () => {

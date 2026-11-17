@@ -10,6 +10,8 @@ export type { Digest, FileEntry, FileSetDigest } from './canonical.js';
 
 export { emitJsonSchema } from './schema-emit.js';
 
+export { compareVersions } from './semver.js';
+
 export {
   CAPABILITY_GROUPS,
   CapabilityDetailsSchema,
@@ -251,5 +253,5 @@ export {
 export { documentSchemas } from './documents.js';
 export type { DocumentSchema } from './documents.js';
 
-export { checkTopology } from './topology.js';
-export type { TopologyReport } from './topology.js';
+export { checkTopology, exposedPorts } from './topology.js';
+export type { ExposedPort, TopologyReport } from './topology.js';

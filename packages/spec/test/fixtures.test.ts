@@ -125,15 +125,15 @@ describe('Platform example artifacts', () => {
     expect(result.ok, result.ok ? '' : describeErrors(result.errors)).toBe(true);
   });
 
-  it('declares the three volumes the split topology asks for, graph and audit separate', () => {
+  it('declares the platform volumes, graph and audit separate and both backed up', () => {
     const result = parseContextServiceTopology(readYaml(paths.exampleContextServiceTopology));
     if (!result.ok) throw new Error(describeErrors(result.errors));
 
     // The runtime's `mastra-state` is the generator's; these two are the platform's.
     // Sharing one would give graph facts and audit evidence the same backup and
-    // retention semantics (`docs/runtime-adapter.md` §8.3).
+    // retention semantics, and §9.5 backs up each separately.
     expect(result.value.spec.volumes.map((volume) => volume.name).sort()).toEqual(['audit', 'graph']);
-    expect(result.value.spec.volumes.find((volume) => volume.name === 'audit')?.backup).toBe(true);
+    expect(result.value.spec.volumes.every((volume) => volume.backup === true)).toBe(true);
   });
 
   it('validates the chat model profile and its fallback', () => {

@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { parseContextServiceTopology } from '@fde/spec';
+import { compareVersions, parseContextServiceTopology } from '@fde/spec';
 import type { ContextServiceTopology, Diagnostic } from '@fde/spec';
 import { parse as parseYaml } from 'yaml';
 
@@ -24,20 +24,6 @@ const DESCRIPTOR = 'topology.yaml';
 export type LoadContextServiceTopologyResult =
   | { ok: true; topology: ContextServiceTopology; path: string }
   | { ok: false; errors: Diagnostic[] };
-
-const SEMVER = /^(\d+)\.(\d+)\.(\d+)$/;
-
-/** Semver order over the version directory names a store actually contains. */
-function compareVersions(left: string, right: string): number {
-  const a = SEMVER.exec(left);
-  const b = SEMVER.exec(right);
-  if (a === null || b === null) return left.localeCompare(right);
-  for (const index of [1, 2, 3] as const) {
-    const difference = Number(a[index]) - Number(b[index]);
-    if (difference !== 0) return difference;
-  }
-  return 0;
-}
 
 function publishedVersions(root: string): string[] {
   const dir = join(root, CONTEXT_SERVICE_TOPOLOGY_DIR);

@@ -779,7 +779,7 @@ LangGraph 可以作为未来第二 generator 的候选，但 v0 不应切换：
 ### 14.1 实施切片（归 [架构综合与实施切片](https://github.com/0xnicholas/Fdesforce/issues/13)）
 
 1. `packages/spec`：Runtime Profile / Capabilities / Bundle Topology Zod schema 与 JSON Schema 生成。
-2. `packages/runtime-generator`：端口类型、validation、`composeTopology`、`composeMigrationPlan`。
+2. `packages/runtime-generator`：端口类型、validation、`composeMigrationPlan`；`composeTopology` 落在 `packages/bundle`（§8.4）。
 3. `packages/runtime-generator-mastra`：生成 app / topology / migrations / TestPlan。
 4. `packages/cli`：`fde build` 的 profile 解析、门禁、build provenance、`fde verify` A11。
 5. 平台 `ContextServiceTopology` 与 Compose/Helm/airgap 渲染器。
