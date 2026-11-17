@@ -87,6 +87,14 @@ install step from the customer's store (`docs/runtime-contract.md` §9.3). The
 manifest therefore contains no secret value, and an unset secret is a deployment
 that stops instead of one that starts with an empty signing key.
 
+A binding is rendered only for the owner that claimed it, which is what keeps the
+two issuers apart: the runtime fragment claims `fde/execution-context-signing-key`
+and it is mounted into `mastra-app` alone, while the platform fragment claims
+`fde/jobs/signing-key` (mounted into the ingest job) and the two public keys (env on
+`context-service`). `fde install keys` (#34) generates the pairs, `fde install
+verify` re-renders this file from the bundled topology and refuses a delivery whose
+Compose manifest was edited by hand.
+
 It refuses rather than guesses: a job with more than one step (`renderer_multistep_job`),
 a health check with no exec `command` (`renderer_probe_missing`), a job whose owner
 has no component image to run in (`renderer_job_image_missing`), and a topology

@@ -38,13 +38,32 @@ export interface LicenseCatalog {
 export const LICENSE_CATALOG_FILE = 'licenses.yaml';
 
 export function loadLicenseCatalog(platformRoot: string): { catalog?: LicenseCatalog; errors: Diagnostic[] } {
-  const errors: Diagnostic[] = [];
   const path = join(platformRoot, LICENSE_CATALOG_FILE);
   if (!isFile(path)) {
+    return {
+      errors: [
+        diagnostic('license_catalog_missing', `the platform store has no ${LICENSE_CATALOG_FILE}; the license gate has nothing to check against`, {
+          path,
+          remediation: `vendor ${LICENSE_CATALOG_FILE} in the platform store, or pass --platform with one`,
+        }),
+      ],
+    };
+  }
+  return readLicenseCatalog(path);
+}
+
+/**
+ * The catalog from one file. `fde install verify` reads the customer's pinned copy
+ * this way: the redistribution boundary is a policy the customer holds, so it is
+ * never taken from the bundle it is judging.
+ */
+export function readLicenseCatalog(path: string): { catalog?: LicenseCatalog; errors: Diagnostic[] } {
+  const errors: Diagnostic[] = [];
+  if (!isFile(path)) {
     errors.push(
-      diagnostic('license_catalog_missing', `the platform store has no ${LICENSE_CATALOG_FILE}; the license gate has nothing to check against`, {
+      diagnostic('license_catalog_missing', `the license catalog ${path} does not exist`, {
         path,
-        remediation: `vendor ${LICENSE_CATALOG_FILE} in the platform store, or pass --platform with one`,
+        remediation: `pass --license-catalog with the ${LICENSE_CATALOG_FILE} the Release pinned`,
       }),
     );
     return { errors };
@@ -55,14 +74,12 @@ export function loadLicenseCatalog(platformRoot: string): { catalog?: LicenseCat
     document = parseYaml(readFileSync(path, 'utf8'));
   } catch (cause) {
     errors.push(
-      diagnostic('license_catalog_invalid', `${LICENSE_CATALOG_FILE} is not valid YAML: ${(cause as Error).message}`, { path }),
+      diagnostic('license_catalog_invalid', `${path} is not valid YAML: ${(cause as Error).message}`, { path }),
     );
     return { errors };
   }
   if (asString(asRecord(document)['kind']) !== 'LicenseCatalog') {
-    errors.push(
-      diagnostic('license_catalog_invalid', `${LICENSE_CATALOG_FILE} must declare kind LicenseCatalog`, { path }),
-    );
+    errors.push(diagnostic('license_catalog_invalid', `${path} must declare kind LicenseCatalog`, { path }));
     return { errors };
   }
 
@@ -282,14 +299,24 @@ export function renderSpdx(input: {
   return `${JSON.stringify(JSON.parse(canonicalJson(document)), null, 2)}\n`;
 }
 
-/** The human-readable notice beside the SBOM. Deterministic: no clock, no paths. */
+/**
+ * The human-readable notice beside the SBOM. Deterministic: no clock, no paths.
+ *
+ * It carries the catalog digest on purpose. `NOTICE` ships in the payload, so the
+ * Bundle signature covers it; the SBOM and build provenance do not ship in the
+ * payload. Putting the digest here is what lets `fde install verify` check the
+ * customer's pinned catalog against a *signed* claim instead of an unsigned one.
+ */
 export function renderNotice(input: {
   customer: string;
   solution: string;
   components: ReadonlyArray<ResolvedComponent>;
+  catalogDigest: Digest;
 }): string {
   const lines = [
     `FDE Bundle — ${input.customer}/${input.solution}`,
+    '',
+    `Built under license catalog ${input.catalogDigest}.`,
     '',
     'This bundle includes the following third-party components:',
     '',

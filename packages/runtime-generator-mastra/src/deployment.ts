@@ -90,6 +90,16 @@ export const IDENTITY_ENV = {
 } as const;
 
 /**
+ * The `mastra-app` issuer's private key as the deployment delivers it (§5.4): the
+ * customer secret store entry, and the file the secret is mounted at. The catalog
+ * name is the one `fde install keys` writes, so the key the installer generates is
+ * the key this fragment claims — a name that drifts is a deployment that boots with
+ * no signing key and refuses every Run.
+ */
+export const SIGNING_KEY_SECRET = { store: 'customer', key: 'fde/execution-context-signing-key' } as const;
+export const SIGNING_KEY_MOUNT_PATH = '/run/secrets/execution-context-signing-key';
+
+/**
  * Identity settings that must reach the app by injection, never through
  * `Environment.values`: `runtime/topology.ts` refuses a build that puts one there.
  *

@@ -209,6 +209,7 @@ describe('resources', () => {
 describe('configuration and secrets', () => {
   it('injects configuration as environment variables', () => {
     expect(service('mastra-app')['environment']).toEqual({
+      FDE_SIGNING_KEY_FILE: '/run/secrets/execution-context-signing-key',
       FDE_STATE_STORE_PATH: '/app/state/mastra.db',
       NODE_ENV: 'production',
     });
@@ -224,6 +225,7 @@ describe('configuration and secrets', () => {
       GRAPH_PATH: '/data/graph/graph.json',
       AUDIT_PATH: '/data/audit/audit.sqlite',
       EXECUTION_CONTEXT_PUBLIC_KEY: '${EXECUTION_CONTEXT_PUBLIC_KEY:?}',
+      FDE_JOBS_PUBLIC_KEY: '${FDE_JOBS_PUBLIC_KEY:?}',
     });
   });
 
@@ -237,11 +239,29 @@ describe('configuration and secrets', () => {
     ]);
   });
 
+  it('gives each issuer key to the component that needs it and nobody else', () => {
+    // §5.4: the app signs with its own private key and context-service only ever
+    // verifies; the jobs private key stays in the maintenance container. A mount on
+    // the wrong service is a key where it cannot be used and must not be.
+    const manifest = compose();
+
+    expect((manifest['secrets'] as Compose)['execution-context-signing-key']).toEqual({
+      file: '${EXECUTION_CONTEXT_SIGNING_KEY_FILE:?}',
+    });
+    expect(service('mastra-app')['secrets']).toEqual([
+      { source: 'execution-context-signing-key', target: '/run/secrets/execution-context-signing-key' },
+    ]);
+    expect(service('context-service')['secrets']).toBeUndefined();
+    expect(service('mastra-app')['environment']).not.toHaveProperty('FDE_JOBS_SIGNING_KEY_FILE');
+  });
+
   it('carries no secret value: the manifest mentions neither the store nor the key', () => {
     const { file } = rendered();
 
     expect(file.content).not.toContain('fde/jobs/signing-key');
+    expect(file.content).not.toContain('fde/jobs/public-key');
     expect(file.content).not.toContain('fde/execution-context-public-key');
+    expect(file.content).not.toContain('fde/execution-context-signing-key');
     expect(file.content).not.toContain('customer:');
   });
 });

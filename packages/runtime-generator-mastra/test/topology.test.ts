@@ -105,6 +105,33 @@ describe('the runtime app component', () => {
     expect(spec().components[0]?.resources).toEqual({ cpu: '1', memory: '1Gi' });
   });
 
+  it('claims the app signing key as a mounted secret and tells the app where it is', () => {
+    // §5.4: the private half is the app's alone. The topology claims it and mounts
+    // it; the app is told the path, never the key. `fde install keys` (#34) is what
+    // puts a key at that path, and the context-service half gets only the public key.
+    const [component] = spec().components;
+
+    expect(component?.secretRefs).toEqual([{ store: 'customer', key: 'fde/execution-context-signing-key' }]);
+    expect(component?.env).toContainEqual({ name: 'FDE_SIGNING_KEY_FILE', value: '/run/secrets/execution-context-signing-key' });
+    expect(spec().secretBindings).toEqual([
+      {
+        secretRef: { store: 'customer', key: 'fde/execution-context-signing-key' },
+        target: 'file',
+        name: '/run/secrets/execution-context-signing-key',
+        required: true,
+      },
+    ]);
+  });
+
+  it('mounts the signing key nowhere else', () => {
+    // The migration job shares the app's image but not its identity: a key in a
+    // one-shot job is a private key with no reason to leave the app.
+    const job = spec().jobs[0];
+
+    expect(job?.secretRefs).toBeUndefined();
+    expect(job?.steps[0]?.secretRefs).toBeUndefined();
+  });
+
   it('refuses to render an identity setting from Environment values', () => {
     // `Environment.values` becomes topology `env`, and the topology is a signed
     // artifact. A signing key or a subject list there is a key or a subject list in
@@ -130,6 +157,7 @@ describe('the runtime app component', () => {
     expect(env).toEqual([
       { name: 'FDE_LOG_LEVEL', value: 'info' },
       { name: 'FDE_REGION', value: 'eu-west-1' },
+      { name: 'FDE_SIGNING_KEY_FILE', value: '/run/secrets/execution-context-signing-key' },
       { name: 'FDE_STATE_STORE_PATH', value: '/app/state/mastra.db' },
       { name: 'NODE_ENV', value: 'production' },
     ]);
@@ -180,8 +208,10 @@ describe('the state volume and the migration job', () => {
     expect(spec().startupOrder).toEqual(['runtime-migrate', 'mastra-app']);
   });
 
-  it('leaves the ingress host and the secrets to the platform', () => {
-    expect(spec().secretBindings).toEqual([]);
+  it('leaves the ingress host and the platform-owned secrets to the platform', () => {
+    // The app's own signing key is the one secret the runtime owns; context-service's
+    // public keys and the jobs key are the platform fragment's (#32).
+    expect(spec().secretBindings.map((binding) => binding.name)).toEqual(['/run/secrets/execution-context-signing-key']);
     expect(spec().deploymentNaming).toEqual({
       componentNameTemplate: 'fde-{{deployment_id}}-{{component}}',
       namespaceTemplate: 'fde-{{deployment_id}}',

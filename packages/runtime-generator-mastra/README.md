@@ -219,6 +219,12 @@ bundle — so the emitter has no key, the loader never serializes one, and an er
 message names the setting rather than echoing a value. The token is not logged
 either: it is a bearer credential. `test/identity.test.ts` asserts all three.
 
+The topology delivers it as a mount, not a literal: the `mastra-app` component
+claims `customer:fde/execution-context-signing-key`, the fragment binds it at
+`/run/secrets/execution-context-signing-key`, and the app is told the path through
+`FDE_SIGNING_KEY_FILE`. `fde install keys` (#34) is what puts a key at that path and
+`fde install verify` is what refuses a bundle carrying one.
+
 **The app refuses to serve without it.** `src/index.ts` resolves the deployment id,
 the key and the profile *after* the state-store schema check and before it listens;
 a failure exits non-zero with one line naming the missing setting. A Run API that
@@ -267,8 +273,10 @@ spec:
 That profile names people, so it is mounted beside the key rather than baked: the
 bundle carries the matrix, never the subjects (`test/identity.test.ts` asserts a
 subject the build saw does not appear in the tree). Rendering those mounts and
-injecting `FDE_DEPLOYMENT_ID` is the deployment's: the topology's `secretBindings`
-stay empty because secrets are the platform's fragment (#32).
+injecting `FDE_DEPLOYMENT_ID` is the deployment's: the fragment's one
+`secretBindings` entry is the app's own signing key, and every other secret —
+context-service's public keys, the jobs key — belongs to the platform fragment
+(#32).
 
 ## The startup handshake (#30)
 
@@ -423,8 +431,8 @@ event or error code fails it too.
   1 CPU / 1 GiB;
 - the `mastra-state` volume (`backup: true`);
 - the `runtime-migrate` job, running before `mastra-app`;
-- the startup order, empty secret bindings (secrets are the platform's) and the
-  `{{deployment_id}}` naming templates.
+- the startup order, one secret binding (the app's own ES256 signing key, mounted
+  at `/run/secrets/execution-context-signing-key`) and the `{{deployment_id}}` naming templates.
 
 context-service, the graph and audit volumes and the ingest job are the platform's
 fragment (#32). The fragment is a `RuntimeTopology`, validated against the schema;

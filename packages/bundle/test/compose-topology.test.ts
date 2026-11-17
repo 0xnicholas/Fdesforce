@@ -41,7 +41,7 @@ describe('the composed bundle', () => {
     expect(spec().components.map((component) => component.name)).toEqual(['context-service', 'mastra-app']);
     expect(spec().jobs.map((job) => job.name)).toEqual(['migrate', 'ingest', 'runtime-migrate']);
     expect(spec().volumes.map((volume) => volume.name)).toEqual(['graph', 'audit', 'mastra-state']);
-    expect(spec().secretBindings).toEqual(platform.spec.secretBindings);
+    expect(spec().secretBindings).toEqual([...platform.spec.secretBindings, ...runtime.spec.secretBindings]);
     expect(spec().components[1]).toEqual(runtime.spec.components[0]);
   });
 

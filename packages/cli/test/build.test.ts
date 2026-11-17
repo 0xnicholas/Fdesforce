@@ -65,6 +65,8 @@ describe('fde build', () => {
     expect(sb.exists('bundle/deploy/compose.yaml')).toBe(true);
     expect(sb.exists('bundle/deploy/bundle-topology.json')).toBe(true);
     expect(sb.exists('bundle/deploy/migration-plan.json')).toBe(true);
+    // The post-deploy acceptance action ships with the bundle (#34).
+    expect(sb.exists('bundle/deploy/smoke.mjs')).toBe(true);
     expect(sb.exists('bundle/contract-tests/fixtures/run-api-parity.json')).toBe(true);
     expect(sb.exists('bundle/sbom/spdx.json')).toBe(true);
     expect(sb.exists('bundle/NOTICE')).toBe(true);
@@ -91,6 +93,7 @@ describe('fde build', () => {
     );
     expect(manifest.artifacts).toContain('mastra-app/Dockerfile');
     expect(manifest.artifacts).toContain('deploy/compose.yaml');
+    expect(manifest.artifacts).toContain('deploy/smoke.mjs');
     expect(manifest.files['bundle.json']).toBeUndefined();
     expect(manifest.licenseGate.ok).toBe(true);
     expect(manifest.licenseGate.components).toEqual(

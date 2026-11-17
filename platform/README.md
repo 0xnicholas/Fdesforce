@@ -66,7 +66,13 @@ exception: its `solution.yaml` must parse as a `SolutionSpec`, because
 
 `context-service/1.0.0` is the v0 platform fragment: context-service on the internal
 bundle network, the graph and audit volumes, the migrate and ingest jobs, and the
-secret bindings they resolve. `@fde/bundle` composes it with the generator's
+secret bindings they resolve — both issuers' public keys as environment variables
+for `context-service` itself (`EXECUTION_CONTEXT_PUBLIC_KEY`, `FDE_JOBS_PUBLIC_KEY`)
+and the `fde-jobs` private key as a mount for the ingest job. `kid` is not a binding:
+the service derives the RFC 7638 thumbprint from each key (`docs/runtime-contract.md`
+§5.4). The `mastra-app` private key is the runtime fragment's single binding, so it
+lands in the app container and nowhere else; `fde install keys` (#34) generates the
+pairs and `fde install verify` checks that the composed bundle still binds them. `@fde/bundle` composes it with the generator's
 `RuntimeTopology` into the single `BundleTopology` a renderer consumes.
 `toolchain.yaml` names the fragment version (`spec.contextServiceTopology`), and
 `fde spec lock` pins its version **and** parsed-document digest in
@@ -79,7 +85,9 @@ the bundle may carry needs a declared SPDX license, and the `denied` list names
 GPL/AGPL/LGPL, SSPL, Elastic License and BUSL. Mastra is core-only — a profile
 that adds `@mastra/ee` fails `license_blocked` even if a catalog entry exists.
 The same document renders the SBOM and `NOTICE`, so evidence and gate cannot
-diverge.
+diverge. `fde install verify` reads this file again on the customer side, from the
+copy the customer pins: the boundary is a policy, so the installer never takes it
+from the bundle it is judging.
 
 `templates/solution/fde-solution/1.2.0` is the only Solution Template in this
 slice and it materializes the Acme claims-triage read-only Spec, byte for byte.

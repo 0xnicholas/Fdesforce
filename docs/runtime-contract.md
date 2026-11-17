@@ -582,6 +582,9 @@ stateDiagram-v2
 - `graph` 和 `audit` 必须是不同卷；审计卷单独备份/保留。
 - 所有镜像/依赖 pin 精确版本 + digest；Bundle 含 SBOM/notice、签名、build provenance。
 - 工作台构建/交付链：`fde build` 生成 Bundle（compose/helm/airgap 清单、配置、迁移、SBOM/notice），用 cosign/KMS 签 Bundle；`fde release approve` 签 Release；客户侧 `fde install verify` 双验后安装。Bundle 的 OCI artifact 与镜像可镜像到客户私有 registry；air-gapped 用离线包 + checksums。
+- 交付形态：一个交付目录含 `bundle/`（`fde build --out` 的内容）、Bundle 签名、Release 记录与其签名、两把 pinned 公钥，以及客户 pin 的 `licenses.yaml`。两处签名是 detached ES256 信封（`{signatureVersion, alg, kid, subject, signature}`）：Bundle 的 `subject` 是 `bundle.json.digest`（payload 地址），Release 的 `subject` 是 Release 文档的 canonical JSON digest——因此 Release 里被批准的 `bundle_digest` 由批准它的那把签名覆盖。`kid` 是签名公钥的 RFC 7638 thumbprint，客户 pin 的钥匙要么匹配、要么交付被拒绝。安装前 `fde install verify` 还会从 Bundle 自带的 `BundleTopology` 重新渲染 Compose 文件（手改即拒），并用客户 pin 的 catalog 重跑 license 边界：SBOM、`NOTICE` 与 `bundle.json` 的许可裁决必须是同一个答案，且该答案必须满足客户边界。`NOTICE` 记录构建时的 catalog digest——它在 payload 内、被 Bundle 签名覆盖——因此边界锚定在已签名的声明上，而不是未签名的 build provenance。
+- 安装时密钥：密钥缺失则由安装流程为两个 issuer 各生成一对 ES256 密钥（已有的密钥不覆盖、不补半对；轮换是 `fde keys rotate`）。私钥只落在对应组件的注入位置（`mastra-app` 的签名密钥由 RuntimeTopology 片段的 `secretBindings` 挂载，`fde-jobs` 私钥只挂维护作业），公钥 + `kid` 只配到 context-service；Bundle 内不得出现任何私钥（`bundle_secret_leak`）。
+- Bundle 附带 `deploy/smoke.mjs`：部署后按 healthz → readyz → runtime-info → `POST /v1/runs`（含同 key 重放）→ `/v1/provenance/{decision_id}` 顺序验收，地址与 auditor 的 ExecutionContext 一律经参数/环境变量注入，不烧进工件。
 - 客户运维执行 install/upgrade/rollback/backup；工作台无入站连接、无常驻凭证；FDE 只通过客户 IdP 的限时 `support` 角色支持。
 
 ### 9.2 启动顺序与健康

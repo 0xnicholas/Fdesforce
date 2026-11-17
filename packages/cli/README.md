@@ -3,7 +3,9 @@
 Slice 1's authoring chain: materialize a Solution from a versioned Template,
 validate it in one pass, generate the lock that pins every build input, compile
 the Customer Context Package into a frozen, content-addressed artifact, and turn
-the locked inputs into an addressed Bundle (`fde build`).
+the locked inputs into an addressed Bundle (`fde build`). The other side of the
+delivery is the customer's: `fde install verify` decides whether a signed bundle
+may be deployed and `fde install keys` generates the deployment's issuer keys.
 
 ```bash
 pnpm build
@@ -26,6 +28,8 @@ The package is private and not published; `main.ts` is the bin entry once built.
 | `fde context freeze --package <dir> --actor <id>` | `revisions/<version>.yaml` was written, or already matched | the package does not validate, measured nothing, or is still a draft | flags are malformed |
 | `fde context ingest --package <dir> --context-service <url> ...` | the ingest job finished (`succeeded`, or `degraded` with a warning) | the package is not frozen, the endpoint refused the job, the job failed, the key is unusable | flags are malformed |
 | `fde build --spec <dir> --out <dir> [--deployment <dep_id>] [--target compose] [--environment <name>]` | the locked inputs generated, composed, passed the static gates and were written as a Bundle | a digest, capability, grammar, license or manifest gate failed; or the output is not empty | flags are malformed |
+| `fde install verify --bundle <dir> --signature … --release … --license-catalog …` | the bundle is the content its address names, the pinned keys signed it and its Release, the license boundary holds and no secret travelled inside it | any of those disagrees, or the delivery is incomplete | flags are malformed |
+| `fde install keys --bundle <dir> --out <dir> [--deployment <dep_id>]` | two ES256 issuer key pairs are present (generated or kept) and `keys.json` describes them | a half pair, a wrong curve, another deployment's directory, or a secret the bundle does not bind | flags are malformed |
 
 `--json` prints one machine-readable object:
 
@@ -219,7 +223,8 @@ The order is fixed (`docs/runtime-adapter.md` §4.4):
 ├── deploy/
 │   ├── bundle-topology.json    # the one composed deployment topology
 │   ├── compose.yaml            # rendered v0 Compose file
-│   └── migration-plan.json     # platform migrate + runtime state migration
+│   ├── migration-plan.json     # platform migrate + runtime state migration
+│   └── smoke.mjs               # the post-deploy acceptance script (`fde install verify`'s sibling)
 ├── contract-tests/**           # the A-case plan's assets
 ├── context/<ccp>/**            # the frozen Context Package, revision included
 └── mastra-app/**               # the generated runtime app, bundle-root-relative
@@ -264,6 +269,183 @@ so the evidence cannot disagree with the gate.
 | `runtime_generator_missing` | the Runtime Profile names a family no generator implements |
 | `output_not_empty` | `--out` is not an empty directory; a build never overwrites a bundle |
 | `build_target_unsupported` | v0 renders `compose`; Helm and airgap are Slice 2.6 |
+
+## `fde install *`
+
+The customer side of a delivery (#34). `fde build` produces a bundle and the release
+chain signs it; what reaches the customer is a delivery directory:
+
+```text
+delivery/
+├── bundle/                 # the directory `fde build --out` wrote
+├── bundle.sig              # the Bundle signature (CI KMS key)
+├── bundle.pub              # the pinned key that signs bundles
+├── release.json            # the Release that approves this bundle
+├── release.sig             # the Release signature (FDE release-manager key)
+├── release.pub             # the pinned release-manager key
+└── licenses.yaml           # the customer's pinned redistribution boundary
+```
+
+All seven paths are flags, never inferred from the directory layout: "the file next
+to the bundle" is precisely the shape a substituted artifact takes.
+
+```bash
+fde install verify --bundle delivery/bundle \
+  --signature delivery/bundle.sig --public-key delivery/bundle.pub \
+  --release delivery/release.json --release-signature delivery/release.sig \
+  --release-public-key delivery/release.pub \
+  --license-catalog delivery/licenses.yaml
+fde install keys --bundle delivery/bundle --out keys
+```
+
+### The signature envelope
+
+A detached ES256 signature over one canonical subject string — the one format the
+release chain produces and the installer consumes:
+
+```json
+{ "signatureVersion": 1, "alg": "ES256", "kid": "<rfc7638 thumbprint>", "subject": "sha256:…", "signature": "<base64url>" }
+```
+
+- the **Bundle** signature's `subject` is `bundle.json.digest`, the payload address;
+- the **Release** signature's `subject` is `canonicalJson(release.json)`'s digest, so
+  the `bundleDigest` the Release approves is covered by the signature that approves it;
+- `kid` is the RFC 7638 thumbprint of the signing key (§5.4), so a signature cannot
+  name a key it was not made by, and a customer's pinned key either matches or the
+  delivery is refused.
+
+`signSubject()` (`packages/cli/src/install.ts`) is the producing half; verification
+is the same module, so the two halves cannot drift.
+
+### Two keys, two questions
+
+The Bundle key answers *did the platform build this?*; the Release key answers *did
+the FDE release manager approve it?* They are separate keys on purpose
+(`docs/security-and-deployment.md` §8) and `install verify` requires both, so a
+validly built bundle that was never approved is not installable.
+
+### What `install verify` re-derives
+
+Nothing is taken on the delivery's word:
+
+| Check | Refusal |
+| --- | --- |
+| the bundle directory, `bundle.json` and `deploy/bundle-topology.json` are present and shaped | `bundle_missing`, `bundle_manifest_missing`, `bundle_manifest_invalid`, `bundle_topology_missing`, `bundle_topology_invalid` |
+| every file the manifest lists is there, digests to what it pins, and nothing else is in the tree | `bundle_file_missing`, `bundle_file_modified`, `bundle_file_unlisted` |
+| the payload digests to `bundle.json.digest` | `bundle_digest_mismatch` |
+| the manifest's Runtime Profile digest is the topology's | `bundle_profile_mismatch` |
+| the bundle is bound to a Deployment | `bundle_unbound` |
+| the bundled topology still satisfies its invariants, and `deploy/compose.yaml` is exactly `renderCompose(topology, deploymentInstance(id))` | `bundle_topology_invalid`, `deployment_invalid`, `compose_missing`, `compose_mismatch` |
+| the pinned bundle key signed the payload address | `bundle_key_invalid`, `bundle_key_mismatch`, `bundle_signature_missing`, `bundle_signature_mismatch`, `bundle_signature_invalid` |
+| the Release is `approved`, describes this bundle (digest, Spec, lock, customer, solution) and is signed by the pinned release key | `release_missing`, `release_invalid`, `release_not_approved`, `release_mismatch`, `release_key_invalid`, `release_key_mismatch`, `release_signature_missing`, `release_signature_mismatch`, `release_signature_invalid` |
+| the SBOM, `bundle.json`'s license verdict and `NOTICE` are one answer, under the pinned catalog | `evidence_missing`, `evidence_invalid`, `license_evidence_mismatch`, `license_gate_failed`, `license_catalog_missing`, `license_catalog_invalid`, `license_catalog_mismatch`, `license_blocked`, `license_undeclared` |
+| every file in the bundle is readable, so the key-material scan clears all of them | `bundle_file_unreadable` |
+| no file in the bundle carries a private key | `bundle_secret_leak` |
+
+The license boundary is recomputed, not read: the SBOM is re-gated against
+`--license-catalog`, so a bundle whose own verdict said `ok` still fails if the
+catalog the customer pinned denies a component — and a catalog whose digest is not
+the one the build was gated on is `license_catalog_mismatch`, because a verdict under
+another boundary is not the build's verdict. The anchor is `NOTICE`: it ships in the
+payload (so the Bundle signature covers it), it records the catalog digest the build
+was gated on, and it must agree with the SBOM. Tampering the SBOM alone, or the
+provenance alone, is `license_evidence_mismatch`.
+
+The Compose check is what makes "Bundle 只含 `secretRef`" mechanical in two ways: the
+renderer only ever emits `${NAME:?}` for a secret, so a hand-edited `compose.yaml`
+with a literal in it is refused; and the fragment is re-composed, so a topology whose
+secret bindings were edited is refused as well. The secret *values* are never in the
+bundle for the same reason — `install keys` writes them outside it, and
+`bundle_secret_leak` catches a delivery that tried.
+
+### `fde install keys`
+
+Generates the deployment's two issuer key pairs, or keeps the ones already present
+(`docs/runtime-contract.md` §5.4):
+
+```text
+keys/
+├── execution-context-signing-key.pem   0600   → mastra-app (iss = fde://<dep>)
+│                                                mounted at /run/secrets/execution-context-signing-key
+├── execution-context-public-key.pem    0644   → context-service (EXECUTION_CONTEXT_PUBLIC_KEY)
+├── fde-jobs-signing-key.pem            0600   → the ingest job (iss = fde://<dep>/jobs)
+├── fde-jobs-public-key.pem             0644   → context-service (FDE_JOBS_PUBLIC_KEY)
+└── keys.json                           0644   the manifest: secretRef → file → injectInto[], plus each kid
+```
+
+`keys.json` is derived from the bundle, not from this command's opinion of it: each
+entry names the binding's `secretRef` (store included) and the `injectInto`
+components or jobs that actually claim that secret in the composed topology. A
+destination this command invented would be a claim about a container it does not own.
+
+The mount paths are the composed topology's, not this command's: a `file` binding
+renders a Compose secret whose host path comes from `${<name>_FILE:?}`, so the
+operator exports `EXECUTION_CONTEXT_SIGNING_KEY_FILE` and `FDE_JOBS_SIGNING_KEY_FILE`
+and the containers see the file at the target path while the bundle carries neither.
+
+- **Generated only when missing.** Re-running an install must not rotate a key —
+  rotation is `fde keys rotate` (Slice 2) and a key that moves takes every token with
+  it. A half pair is refused (`install_key_incomplete`) rather than completed, because
+  the missing half cannot be derived from the present one; a public key that is not
+  the private key's other half is `install_key_mismatch`; another curve is
+  `install_key_invalid` (ES256 is a decision, not a detail).
+- **Driven by the bundle.** The four secret names come from the composed topology's
+  `secretBindings`; a secret the bundle does not bind is `install_key_unbound`, because
+  a key the topology never mounts is a key the deployment cannot read. A keys
+  directory belongs to one deployment (`install_key_deployment_mismatch`), an
+  unbound bundle needs `--deployment` (`bundle_unbound`), and `--deployment` may not
+  contradict the deployment a bound bundle names (`deployment_mismatch`).
+- **Private up, public in.** The private halves stay in the files above until the
+  operator moves them into the customer secret store under the `secretRef` the
+  manifest names; only the public halves and their `kid` go to context-service, which
+  derives the same `kid` from the key itself. The command prints file names, kids and
+  counts — never a key, and a test asserts nothing `BEGIN`s in its output or errors.
+
+The keys are the identity seam's, not the delivery's: `install verify`'s pinned keys
+sign bundles and releases, these two sign `ExecutionContext`s at runtime.
+
+### The smoke script
+
+`deploy/smoke.mjs` ships in the payload (`chmod 755`, no dependencies, Node 22) and
+is the post-deploy acceptance action:
+
+```bash
+node deploy/smoke.mjs --base-url http://127.0.0.1:<published port> \
+  --context-service-url http://context-service:8011 \
+  --token "$FDE_SMOKE_TOKEN" --audit-token "$FDE_SMOKE_AUDIT_TOKEN"
+```
+
+Flags fall back to `FDE_SMOKE_BASE_URL`, `FDE_SMOKE_CONTEXT_SERVICE_URL`,
+`FDE_SMOKE_TOKEN`, `FDE_SMOKE_AUDIT_TOKEN`, `FDE_SMOKE_CAPABILITY` and
+`FDE_SMOKE_TIMEOUT`; exit 0 means every step held, 1 means one failed (the reason
+names the step), 2 means the invocation is unusable.
+
+`--token` is the caller credential the Run API accepts; `--audit-token` is the
+`ExecutionContext` that reads the audit trail and falls back to `--token` when a
+deployment accepts one for both. They are separate because they are: the Run API
+carries a customer credential, `GET /v1/provenance` an `ExecutionContext` with
+`provenance:read` (`docs/runtime-contract.md` §5.1).
+
+| Step | Asserts |
+| --- | --- |
+| `healthz` | the process is alive |
+| `readyz` | the startup handshake passed; `degraded` serves and is reported as a warning, `503` stops the run |
+| `runtime-info` | `contract_version` is on the `fde.runtime/v1` line, `service` is `runtime-app`, and the aggregate lists a `context-service` component |
+| `run` | `POST /v1/runs` under a fresh `Idempotency-Key` returns a `run_id`, the same key and payload replay it, the Run reaches `succeeded`, and it wrote a Decision |
+| `provenance` | `GET /v1/provenance/{decision_id}` returns that Decision with its PROV-O lineage, carrying the caller's bearer token and no backend-internal name (C14) |
+
+The script carries no address, no token and no key: endpoints and the credentials
+arrive by flag or environment, so one artifact is deployable to every customer and
+the same file is a pure function of the Spec (its default capability). The
+provenance step needs a URL it can reach — run it from the bundle network, or pass
+the address the operator reached context-service on.
+
+Two steps depend on components that are still landing: the Run's `phase=run`
+Decision is the audit write path (#37/#42), and context-service itself is #35–#40.
+Against a Slice-1 bundle the smoke therefore fails at `run` with "no Decision was
+written" — deliberately, because a deployment that cannot account for its Run is
+not a passing deployment. It turns green with those tickets, and #41 is what runs it
+against a real Compose bundle.
 
 ## Why `validate` and `lock --check` are separate
 
@@ -384,6 +566,10 @@ paths, `..`, symlinked files and symlinked directories are rejected
 - `fde context eval`, `fde context backfill`, `fde context rebuild`,
   `fde context verify`: the ingest job exists here, the rest need a
   context-service and land with it (#35–#40).
+- `fde keys rotate` (Slice 2): `install keys` generates a missing pair and refuses to
+  replace a present one.
+- `fde install upgrade/rollback/backup/restore` (Slice 2): the bundle and the keys
+  are here, the lifecycle is not.
 - `--force` or waivers: every gate fails closed.
 - Template body schemas beyond identity fields (`apiVersion`, `kind`,
   `metadata.name`, `metadata.version`) — those land with the owning tickets;
@@ -414,4 +600,12 @@ checked-in reference artifacts drifted. The seams are:
 - `context-ingest.test.ts` — a loopback context-service asserts the internal path,
   the ES256 `fde-jobs` token (signature, issuer, scope, trace), the job body, and
   the refusals that must not reach the runtime;
+- `install-verify.test.ts` — a real bundle signed with two pinned keys, then one
+  thing broken per case: the payload, the address, an extra file, the signature, the
+  key, the Release, the SBOM, the catalog, a leaked key, the Compose file;
+- `install-keys.test.ts` — the key pairs, their modes and kids, the secretRef
+  manifest, idempotence, every refusal, and no key material in the output;
+- `smoke.test.ts` — the bundle's `deploy/smoke.mjs` executed against stub runtime and
+  context-service servers: the five steps, the requests each one makes, the degraded
+  warning, and the failures that must stop it;
 - `cli.test.ts` — usage, exit codes, text/JSON output.

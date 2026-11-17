@@ -41,6 +41,7 @@ spec:
         - { name: AUDIT_PATH, value: /data/audit/audit.sqlite }
       secretRefs:
         - { store: customer, key: fde/execution-context-public-key }
+        - { store: customer, key: fde/jobs/public-key }
       # Readiness, not liveness: `/readyz` answers 200 only once the graph is loaded,
       # the audit store is writable and the schema versions match (§9.2). A 503 raises
       # in `urlopen`, so the probe exits non-zero and the dependents wait.
@@ -98,6 +99,14 @@ spec:
     - secretRef: { store: customer, key: fde/execution-context-public-key }
       target: env
       name: EXECUTION_CONTEXT_PUBLIC_KEY
+      required: true
+    # The `fde-jobs` issuer's public key, for the same reason: a maintenance token is
+    # signed by a key context-service must hold the verification half of, and the two
+    # issuers never share a key (§5.4). `kid` is not configured — the service derives
+    # the RFC 7638 thumbprint from each key.
+    - secretRef: { store: customer, key: fde/jobs/public-key }
+      target: env
+      name: FDE_JOBS_PUBLIC_KEY
       required: true
     # The `fde-jobs` issuer's private key: mounted into the maintenance jobs only.
     - secretRef: { store: customer, key: fde/jobs/signing-key }

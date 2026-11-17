@@ -21,7 +21,7 @@ crosses a process boundary.
 | `packages/runtime-generator` | `@fde/runtime-generator` — the build-time `RuntimeGenerator` port, Runtime Profile content addressing, `must/should` derivation and the fail-closed capability and identity gate. |
 | `packages/runtime-generator-mastra` | `@fde/runtime-generator-mastra` — the v0 Mastra generator: the mastra-app source tree with its Run API and SSE transport, the libsql/SQLite state store, the context client's retry policy, the ES256 `ExecutionContext` issuer, the topology fragment, the state migration and the A-case plan. |
 | `packages/bundle` | `@fde/bundle` — the platform side of a bundle: the `ContextServiceTopology` fragment, `composeTopology` (fragment + fragment → the single `BundleTopology`), deployment-instance naming/ports and the v0 Compose renderer. |
-| `packages/cli` | `@fde/cli` — the `fde` command: `spec init`, `spec validate`, `spec lock`, `spec lock --check`, and the `context init / validate / freeze / ingest` chain over a Customer Context Package. |
+| `packages/cli` | `@fde/cli` — the `fde` command: `spec init`, `spec validate`, `spec lock`, `spec lock --check`, the `context init / validate / freeze / ingest` chain over a Customer Context Package, `build`, and the customer side of a delivery: `install verify` and `install keys`. |
 | `packages/contracts-client` | `@fde/contracts-client` — TypeScript wire types and clients generated from `contracts/`. Nothing in `src/generated/` is hand-written. |
 
 ## Commands
@@ -64,8 +64,12 @@ remaining port methods (#28), identity issuance (#29), the startup handshake:
 `runtime/runtime-info.ts`, `/readyz` and the aggregated `/v1/runtime-info` (#30),
 the `fde context` toolchain with the Acme Customer Context Package: the CCP
 document schemas, `checkContextPackage`, `context init / validate / freeze`, and
-`context ingest` over the internal job endpoint (#31), and the bundle side of the
+`context ingest` over the internal job endpoint (#31), the bundle side of the
 deployment: the two topology halves, `checkTopology`'s invariants (single writer,
 secret bindings, name and port conflicts, networks), `composeTopology`,
-deployment-derived naming and the v0 Compose renderer (#32). The context-service
-implementation and `fde build` are separate tickets (#35–#40, #33).
+deployment-derived naming and the v0 Compose renderer (#32), `fde build` with the
+license gate, the SBOM and build provenance (#33), and the customer side of a
+delivery: `fde install verify` (pinned Bundle/Release signatures, the re-rendered
+Compose file, the license boundary and secret hygiene), `fde install keys` (the two
+ES256 issuer key pairs) and the bundle's `deploy/smoke.mjs` (#34). The
+context-service implementation is separate tickets (#35–#40).

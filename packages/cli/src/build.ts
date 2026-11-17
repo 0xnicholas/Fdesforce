@@ -26,6 +26,7 @@ import { mastraGenerator } from '@fde/runtime-generator-mastra';
 
 import type { LockedBuildInput } from './build-input.js';
 import { checkLicenseGate, renderNotice, renderSpdx, type ResolvedComponent } from './license.js';
+import { SMOKE_SCRIPT_MODE, smokeScript } from './smoke.js';
 import { diagnostic, type Diagnostic } from './types.js';
 
 /**
@@ -51,6 +52,9 @@ import { diagnostic, type Diagnostic } from './types.js';
 
 export const BUILD_TARGETS = ['compose'] as const;
 export type BuildTarget = (typeof BUILD_TARGETS)[number];
+
+/** What produced a bundle. One copy: provenance and the smoke script both name it. */
+export const BUILDER_VERSION = '0.1.0';
 
 /** Bundle-root-relative file; mode is explicit so the umask never reaches an artifact. */
 export interface BuildFile {
@@ -380,6 +384,11 @@ export function buildBundle(input: LockedBuildInput, options: BuildOptions): Bui
     { path: 'deploy/bundle-topology.json', content: canonicalJsonFile(topology), mode: FILE_MODE },
     { path: rendered.file.path, content: rendered.file.content, mode: FILE_MODE },
     { path: 'deploy/migration-plan.json', content: canonicalJsonFile(migrationPlan), mode: FILE_MODE },
+    {
+      path: 'deploy/smoke.mjs',
+      content: smokeScript({ defaultCapability: defaultSmokeCapability(input), builderVersion: BUILDER_VERSION }).content,
+      mode: SMOKE_SCRIPT_MODE,
+    },
     ...Object.entries(input.contextPackageFiles).map(([path, content]) => ({
       path: `context/${input.contextPackage?.name ?? 'customer-context'}/${path}`,
       content,
@@ -391,6 +400,7 @@ export function buildBundle(input: LockedBuildInput, options: BuildOptions): Bui
         customer: input.spec.metadata.customer,
         solution: input.spec.metadata.solution,
         components: gate.components,
+        catalogDigest: input.licenseCatalog.digest,
       }),
       mode: FILE_MODE,
     },
@@ -457,7 +467,7 @@ export function buildBundle(input: LockedBuildInput, options: BuildOptions): Bui
   const provenance: BuildProvenance = {
     provenanceVersion: 1,
     buildId,
-    builder: { tool: 'fde', version: '0.1.0' },
+    builder: { tool: 'fde', version: BUILDER_VERSION },
     solution: manifest.solution,
     spec: { digest: input.lock.spec.digest as Digest, files: input.lock.spec.files as Record<string, Digest> },
     lock: { digest: input.lockDigest },
@@ -596,6 +606,18 @@ function staticExtensionErrors(
 
 function deterministicBuildId(input: LockedBuildInput): string {
   return `${input.spec.metadata.customer}/${input.spec.metadata.solution}@${input.lock.spec.digest.slice('sha256:'.length, 'sha256:'.length + 12)}`;
+}
+
+/**
+ * The capability the bundle's smoke starts when the operator names none: the first
+ * by id, so the choice does not depend on the Spec's key order. Every capability a
+ * Slice-1 build can generate is read-only — the grammar gate refuses approval steps
+ * and side-effecting Tools — so "first by id" cannot pick a write path. An empty
+ * Spec gets an empty default, and the smoke then asks for `--capability` instead of
+ * starting a Run against a capability that does not exist.
+ */
+function defaultSmokeCapability(input: LockedBuildInput): string {
+  return Object.keys(input.spec.spec.capabilities).sort()[0] ?? '';
 }
 
 function messageOf(cause: unknown): string {

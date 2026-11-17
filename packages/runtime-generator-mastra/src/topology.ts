@@ -6,12 +6,15 @@ import {
   APP_DIR,
   APP_PORT,
   CONTEXT_SERVICE_COMPONENT,
+  IDENTITY_ENV,
   INJECTED_AT_DEPLOY,
   MIGRATE_ENTRYPOINT,
   MIGRATE_JOB,
   READY_PATH,
   READY_PROBE,
   RESERVED_ENV,
+  SIGNING_KEY_MOUNT_PATH,
+  SIGNING_KEY_SECRET,
   STATE_MIGRATION_STEP,
   STATE_MOUNT_PATH,
   STATE_VOLUME,
@@ -51,7 +54,12 @@ function appEnvironment(input: RuntimeGenerateInput): Array<{ name: string; valu
     }
   }
 
-  const owned = Object.entries(RESERVED_ENV).map(([name, value]) => ({ name, value }));
+  const owned = [
+    ...Object.entries(RESERVED_ENV).map(([name, value]) => ({ name, value })),
+    // The signing key arrives as a mounted file and the app is told where it is. The
+    // path is configuration, not a secret; the key itself never appears here.
+    { name: IDENTITY_ENV.signingKeyFile, value: SIGNING_KEY_MOUNT_PATH },
+  ];
 
   return [...declared, ...owned].sort(byName);
 }
@@ -85,6 +93,10 @@ export function generateTopology(input: RuntimeGenerateInput): RuntimeTopology {
           env: appEnvironment(input),
           healthCheck: { path: READY_PATH, port: APP_PORT, command: [...READY_PROBE] },
           dependsOn: [CONTEXT_SERVICE_COMPONENT],
+          // The app's own issuer key (§5.4). The platform fragment binds the same
+          // customer store key, so the composed bundle mounts it here and nowhere
+          // else; context-service gets only the public half.
+          secretRefs: [{ ...SIGNING_KEY_SECRET }],
           resources: { cpu: '1', memory: '1Gi' },
         },
       ],
@@ -114,7 +126,14 @@ export function generateTopology(input: RuntimeGenerateInput): RuntimeTopology {
         },
       ],
       startupOrder: [MIGRATE_JOB, APP_DIR],
-      secretBindings: [],
+      secretBindings: [
+        {
+          secretRef: { ...SIGNING_KEY_SECRET },
+          target: 'file',
+          name: SIGNING_KEY_MOUNT_PATH,
+          required: true,
+        },
+      ],
       deploymentNaming: {
         componentNameTemplate: 'fde-{{deployment_id}}-{{component}}',
         namespaceTemplate: 'fde-{{deployment_id}}',

@@ -110,11 +110,15 @@ export function loadJobsKey(pem: string, explicitKid?: string): LoadJobsKeyResul
 /**
  * The RFC 7638 JWK thumbprint: the id context-service computes from the public key,
  * so a `kid` that disagrees with its key is impossible by construction.
+ *
+ * Accepts either half — `install` derives a `kid` from a public key it did not
+ * generate, and re-deriving the public half from a public key is not something
+ * `node:crypto` offers.
  */
 export function thumbprint(key: KeyObject): string {
-  const jwk = createPublicKey(key).export({ format: 'jwk' });
+  const jwk = (key.type === 'private' ? createPublicKey(key) : key).export({ format: 'jwk' });
   if (jwk.kty !== 'EC' || jwk.crv !== 'P-256' || jwk.x === undefined || jwk.y === undefined) {
-    throw new Error('the jobs key has no P-256 public half');
+    throw new Error('the key has no P-256 public half');
   }
   const members = JSON.stringify({ crv: jwk.crv, kty: jwk.kty, x: jwk.x, y: jwk.y });
   return createHash('sha256').update(members).digest('base64url');

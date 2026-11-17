@@ -5,6 +5,7 @@ import { CommitIdSchema, DeploymentIdSchema, SolutionIdSchema } from '@fde/spec'
 
 import { buildCatalogues } from './artifacts.js';
 import { BUILD_TARGETS, buildBundle, type BuildTarget } from './build.js';
+import { installKeys, verifyInstall } from './install.js';
 import { loadLockedBuildInput } from './build-input.js';
 import {
   freezeContextPackage,
@@ -56,6 +57,10 @@ Usage:
   fde context freeze --package <dir> --actor <id> [--source-commit <sha>] [--workspace <dir>] [--platform <dir>] [--json]
   fde context ingest --package <dir> --context-service <url> --deployment <dep_id> --solution <id> --jobs-key <file>
                      [--kid <id>] [--mode incremental|backfill|rebuild] [--source <id>]... [--workspace <dir>] [--json]
+  fde install keys --bundle <dir> --out <dir> [--deployment <dep_id>] [--json]
+  fde install verify --bundle <dir> --signature <file> --public-key <file>
+                     --release <file> --release-signature <file> --release-public-key <file>
+                     --license-catalog <file> [--json]
   fde --help
 
 Commands:
@@ -67,6 +72,8 @@ Commands:
   context validate report schema, reference and permissions-baseline errors in one pass
   context freeze  write the content-addressed, immutable revision for this package version
   context ingest  run the context-service ingest job over the frozen package (internal job endpoint)
+  install keys    generate the mastra-app and fde-jobs ES256 key pairs when they are missing
+  install verify  verify the pinned bundle and release signatures, the license boundary and the secret hygiene
 
 Paths:
   --workspace     directory holding fde.workspace.yaml (discovered upward by default)
@@ -74,7 +81,13 @@ Paths:
   --spec          Solution directory containing solution.yaml and solution.lock
   --out           empty directory the Bundle is written to
   --deployment    deployment instance id (dep_<ULID>) the Compose names are derived from; without it the build is unbound
-  --environment   which spec.environments entry this bundle targets (required when there are several)`;
+  --environment   which spec.environments entry this bundle targets (required when there are several)
+  --bundle        the directory fde build wrote (install)
+  --signature     the detached signature over the bundle's address
+  --public-key    the pinned key that signed the bundle
+  --release       the Release record that approves this bundle
+  --release-signature / --release-public-key   the Release signature and the pinned release-manager key
+  --license-catalog  the customer's pinned licenses.yaml the redistribution boundary is checked against`;
 
 export async function runCli(argv: readonly string[], io: CliIO = {}): Promise<number> {
   const sink: Sink = {
@@ -97,7 +110,7 @@ async function dispatch(argv: string[], io: Sink): Promise<number> {
     return 0;
   }
   const group = argv[0];
-  if (group !== 'spec' && group !== 'context' && group !== 'build') {
+  if (group !== 'spec' && group !== 'context' && group !== 'build' && group !== 'install') {
     return usageError(io, `unknown command "${group ?? ''}"`);
   }
   if (group === 'build') return buildCommand(argv.slice(1), io);
@@ -132,6 +145,15 @@ async function dispatch(argv: string[], io: Sink): Promise<number> {
           return contextIngest(rest, io);
         default:
           return usageError(io, `unknown command "fde context ${subcommand}"`);
+      }
+    case 'install':
+      switch (subcommand) {
+        case 'keys':
+          return installKeysCommand(rest, io);
+        case 'verify':
+          return installVerifyCommand(rest, io);
+        default:
+          return usageError(io, `unknown command "fde install ${subcommand}"`);
       }
   }
 }
@@ -779,6 +801,136 @@ function buildCommand(args: string[], io: Sink): number {
       }`,
     );
   }
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// fde install keys
+// ---------------------------------------------------------------------------
+
+function installKeysCommand(args: string[], io: Sink): number {
+  if (args.includes('--help') || args.includes('-h')) {
+    io.out(USAGE);
+    return 0;
+  }
+  const flags = parseFlags(args, {
+    strings: ['bundle', 'out', 'deployment'],
+    booleans: ['json'],
+  });
+  if (flags.errors.length > 0) return usageError(io, flags.errors[0] ?? 'invalid arguments');
+  const json = flags.values['json'] === true;
+
+  const bundleArg = stringFlag(flags, 'bundle');
+  const outArg = stringFlag(flags, 'out');
+  if (bundleArg === undefined) return usageError(io, 'missing required flag --bundle');
+  if (outArg === undefined) return usageError(io, 'missing required flag --out');
+  const deploymentId = stringFlag(flags, 'deployment');
+  if (deploymentId !== undefined && !DeploymentIdSchema.safeParse(deploymentId).success) {
+    return usageError(io, `--deployment must be dep_<ULID> (got "${deploymentId}")`);
+  }
+
+  const out = resolve(io.cwd, outArg);
+  const result = installKeys({
+    bundleDir: resolve(io.cwd, bundleArg),
+    outDir: out,
+    ...(deploymentId === undefined ? {} : { deploymentId }),
+  });
+  if (result.errors.length > 0 || result.manifest === undefined) {
+    return emitDiagnostics('install keys', { errors: result.errors, warnings: [] }, io, json);
+  }
+
+  const createdKeys = result.created.filter((path) => path.endsWith('.pem'));
+  if (json) {
+    io.out(
+      JSON.stringify({
+        command: 'install keys',
+        ok: true,
+        deploymentId: result.manifest.deploymentId,
+        out,
+        issuers: result.manifest.issuers.map((issuer) => ({
+          issuer: issuer.issuer,
+          iss: issuer.iss,
+          kid: issuer.kid,
+          signingKey: issuer.signingKey.file,
+          publicKey: issuer.publicKey.file,
+        })),
+        created: result.created,
+        errors: [],
+        warnings: [],
+      }),
+    );
+  } else if (createdKeys.length === 0) {
+    io.out(`kept the ${result.manifest.issuers.length} key pairs in ${out} for ${result.manifest.deploymentId}`);
+  } else {
+    io.out(`generated ${count(createdKeys.length, 'key file')} in ${out} for ${result.manifest.deploymentId}`);
+  }
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// fde install verify
+// ---------------------------------------------------------------------------
+
+function installVerifyCommand(args: string[], io: Sink): number {
+  if (args.includes('--help') || args.includes('-h')) {
+    io.out(USAGE);
+    return 0;
+  }
+  const flags = parseFlags(args, {
+    strings: ['bundle', 'signature', 'public-key', 'release', 'release-signature', 'release-public-key', 'license-catalog'],
+    booleans: ['json'],
+  });
+  if (flags.errors.length > 0) return usageError(io, flags.errors[0] ?? 'invalid arguments');
+  const json = flags.values['json'] === true;
+
+  const required = {
+    bundle: '--bundle',
+    signature: '--signature',
+    'public-key': '--public-key',
+    release: '--release',
+    'release-signature': '--release-signature',
+    'release-public-key': '--release-public-key',
+    'license-catalog': '--license-catalog',
+  } as const;
+  for (const [flag, label] of Object.entries(required)) {
+    if (stringFlag(flags, flag) === undefined) return usageError(io, `missing required flag ${label}`);
+  }
+
+  const result = verifyInstall({
+    bundleDir: resolve(io.cwd, stringFlag(flags, 'bundle') as string),
+    signaturePath: resolve(io.cwd, stringFlag(flags, 'signature') as string),
+    publicKeyPath: resolve(io.cwd, stringFlag(flags, 'public-key') as string),
+    releasePath: resolve(io.cwd, stringFlag(flags, 'release') as string),
+    releaseSignaturePath: resolve(io.cwd, stringFlag(flags, 'release-signature') as string),
+    releasePublicKeyPath: resolve(io.cwd, stringFlag(flags, 'release-public-key') as string),
+    licenseCatalogPath: resolve(io.cwd, stringFlag(flags, 'license-catalog') as string),
+  });
+
+  if (json) {
+    io.out(
+      JSON.stringify({
+        command: 'install verify',
+        ok: result.ok,
+        bundle: result.bundle,
+        release: result.release,
+        errors: result.errors,
+        warnings: result.warnings,
+      }),
+    );
+    return result.ok ? 0 : 1;
+  }
+
+  for (const warning of result.warnings) printDiagnostic(io, 'warning', warning);
+  if (!result.ok) {
+    for (const error of result.errors) printDiagnostic(io, 'error', error);
+    io.out(`fde install verify: ${count(result.errors.length, 'error')}, ${count(result.warnings.length, 'warning')}`);
+    return 1;
+  }
+
+  const bundle = result.bundle as NonNullable<typeof result.bundle>;
+  io.out(
+    `verified ${bundle.digest} — ${bundle.customer}/${bundle.solution} in ${bundle.environment} (${bundle.deploymentId}), ${count(bundle.files, 'artifact')}`,
+  );
   return 0;
 }
 

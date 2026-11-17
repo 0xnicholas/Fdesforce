@@ -60,6 +60,7 @@ export const runtimeFragment = (): RuntimeTopology =>
             ports: [{ name: 'http', containerPort: 4111, expose: true }],
             volumes: [{ name: 'mastra-state', mountPath: '/app/state' }],
             env: [
+              { name: 'FDE_SIGNING_KEY_FILE', value: '/run/secrets/execution-context-signing-key' },
               { name: 'FDE_STATE_STORE_PATH', value: '/app/state/mastra.db' },
               { name: 'NODE_ENV', value: 'production' },
             ],
@@ -74,6 +75,7 @@ export const runtimeFragment = (): RuntimeTopology =>
             },
             dependsOn: ['context-service'],
             resources: { cpu: '1', memory: '1Gi' },
+            secretRefs: [{ store: 'customer', key: 'fde/execution-context-signing-key' }],
           },
         ],
         volumes: [{ name: 'mastra-state', backup: true }],
@@ -93,7 +95,14 @@ export const runtimeFragment = (): RuntimeTopology =>
           },
         ],
         startupOrder: ['runtime-migrate', 'mastra-app'],
-        secretBindings: [],
+        secretBindings: [
+          {
+            secretRef: { store: 'customer', key: 'fde/execution-context-signing-key' },
+            target: 'file',
+            name: '/run/secrets/execution-context-signing-key',
+            required: true,
+          },
+        ],
         deploymentNaming: {
           componentNameTemplate: 'fde-{{deployment_id}}-{{component}}',
           namespaceTemplate: 'fde-{{deployment_id}}',
