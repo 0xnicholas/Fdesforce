@@ -40,6 +40,7 @@ from typing import Any
 
 from app.content import render
 from app.context_package import PermissionProfile, type_of
+from app.graph.entity_id import parse as parse_entity_id
 from app.graph.port import Entity
 
 #: What a masked value becomes. Deliberately not the original: a redaction that can
@@ -53,7 +54,7 @@ class Masked:
 
     entity: Entity
     classification: str
-    masked: tuple[str, ...]
+    replaced_properties: tuple[str, ...]
 
 
 def apply(
@@ -94,9 +95,12 @@ def apply(
             )
             continue
 
-        classification = profile.classifications.get(term) or str(
-            attributes.get("classification") or profile.unknown_classification
-        )
+        # The baseline is the only authority on a class's classification. A source's
+        # declared classification is the source boundary's default, not a per-class
+        # baseline; falling back to it would let a source under-classify its own facts
+        # (a class with no baseline entry is `restricted` — §7.1, and `packages/spec`
+        # warns exactly that).
+        classification = profile.classifications.get(term) or profile.unknown_classification
         properties = attributes.get("properties")
         masked_here: tuple[str, ...] = ()
         if isinstance(properties, Mapping) and properties:
@@ -104,12 +108,12 @@ def apply(
             entity = Entity(
                 entity_id=entity.entity_id,
                 type=entity.type,
-                content=render(type_of(term), _key_of(entity), properties),
+                content=render(type_of(term), parse_entity_id(entity.entity_id).key, properties),
                 source_ref=entity.source_ref,
                 version=entity.version,
                 attributes={**attributes, "properties": properties},
             )
-        kept.append(Masked(entity=entity, classification=classification, masked=masked_here))
+        kept.append(Masked(entity=entity, classification=classification, replaced_properties=masked_here))
 
     return kept, [denials[key] for key in sorted(denials)]
 
@@ -136,11 +140,6 @@ def _term(entity: Entity, attributes: Mapping[str, Any]) -> str:
     """
     term = attributes.get("term")
     return term if isinstance(term, str) and term else entity.type
-
-
-def _key_of(entity: Entity) -> str:
-    """The id's key segment — the third colon onward, whatever the type is spelled like."""
-    return entity.entity_id.split(":", 3)[-1]
 
 
 def _mask_properties(

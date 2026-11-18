@@ -202,16 +202,23 @@ def run(
         for piece in materialized
     ]
 
+    # Two verdicts, deliberately different. The job's result is about the sources *this
+    # run* read; the ledger is about the graph, so it also carries the outcomes a previous
+    # run recorded for sources this one did not cover. Reusing the job's verdict for the
+    # ledger would let a successful one-source run turn `/readyz` green while a source
+    # known to be broken is still missing (§9.2).
     status = _job_status(outcomes)
     finished_at = isoformat_z(now or utc_now())
     covered = {source.id for source in sources}
     carried = tuple(
-        entry for entry in (previous.sources if previous is not None else ()) if entry.source not in covered
+        entry
+        for entry in (previous.sources if previous is not None else ())
+        if entry.source not in covered and entry.source in package.sources
     )
     state_store.record(
         IngestLedger(
             package=PackageRef(name=package.name, version=package.version, digest=request.package.digest),
-            status=status,
+            status=_job_status(tuple(outcomes) + carried),
             completed_at=finished_at,
             job_id=job_id,
             sources=tuple(outcomes) + carried,

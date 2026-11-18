@@ -102,7 +102,10 @@ async def invoke_connector_operation(request: Request) -> JSONResponse:
         )
 
     result = dict(outcome.result)
-    classification = profile.classifications.get(outcome.term) or outcome.classification
+    # The baseline is the authority (§7.1): an unclassified class is `restricted`, never
+    # the Connector's own label. Otherwise a Tool and a retrieval could disagree about the
+    # same claim's classification, which is exactly what one baseline prevents.
+    classification = profile.classifications.get(outcome.term) or profile.unknown_classification
     response = ConnectorOperationResponse(
         connector_id=connector_id,
         operation=str(body["operation"]),

@@ -52,7 +52,7 @@ app/
     documents.py     `sharepoint-claims`: the document corpus, chunked by heading
   ingest.py          the compile step: package + sources → entities and edges; also
                      `python -m app.ingest`, the container the topology runs
-  ingest_state.py    the ledger on the graph volume: package revision, watermarks, and
+  ingest_ledger.py   the ledger on the graph volume: package revision, watermarks, and
                      IngestStatus — the one answer `/readyz` and `retrieve` share
   jobs_identity.py   minting a `fde-jobs` ExecutionContext (the maintenance side of §5.4)
   limits.py          the published envelope (§7.2, §4.3) the pipeline enforces
@@ -171,7 +171,7 @@ unknown `recipe_id` is a `404 recipe_not_found` that lists what the package does
 | `graph` | 1–`maxHops` out from the resolved entity, over the recipe's `relations` only (`ic:hasPolicy`, never "every edge"), scored `anchor × 0.5^hop × edge weight` |
 | `lexical` | the query's matches inside the recipe's declared source, top-K as declared |
 | `merge` | one candidate per `entity_id`, and one per content hash when the recipe dedupes on it; the best path to an entity wins |
-| `rank` | `score = recipe weight × stage score`, plus the recipe's `freshnessBoost` when ingest recorded the entity fresh |
+| `rank` | `score = recipe weight × stage score`, plus the recipe's `freshnessBoost` when ingest recorded the entity fresh. A stage the recipe does not weight contributes `0` — the schema makes each weight optional, and a default of `1.0` would let a lexical hit outrank the exact fact §6.3 puts above it |
 | `mask` | the permission baseline (§7): a class the caller's scopes do not reach is withheld and recorded, a masked property is replaced *before* the content is re-rendered |
 | `budget` | the recipe's ceilings, tightened by the caller's (a caller may ask for less, never more), packed in rank order |
 
@@ -539,7 +539,7 @@ audit volume grows.
 | The Customer Context Package: recipes, sources, mappings, permissions, revisions | served (`app/context_package.py`); loaded at startup from `CONTEXT_PACKAGE_PATH`, and a missing or foreign package stops the process |
 | The Recipe pipeline: `resolve → structured → graph → lexical → merge → rank → mask → budget` | served (`app/retrieval.py`, `app/mask.py`); every stage read from the recipe, C15 green |
 | `POST /internal/v1/jobs/ingest` + `python -m app.ingest` | served (`app/routes/jobs.py`, `app/ingest.py`); frozen-digest refusal, per-source outcomes, watermarks, `rebuild`/`backfill`/`incremental` |
-| The ingest ledger + `IngestStatus` | served (`app/ingest_state.py`); `/readyz` and `retrieve` read the same answer, and a restart keeps it |
+| The ingest ledger + `IngestStatus` | served (`app/ingest_ledger.py`); `/readyz` and `retrieve` read the same answer, and a restart keeps it |
 | `POST /v1/connectors/{connector_id}/operations` | served (`app/routes/connectors.py`); the Tool seam, with the permission baseline's class gate |
 | Reference Connectors (`claims-db`, `sharepoint-claims`) | served (`app/connectors/`); synthetic sources over a seed, `read` for ingest and `lookupClaim` for a Tool |
 | Graph: `GraphStore` port, embedded backend, snapshot envelope | served (`app/graph/`); the store is loaded at startup and stops the process if the volume is not migrated |

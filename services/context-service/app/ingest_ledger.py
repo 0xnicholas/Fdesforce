@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -231,7 +231,7 @@ class IngestStatus:
     could be `degraded` to its operator and fine to its callers — exactly the pair of
     answers §9.2 says must agree.
 
-    The four states, in the order an operator should read them:
+    The states, in the order an operator should read them:
 
     | Ledger | Answer | Why |
     | --- | --- | --- |
@@ -239,14 +239,20 @@ class IngestStatus:
     | absent | `degraded` `not_started` | a fresh volume: retries help, and the job is the next step |
     | another package | `degraded` `stale` | the graph answers the *old* semantics — re-run the job |
     | this package, degraded | `degraded` `partial` | some source's facts are missing (§6.4) |
-    | this package, succeeded | `ok` | the graph is the package's current materialization |
+    | this package, a source never ingested | `degraded` `partial` | a subset run is not the whole package |
+    | this package, all sources ok | `ok` | the graph is the package's current materialization |
     """
 
     name = "ingest"
 
-    def __init__(self, store: IngestLedgerStore, ref: PackageRef) -> None:
+    def __init__(
+        self, store: IngestLedgerStore, ref: PackageRef, sources: Sequence[str] = ()
+    ) -> None:
         self.store = store
         self._ref = ref
+        #: Every source the package declares. The ledger says "this package, all sources
+        #: ok" only when each of these has an outcome and none of them is degraded.
+        self._sources = tuple(sources)
 
     @classmethod
     def for_package(cls, store: IngestLedgerStore, package: ContextPackage) -> IngestStatus:
@@ -256,7 +262,11 @@ class IngestStatus:
                 f"{package.name}@{package.version} has no frozen revision; a package this service cannot "
                 "attest is not a package it can report on — `fde context freeze` writes revisions/<version>.yaml"
             )
-        return cls(store, PackageRef(name=package.name, version=package.version, digest=revision.digest))
+        return cls(
+            store,
+            PackageRef(name=package.name, version=package.version, digest=revision.digest),
+            tuple(sorted(package.sources)),
+        )
 
     def probe(self) -> ProbeResult:
         try:
@@ -278,8 +288,17 @@ class IngestStatus:
                     f"{self._ref.name}@{self._ref.version} {self._ref.digest})"
                 ),
             )
-        if not state.complete:
-            return ProbeResult(status="degraded", reason=f"partial ({'; '.join(state.reasons) or state.status})")
+        # "This package, all sources ok" is the condition, not "the last run said
+        # succeeded": a subset run can omit a declared source, and a carried outcome can
+        # still be degraded while the run that just finished was fine.
+        recorded = {source.source for source in state.sources}
+        missing = tuple(f"{name}: not_ingested" for name in self._sources if name not in recorded)
+        problems = missing + state.reasons
+        if not state.complete or problems:
+            return ProbeResult(
+                status="degraded",
+                reason=f"partial ({'; '.join(problems) or state.status})",
+            )
         return ProbeResult(status="ok")
 
     def complete(self) -> bool:

@@ -148,6 +148,25 @@ def test_the_probe_says_partial_when_a_source_of_this_run_failed(
     assert "sharepoint-claims: failed (connector_unavailable)" in (result.reason or "")
 
 
+def test_the_probe_says_partial_when_a_declared_source_was_never_ingested(
+    store: IngestLedgerStore, package: ContextPackage
+) -> None:
+    """A successful subset run is not the whole package: the source it skipped is missing.
+
+    `IngestJobRequest.sources` may name a subset, but "this package, all sources ok" is
+    what makes `/readyz` ready (§9.2). A ledger that simply omits `sharepoint-claims`
+    must not be read as "it was fine".
+    """
+    store.record(completed(sources=(SourceState(source="claims-db", status="ok", entities=9),)))
+
+    result = IngestStatus.for_package(store, package).probe()
+
+    assert result.status == "degraded"
+    assert "partial" in (result.reason or "")
+    assert "sharepoint-claims: not_ingested" in (result.reason or "")
+    assert IngestStatus.for_package(store, package).complete() is False
+
+
 def test_an_unreadable_ledger_fails_the_probe_rather_than_guessing(
     store: IngestLedgerStore, package: ContextPackage
 ) -> None:

@@ -84,7 +84,7 @@ def create_app(
         if ingest_ledger_store is not None
         else IngestLedgerStore.for_graph(service_settings.graph_path)
     )
-    ingest = IngestStatus.for_package(ledger, context_pkg)
+    ingest_status = IngestStatus.for_package(ledger, context_pkg)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
@@ -121,14 +121,14 @@ def create_app(
     )
     application.state.settings = service_settings
     application.state.readiness = (
-        readiness if readiness is not None else Readiness([GraphProbe(graph_store), ingest])
+        readiness if readiness is not None else Readiness([GraphProbe(graph_store), ingest_status])
     )
     application.state.started_at = isoformat_z(utc_now())
     application.state.audit = audit_store
     application.state.graph = graph_store
     application.state.context_package = context_pkg
     application.state.connectors = connector_registry
-    application.state.ingest_status = ingest
+    application.state.ingest_status = ingest_status
 
     # `add_middleware` prepends, so this order is the *reverse* of the call order:
     # the last one added is the outermost.

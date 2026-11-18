@@ -58,6 +58,7 @@ MAX_ANCHORS = 5
 
 #: Rough characters per token, for the `max_tokens` budget. Deliberately crude and
 #: deliberately not a model tokenizer: the budget's job is to bound a prompt, and a
-#: deterministic estimate that the caller can reason about beats a dependency. The
-#: real renderer (#39) counts what it renders.
+#: deterministic estimate that the caller can reason about beats a dependency.
+#: `app.retrieval` counts the budget in this unit, so the estimate is the one the
+#: snapshot records and two identical retrievals can share a digest.
 CHARS_PER_TOKEN = 4

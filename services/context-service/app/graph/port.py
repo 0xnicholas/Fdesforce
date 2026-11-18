@@ -18,7 +18,7 @@ graph and its size is the deployment's, not a tenant's.
 | `delete_source_ref` | remove one tenant's entities of one `source_ref` and the edges touching them |
 | `delete_source` | remove one tenant's entities of one Context Source id — the `rebuild` path |
 | `get_entity` | one entity in the caller's tenant, or `None` (never another tenant's) |
-| `lexical_search` | scored candidates, tenant-filtered, best first |
+| `lexical_search` | tenant-filtered hits, optionally narrowed to one source/type, best first |
 | `expand` | 1–`hops`-hop reachability from anchors, optionally limited to a relation whitelist |
 | `stats` | node and edge counts, for the scale limit and `/readyz` |
 | `health` | whether the store can answer at all |
@@ -27,6 +27,13 @@ graph and its size is the deployment's, not a tenant's.
 its recipe declares (`docs/semantic-modeling.md` §6.2), so `predicates` is a whitelist
 applied at every hop, and each `Expansion` reports the relation that reached it. A
 port that could not narrow the walk would make the recipe's `relations` a comment.
+
+**`lexical_search` narrows before it counts.** `source` and `entity_type` are filters
+applied *before* `limit` is counted, not predicates a caller re-applies afterwards.
+The lexical stage's `topK` is "the query's matches inside the recipe's declared
+source", and the resolve fallback searches "inside the recipe's class": a port that
+let another source's or class's higher-ranked head consume the limit would make both
+stages' declarations decorative.
 
 **Stable IDs.** Every method speaks `entity_id` (§4.2) and nothing else. Internal
 identifiers — a Neo4j integer, a SQLite rowid, a Semantica node key that happens to
@@ -62,8 +69,8 @@ from typing import Any, Protocol
 
 #: Bumped when the port's method set or semantics change incompatibly. A second
 #: implementation states which version it satisfies, so a backend written against
-#: v1 cannot silently be wired into a service that expects v2.
-PORT_VERSION = 2
+#: v2 cannot silently be wired into a service that expects v3.
+PORT_VERSION = 3
 
 
 class GraphStoreError(RuntimeError):
@@ -175,7 +182,15 @@ class GraphStore(Protocol):
 
     def get_entity(self, tenant_id: str, entity_id: str) -> Entity | None: ...
 
-    def lexical_search(self, tenant_id: str, query: str, *, limit: int) -> list[Match]: ...
+    def lexical_search(
+        self,
+        tenant_id: str,
+        query: str,
+        *,
+        limit: int,
+        source: str | None = None,
+        entity_type: str | None = None,
+    ) -> list[Match]: ...
 
     def expand(
         self,

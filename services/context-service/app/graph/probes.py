@@ -12,7 +12,7 @@ graph owns. Two different questions, deliberately answered differently:
   `degraded=true, reason=scale_limit` on the retrieval itself.
 
 Keeping both here rather than in the endpoint is what lets an operator read one
-answer that covers liveness, the graph, and (from #39) ingest alike.
+answer that covers liveness, the graph, and ingest alike.
 """
 
 from __future__ import annotations

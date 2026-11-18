@@ -11,12 +11,14 @@ digest a Decision can cite.
 from __future__ import annotations
 
 import re
+import shutil
 from collections.abc import Iterator
 
 import pytest
+import yaml
 
 from conformance.documents import ContractDocuments
-from conformance.harness import ServiceProcess
+from conformance.harness import REFERENCE_PACKAGE, ServiceProcess
 
 RESPONSE = "connector.schema.json#/$defs/ConnectorOperationResponse"
 DIGEST = re.compile(r"^sha256:[a-f0-9]{64}$")
@@ -81,6 +83,29 @@ def test_the_result_carries_the_callers_trace_and_a_stable_digest(
 
     assert first.json()["trace_id"] == trace_id
     assert first.json()["output_digest"] == second.json()["output_digest"]
+
+
+def test_a_class_the_baseline_does_not_classify_is_restricted_not_the_connectors_claim(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """§7.1's fail-closed default applies to the Tool seam too: the baseline decides.
+
+    `claims-db` says `lookupClaim` is about a `confidential` class. If the permission
+    baseline has no entry for that class, the answer is `restricted`, not the
+    Connector's own opinion — otherwise a Tool and a retrieval could disagree about
+    the same claim's classification.
+    """
+    package = tmp_path_factory.mktemp("unclassified-connector") / "package"
+    shutil.copytree(REFERENCE_PACKAGE, package)
+    permissions_path = package / "permissions.yaml"
+    permissions = yaml.safe_load(permissions_path.read_text(encoding="utf-8"))
+    permissions["spec"]["classifications"].pop("ic:Claim")
+    permissions_path.write_text(yaml.safe_dump(permissions, sort_keys=False), encoding="utf-8")
+
+    with ServiceProcess.start(context_package=package) as process:
+        body = call(process, LOOKUP, ("claims:read",))
+
+    assert body["classification"] == "restricted"
 
 
 def test_a_connector_this_deployment_does_not_serve_is_a_404(claims_service: ServiceProcess) -> None:

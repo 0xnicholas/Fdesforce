@@ -192,6 +192,53 @@ def test_an_item_says_which_entity_version_and_source_it_came_from(
     assert "reason" not in body
 
 
+def test_a_lexical_stage_counts_top_k_inside_the_declared_source(
+    tmp_path_factory: pytest.TempPathFactory, contract: ContractDocuments
+) -> None:
+    """§6.2: the lexical stage searches the source the recipe names, not the tenant.
+
+    Twenty-five claims from `claims-db` outrank (or tie with) one `sharepoint-claims`
+    document, and the recipe's `topK` is 20. Counting the top-K before the source filter
+    would leave the declared source with no candidates at all — an `empty` answer for a
+    source that did match.
+    """
+    data = tmp_path_factory.mktemp("lexical-source")
+    claims = tuple(
+        entity(
+            f"fde:acme:claim:C-{index:04d}",
+            "Claim",
+            "refund refund refund",
+            source_ref=f"claims-db://public.claims/C-{index:04d}",
+            version="1",
+            term="ic:Claim",
+            source="claims-db",
+            source_kind="structured",
+        )
+        for index in range(25)
+    )
+    document = entity(
+        "fde:acme:claimdocument:refund.md:premium-customers",
+        "ClaimDocument",
+        "Premium customers may receive a refund within 30 days.",
+        source_ref="sharepoint://claims/policies/refund.md",
+        version="3",
+        term="ic:ClaimDocument",
+        source="sharepoint-claims",
+        source_kind="document",
+    )
+    seed_volume(
+        data / "graph" / "graph.json",
+        tenant_id="acme",
+        entities=(*claims, document),
+    )
+    with ServiceProcess.start(data_dir=data) as process:
+        body = retrieved(process, contract, "refund")
+
+    assert document.entity_id in {item["entity_id"] for item in body["items"]}, (
+        "the declared source's match must survive the other source's higher-ranked head"
+    )
+
+
 def test_the_response_carries_the_callers_trace(
     seeded_service: ServiceProcess, contract: ContractDocuments
 ) -> None:

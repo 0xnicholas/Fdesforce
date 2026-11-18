@@ -266,6 +266,39 @@ def test_the_ledger_carries_every_source_this_run_did_not_cover(
     assert state.watermark_of("claims-db") == "2026-01-02T10:00:00Z"
 
 
+def test_a_partial_run_does_not_call_the_graph_complete_while_a_carried_source_is_not_ok(
+    package: ContextPackage, graph: EmbeddedGraphStore, ledger: IngestLedgerStore
+) -> None:
+    """A run that covers one source must not erase another source's failure from the verdict.
+
+    The job's own result is about the sources it read; the ledger's verdict is about the
+    graph. Mixing the two would turn `/readyz` green while a source known to be broken is
+    still missing from the answer (§9.2).
+    """
+    run(
+        package,
+        ConnectorRegistry([]),
+        graph,
+        ledger,
+        tenant_id=TENANT,
+        request=request(package, sources=("sharepoint-claims",)),
+    )
+
+    result = run(
+        package,
+        ConnectorRegistry([MutableConnector(default_rows())]),
+        graph,
+        ledger,
+        tenant_id=TENANT,
+        request=request(package, sources=("claims-db",)),
+    )
+    state = ledger.load()
+
+    assert result.status == "succeeded", "this run's own source was read"
+    assert state is not None and not state.complete, "the graph still lacks a source"
+    assert any("sharepoint-claims" in reason for reason in state.reasons)
+
+
 def test_the_ingest_entity_is_what_the_retrieval_needs_to_cite_it(
     package: ContextPackage, graph: EmbeddedGraphStore, ledger: IngestLedgerStore
 ) -> None:

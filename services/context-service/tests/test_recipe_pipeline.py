@@ -189,6 +189,54 @@ def test_the_recipes_weights_rank_exact_facts_above_the_walk_and_the_walk_above_
     assert body["budget_used"]["hops"] == 2
 
 
+def test_a_stage_the_recipe_does_not_weight_cannot_outrank_one_it_does(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """§6.3's priority is the recipe's weights; a missing weight cannot invert it.
+
+    `context-recipe.ts` makes each weight optional, so a legal recipe may name only
+    `structured`. Treating the missing stages as weight 1.0 would put a lexical hit above
+    every exact fact — the opposite of the documented order — so an undeclared weight
+    contributes nothing.
+    """
+    package = tmp_path_factory.mktemp("structured-only") / "package"
+    shutil.copytree(REFERENCE_PACKAGE, package)
+    recipe_path = package / "recipes" / "claims-context.yaml"
+    recipe = yaml.safe_load(recipe_path.read_text(encoding="utf-8"))
+    rank = next(stage for stage in recipe["spec"]["stages"] if stage["type"] == "rank")
+    rank["weights"] = {"structured": 0.5}
+    recipe_path.write_text(yaml.safe_dump(recipe, sort_keys=False), encoding="utf-8")
+
+    document = entity(
+        DOCUMENT.entity_id,
+        DOCUMENT.type,
+        DOCUMENT.content,
+        source_ref=DOCUMENT.source_ref,
+        version=DOCUMENT.version,
+        term="ic:ClaimDocument",
+        source="sharepoint-claims",
+        source_kind="document",
+    )
+    data = tmp_path_factory.mktemp("structured-only-graph")
+    seed_volume(
+        data / "graph" / "graph.json",
+        tenant_id="acme",
+        entities=(CLAIM, POLICY, document),
+        relationships=(
+            relationship(CLAIM.entity_id, POLICY.entity_id, "ic:hasPolicy", weight=1.0),
+            relationship(POLICY.entity_id, document.entity_id, "ic:documentsPolicy", weight=1.0),
+        ),
+        package=_reference_ref(),
+    )
+    with ServiceProcess.start(data_dir=data, context_package=package) as process:
+        body = retrieve(process, filters={"claim_id": "C-1001"})
+
+    items = by_id(body)
+    assert items[CLAIM.entity_id]["score"] > items[document.entity_id]["score"], (
+        "an exact fact must outrank a lexical hit when only the exact stage is weighted"
+    )
+
+
 def test_a_class_the_structured_stage_does_not_name_is_not_an_exact_fact(
     pipeline: ServiceProcess, contract: ContractDocuments
 ) -> None:
@@ -325,6 +373,51 @@ def test_the_item_carries_a_classification_even_when_the_baseline_does_not_class
     for item in body["items"]:
         assert item["classification"] in {"public", "internal", "confidential", "restricted"}
         assert item["trust"] == "untrusted"
+
+
+def test_a_class_the_baseline_does_not_classify_is_restricted_whatever_the_source_claims(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """§7.1's fail-closed default: the source's own classification is not a fallback.
+
+    `packages/spec/src/context.ts` warns that a class with no baseline entry is treated
+    as `unknownClassification` (`restricted`), and the mask stage is where that decision
+    is enforced. A source-level `classification` is the source boundary's default, not a
+    per-class baseline: serving it would let a source under-classify its own facts.
+    """
+    package = tmp_path_factory.mktemp("unclassified") / "package"
+    shutil.copytree(REFERENCE_PACKAGE, package)
+    permissions_path = package / "permissions.yaml"
+    permissions = yaml.safe_load(permissions_path.read_text(encoding="utf-8"))
+    permissions["spec"]["classifications"].pop("ic:Policy")
+    permissions_path.write_text(yaml.safe_dump(permissions, sort_keys=False), encoding="utf-8")
+
+    policy = entity(
+        POLICY.entity_id,
+        POLICY.type,
+        POLICY.content,
+        source_ref=POLICY.source_ref,
+        version=POLICY.version,
+        term="ic:Policy",
+        source="claims-db",
+        source_kind="structured",
+        # The source's own claim. The baseline does not classify `ic:Policy`, so it is
+        # `restricted`; trusting this attribute would make the source the authority.
+        classification="internal",
+        properties={"ic:policyNumber": "P-2001", "ic:status": "active"},
+    )
+    data = tmp_path_factory.mktemp("unclassified-graph")
+    seed_volume(
+        data / "graph" / "graph.json",
+        tenant_id="acme",
+        entities=(CLAIM, policy),
+        relationships=(relationship(CLAIM.entity_id, policy.entity_id, "ic:hasPolicy"),),
+        package=_reference_ref(),
+    )
+    with ServiceProcess.start(data_dir=data, context_package=package) as process:
+        body = retrieve(process, filters={"claim_id": "C-1001"})
+
+    assert by_id(body)[policy.entity_id]["classification"] == "restricted"
 
 
 def test_a_recipe_the_package_never_declared_is_a_404(pipeline: ServiceProcess) -> None:

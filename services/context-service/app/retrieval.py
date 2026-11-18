@@ -60,6 +60,7 @@ from app.canonical import canonical_json, sha256_digest
 from app.clock import isoformat_z, utc_now
 from app.context_package import ContextPackage, Recipe, segment_of
 from app.generated.models import BudgetUsed, PolicyEvaluation, RetrievalItem
+from app.graph.entity_id import parse as parse_entity_id
 from app.graph.entity_id import render as render_entity_id
 from app.graph.port import Entity, GraphStore
 from app.ids import new_ulid
@@ -80,6 +81,11 @@ _PROVENANCE_ID = re.compile(r"^prov_[0-9A-HJKMNP-TV-Z]{26}$")
 #: The shape of a value a query may spell: an id, a number, a code. Used by `resolve`
 #: when the caller sent a query instead of a `filters` key.
 _KEY_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{1,63}")
+
+#: How much more than the budget an expand may gather. The stages produce candidates and
+#: the budget decides; the headroom keeps one masked or oversized candidate from hiding
+#: the next one. It is not an answer size — `_pack` still cuts at `max_nodes`.
+_EXPANSION_HEADROOM = 2
 
 StageKind = Literal["structured", "graph", "lexical"]
 
@@ -256,11 +262,13 @@ def _resolve(
         if entity is not None:
             return _Anchor(term=term, key=token, entity_id=entity_id, entity=entity)
 
-    for match in store.lexical_search(tenant_id, query, limit=MAX_ANCHORS):
+    for match in store.lexical_search(tenant_id, query, limit=MAX_ANCHORS, entity_type=segment):
         entity = store.get_entity(tenant_id, match.entity_id)
-        if entity is None or entity.type.casefold() != segment:
+        if entity is None:
             continue
-        return _Anchor(term=term, key=_key_of(entity), entity_id=entity.entity_id, entity=entity)
+        return _Anchor(
+            term=term, key=parse_entity_id(entity.entity_id).key, entity_id=entity.entity_id, entity=entity
+        )
     return None
 
 
@@ -311,7 +319,9 @@ def _structured(
     if _source_of(attributes) == stage.source:
         found.append(_Candidate(entity=anchor.entity, score=1.0, hop=0, stage="structured", attributes=attributes))
 
-    for expansion in store.expand(tenant_id, [anchor.entity_id], hops=1, limit=max_nodes * 2):
+    for expansion in store.expand(
+        tenant_id, [anchor.entity_id], hops=1, limit=max_nodes * _EXPANSION_HEADROOM
+    ):
         entity = store.get_entity(tenant_id, expansion.entity_id)
         if entity is None:
             continue
@@ -336,7 +346,7 @@ def _graph(
         tenant_id,
         [anchor.entity_id],
         hops=min(max_hops, stage.max_hops),
-        limit=max_nodes * 2,
+        limit=max_nodes * _EXPANSION_HEADROOM,
         predicates=stage.relations,
     ):
         entity = store.get_entity(tenant_id, expansion.entity_id)
@@ -357,13 +367,11 @@ def _lexical(store: GraphStore, *, tenant_id: str, recipe: Recipe, query: str) -
         return []
     text = query if stage.query == "$query" else stage.query.replace("$query", query)
     found: list[_Candidate] = []
-    for match in store.lexical_search(tenant_id, text, limit=stage.top_k):
+    for match in store.lexical_search(tenant_id, text, limit=stage.top_k, source=stage.source):
         entity = store.get_entity(tenant_id, match.entity_id)
         if entity is None:
             continue
         attributes = dict(entity.attributes)
-        if _source_of(attributes) != stage.source:
-            continue
         found.append(_Candidate(entity=entity, score=match.score, hop=0, stage="lexical", attributes=attributes))
     return found
 
@@ -437,7 +445,10 @@ def _rank(candidates: Sequence[_Candidate], recipe: Recipe) -> list[_Candidate]:
     boost = recipe.rank.freshness_boost if recipe.rank is not None else 0.0
     ranked: list[_Candidate] = []
     for candidate in candidates:
-        weight = float(weights.get(candidate.stage, 1.0))
+        # A stage the recipe does not weight contributes nothing. The recipe schema makes
+        # every weight optional, and a default of 1.0 would let a lexical hit outrank the
+        # exact fact §6.3 puts above it.
+        weight = float(weights.get(candidate.stage, 0.0))
         fresh = candidate.attributes.get("freshness") == "fresh"
         score = weight * candidate.score + (boost if fresh else 0.0)
         ranked.append(
@@ -527,7 +538,7 @@ def _item(candidate: _Candidate, masked: mask.Masked) -> RetrievalItem:
             "stage": candidate.stage,
             # Which properties the baseline replaced, so an auditor can tell a hashed
             # field from one the source never had.
-            **({"masked": list(masked.masked)} if masked.masked else {}),
+            **({"masked": list(masked.replaced_properties)} if masked.replaced_properties else {}),
         },
     }
     if source_kind in _SOURCE_KINDS:
@@ -598,11 +609,6 @@ def _tightened(caller: Mapping[str, Any], key: str, ceiling: int) -> int:
     """The recipe's ceiling, or the caller's smaller one — never the caller's larger one."""
     asked = caller.get(key)
     return ceiling if asked is None else min(int(asked), ceiling)
-
-
-def _key_of(entity: Entity) -> str:
-    """The id's key segment — the third colon onward, whatever the type is spelled like."""
-    return entity.entity_id.split(":", 3)[-1]
 
 
 def _floor(value: float) -> float:

@@ -1,11 +1,12 @@
 """The `GraphStore` port's write rules, proved on the one implementation v0 ships.
 
 Retrieval is asserted through HTTP (`tests/test_retrieval_http.py`) — the port is an
-internal seam and nothing there doubles it. But the port also has a *write* side with
-no HTTP surface until ingest lands (#39), and the ticket asks for its "error
-semantics" explicitly. So this file writes through the real `EmbeddedGraphStore` and
-reads the volume back, the way `test_audit_store.py` proves the audit store's
-invariants at the store rather than through the endpoint.
+internal seam and nothing there doubles it. The write side is exercised end to end by
+the ingest job (`tests/test_ingest.py`, `tests/test_ingest_job.py`), but its *error
+semantics* are a port promise a second backend must keep, so this file writes through
+the real `EmbeddedGraphStore` and reads the volume back, the way
+`test_audit_store.py` proves the audit store's invariants at the store rather than
+through the endpoint.
 
 What a second backend must also do, and why each rule exists:
 

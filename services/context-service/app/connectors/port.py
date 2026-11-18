@@ -89,10 +89,14 @@ class OperationResult:
     `term` is the ontology class the result is *about* (`ic:Claim` for `lookupClaim`),
     which is what makes the permission baseline applicable to an answer that is not a
     graph entity: the caller's class scope decides whether the operation is served at
-    all, and `classification` is the baseline's answer for that class (falling back to
-    the source's own when the baseline does not classify it). It is **required**: an
-    operation that cannot say what it is about cannot be gated, and an ungated answer is
-    the one thing a typed operation may not be.
+    all, and the response's classification is the baseline's for that class — or
+    `restricted` when the baseline is silent (§7.1). It is **required**: an operation
+    that cannot say what it is about cannot be gated, and an ungated answer is the one
+    thing a typed operation may not be.
+
+    `classification` is the Connector's own label for what it returned. It is carried
+    for diagnostics and is *not* trusted over the baseline: a source that could classify
+    itself out of a restriction would make the baseline advisory.
     """
 
     result: Mapping[str, Any]

@@ -280,21 +280,42 @@ class EmbeddedGraphStore:
         node = engine.node(entity_id)
         return None if node is None else self._entity_of(node)
 
-    def lexical_search(self, tenant_id: str, query: str, *, limit: int) -> list[Match]:
+    def lexical_search(
+        self,
+        tenant_id: str,
+        query: str,
+        *,
+        limit: int,
+        source: str | None = None,
+        entity_type: str | None = None,
+    ) -> list[Match]:
         """Scored candidates the caller may see, best first.
 
         A candidate is dropped when it belongs to another tenant or carries no
         `source_ref`/`version`: it could not become a `RetrievalItem` a caller is
         allowed to cite, so returning it would only move the problem downstream.
+
+        `source`/`entity_type` are filters, not a caller-side post-pass: they apply
+        before `limit` counts. The engine still scores every node, so a filtered
+        search asks it for the whole matching set rather than its unfiltered head —
+        otherwise 20 claims could starve the one document a recipe's lexical stage
+        declared.
         """
         if limit <= 0 or not query.strip():
             return []
         engine = self._open_engine()
+        narrowed = source is not None or entity_type is not None
+        scan = max(limit, self.stats().nodes) if narrowed else limit * _CANDIDATE_OVERSCAN
         matches: list[Match] = []
-        for entity_id, score in engine.search(query, limit=limit * _CANDIDATE_OVERSCAN):
+        for entity_id, score in engine.search(query, limit=scan):
             entity = self._usable(tenant_id, entity_id)
-            if entity is not None:
-                matches.append(Match(entity_id=entity.entity_id, score=score))
+            if entity is None:
+                continue
+            if source is not None and entity.attributes.get("source") != source:
+                continue
+            if entity_type is not None and entity.type.casefold() != entity_type.casefold():
+                continue
+            matches.append(Match(entity_id=entity.entity_id, score=score))
             if len(matches) >= limit:
                 break
         return matches
