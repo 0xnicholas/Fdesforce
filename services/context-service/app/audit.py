@@ -48,7 +48,7 @@ import json
 import logging
 import sqlite3
 import threading
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -87,6 +87,7 @@ REQUIRED_OBJECTS: tuple[str, ...] = (
     "audit_entry",
     "chain_verification",
     "retrieval_snapshot",
+    "approval",
     "audit_entry_append_only_update",
     "audit_entry_append_only_delete",
     "retrieval_snapshot_append_only_update",
@@ -349,6 +350,21 @@ class AuditStore:
 
     # -- write ------------------------------------------------------------
 
+    @contextmanager
+    def write(self) -> Iterator[AuditTransaction]:
+        """One `BEGIN IMMEDIATE`, for a writer whose decisions and rows are one commit.
+
+        The chain has a second writer: the approval state machine (`app.approvals`),
+        whose resource rows must move in the same commit as the Decision that moved
+        them. A Decision appended while the approval stayed `pending` (or the
+        reverse) would be evidence that disagrees with the resource it describes,
+        with no way to tell which side is stale. So the seam is a transaction, not a
+        second connection: everything written inside it commits together or not at
+        all, and `append` is the same idempotent Decision write as `append_decision`.
+        """
+        with self._lock, self._transaction(self._connected()) as connection:
+            yield AuditTransaction(connection, now=self._now)
+
     def append_decision(self, decision: Mapping[str, Any]) -> AppendResult:
         """Append one Decision, or replay the entry its `decision_id` already names.
 
@@ -357,72 +373,8 @@ class AuditStore:
         repeat with a different payload — or from another tenant — is a conflict,
         not a guess.
         """
-        decision_id = str(decision["decision_id"])
-        tenant_id = str(decision["tenant_id"])
-        payload = canonical_json(decision)
-
-        with self._lock:
-            connection = self._connected()
-            with self._transaction(connection):
-                existing = connection.execute(
-                    "SELECT * FROM audit_entry WHERE decision_id = ?", (decision_id,)
-                ).fetchone()
-                if existing is not None:
-                    return self._replay(existing, tenant_id, payload)
-
-                head = connection.execute("SELECT seq, hash FROM audit_entry ORDER BY seq DESC LIMIT 1").fetchone()
-                seq = 1 if head is None else int(head["seq"]) + 1
-                prev_hash = GENESIS_HASH if head is None else str(head["hash"])
-                entry = self._build(seq, prev_hash, tenant_id, decision)
-                connection.execute(
-                    """
-                    INSERT INTO audit_entry
-                      (seq, provenance_id, decision_id, tenant_id, created_at, payload, payload_digest, prev_hash, hash)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        entry.seq,
-                        entry.provenance_id,
-                        entry.decision_id,
-                        entry.tenant_id,
-                        entry.created_at,
-                        canonical_json(entry.document),
-                        entry.payload_digest,
-                        entry.prev_hash,
-                        entry.hash,
-                    ),
-                )
-                return AppendResult(entry=entry, created=True)
-
-    def _replay(self, row: sqlite3.Row, tenant_id: str, payload: str) -> AppendResult:
-        """The entry `decision_id` already names — or a refusal to pretend it is one."""
-        if str(row["tenant_id"]) != tenant_id:
-            raise DecisionConflict(DUPLICATE_DECISION)
-        stored = json.loads(str(row["payload"]))
-        if canonical_json(stored["decision"]) != payload:
-            raise DecisionConflict(DUPLICATE_DECISION)
-        return AppendResult(entry=_entry(row), created=False)
-
-    def _build(self, seq: int, prev_hash: str, tenant_id: str, decision: Mapping[str, Any]) -> AuditEntry:
-        document = {
-            "seq": seq,
-            "provenance_id": new_provenance_id(),
-            "tenant_id": tenant_id,
-            "created_at": isoformat_z(self._now()),
-            "decision": dict(decision),
-        }
-        payload = canonical_json(document)
-        return AuditEntry(
-            seq=seq,
-            provenance_id=str(document["provenance_id"]),
-            decision_id=str(decision["decision_id"]),
-            tenant_id=tenant_id,
-            created_at=str(document["created_at"]),
-            document=document,
-            payload_digest=sha256_digest(payload),
-            prev_hash=prev_hash,
-            hash=sha256_digest(prev_hash, payload),
-        )
+        with self.write() as writes:
+            return writes.append(decision)
 
     # -- retrieval snapshots ----------------------------------------------
 
@@ -625,6 +577,116 @@ class AuditStore:
             )
 
 
+class AuditTransaction:
+    """The audit chain and a sub-store's rows, inside one transaction.
+
+    `append` is the chain's one write: it links the new entry to the head and is
+    idempotent by `decision_id`, so a retried transaction cannot produce two
+    entries. `execute`/`fetchone`/`fetchall` are the same connection, which is what
+    lets `app.approvals` read and update its own table and append the Decision in
+    one commit.
+
+    Nothing here begins or commits a transaction: the caller is already inside one
+    (`AuditStore.write`), and a nested `BEGIN` is a SQLite error rather than a savepoint.
+    """
+
+    def __init__(self, connection: sqlite3.Connection, *, now: Callable[[], datetime]) -> None:
+        self._connection = connection
+        self._now = now
+
+    def append(self, decision: Mapping[str, Any]) -> AppendResult:
+        """Append one Decision inside this transaction, or replay the one its id names."""
+        return _append(self._connection, decision, now=self._now)
+
+    def execute(self, sql: str, parameters: Sequence[Any] = ()) -> sqlite3.Cursor:
+        return self._connection.execute(sql, parameters)
+
+    def fetchone(self, sql: str, parameters: Sequence[Any] = ()) -> sqlite3.Row | None:
+        return self._connection.execute(sql, parameters).fetchone()
+
+    def fetchall(self, sql: str, parameters: Sequence[Any] = ()) -> list[sqlite3.Row]:
+        return self._connection.execute(sql, parameters).fetchall()
+
+
+def _append(
+    connection: sqlite3.Connection,
+    decision: Mapping[str, Any],
+    *,
+    now: Callable[[], datetime],
+) -> AppendResult:
+    """One Decision into the chain: a new link, or the entry this `decision_id` names."""
+    decision_id = str(decision["decision_id"])
+    tenant_id = str(decision["tenant_id"])
+    payload = canonical_json(decision)
+
+    existing = connection.execute("SELECT * FROM audit_entry WHERE decision_id = ?", (decision_id,)).fetchone()
+    if existing is not None:
+        return _replay(existing, tenant_id, payload)
+
+    head = connection.execute("SELECT seq, hash FROM audit_entry ORDER BY seq DESC LIMIT 1").fetchone()
+    seq = 1 if head is None else int(head["seq"]) + 1
+    prev_hash = GENESIS_HASH if head is None else str(head["hash"])
+    entry = _build(seq, prev_hash, tenant_id, decision, now=now)
+    connection.execute(
+        """
+        INSERT INTO audit_entry
+          (seq, provenance_id, decision_id, tenant_id, created_at, payload, payload_digest, prev_hash, hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            entry.seq,
+            entry.provenance_id,
+            entry.decision_id,
+            entry.tenant_id,
+            entry.created_at,
+            canonical_json(entry.document),
+            entry.payload_digest,
+            entry.prev_hash,
+            entry.hash,
+        ),
+    )
+    return AppendResult(entry=entry, created=True)
+
+
+def _replay(row: sqlite3.Row, tenant_id: str, payload: str) -> AppendResult:
+    """The entry `decision_id` already names — or a refusal to pretend it is one."""
+    if str(row["tenant_id"]) != tenant_id:
+        raise DecisionConflict(DUPLICATE_DECISION)
+    stored = json.loads(str(row["payload"]))
+    if canonical_json(stored["decision"]) != payload:
+        raise DecisionConflict(DUPLICATE_DECISION)
+    return AppendResult(entry=_entry(row), created=False)
+
+
+def _build(
+    seq: int,
+    prev_hash: str,
+    tenant_id: str,
+    decision: Mapping[str, Any],
+    *,
+    now: Callable[[], datetime],
+) -> AuditEntry:
+    document = {
+        "seq": seq,
+        "provenance_id": new_provenance_id(),
+        "tenant_id": tenant_id,
+        "created_at": isoformat_z(now()),
+        "decision": dict(decision),
+    }
+    payload = canonical_json(document)
+    return AuditEntry(
+        seq=seq,
+        provenance_id=str(document["provenance_id"]),
+        decision_id=str(decision["decision_id"]),
+        tenant_id=tenant_id,
+        created_at=str(document["created_at"]),
+        document=document,
+        payload_digest=sha256_digest(payload),
+        prev_hash=prev_hash,
+        hash=sha256_digest(prev_hash, payload),
+    )
+
+
 def read_only_connection(path: str | Path) -> sqlite3.Connection:
     """A second, read-only connection to the store at `path`.
 
@@ -743,6 +805,36 @@ CREATE TABLE IF NOT EXISTS chain_verification (
   checked_at           TEXT NOT NULL,
   detail               TEXT
 ) STRICT;
+
+-- The approval resource (§8.1, #40): a state machine over the Decisions that move
+-- it. Mutable on purpose — `status` and `decided_at` are what a resource *is* —
+-- while every transition also appends its Decision to the chain above, in the same
+-- transaction. `request_key` is the create's Idempotency-Key, kept on disk so a
+-- restart replays the original approval instead of minting a second one; `decide_*`
+-- remembers the deciding request so a retry can answer with what it did.
+CREATE TABLE IF NOT EXISTS approval (
+  approval_id        TEXT PRIMARY KEY,
+  tenant_id          TEXT NOT NULL,
+  run_id             TEXT NOT NULL,
+  capability_id      TEXT NOT NULL,
+  status             TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'expired', 'consumed')),
+  request            TEXT NOT NULL,
+  created_at         TEXT NOT NULL,
+  expires_at         TEXT NOT NULL,
+  decided_at         TEXT,
+  request_decision_id   TEXT,
+  request_provenance_id TEXT,
+  decided_decision_id   TEXT,
+  decided_provenance_id TEXT,
+  request_key        TEXT NOT NULL,
+  request_fingerprint TEXT NOT NULL,
+  decide_key         TEXT,
+  decide_fingerprint TEXT,
+  UNIQUE (tenant_id, request_key)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS approval_tenant_status ON approval (tenant_id, status, created_at);
+CREATE INDEX IF NOT EXISTS approval_run ON approval (tenant_id, run_id);
 
 -- The Retrieval Snapshot manifest (§4.1): what a retrieval returned, by reference.
 -- `manifest` is canonical JSON with one hash covering it; the content itself stays in

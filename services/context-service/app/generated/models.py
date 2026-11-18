@@ -26,6 +26,15 @@ class ProposedAction(WireModel):
         return data
 
 
+ApprovalStatus = Literal['pending', 'approved', 'rejected', 'expired', 'consumed']
+
+
+ApprovalListLimit = Annotated[int, Field(ge=1, le=200)]
+
+
+ApprovalListCursor = Annotated[str, Field(max_length=500)]
+
+
 class ApprovalCreateRequest(WireModel):
     run_id: RunId
     capability_id: CapabilityId
@@ -51,7 +60,7 @@ class Approval(WireModel):
     run_id: RunId
     tenant_id: TenantId
     capability_id: CapabilityId
-    status: Literal['pending', 'approved', 'rejected', 'expired', 'consumed']
+    status: ApprovalStatus
     proposed_action: ProposedAction
     requested_by: Actor
     approver_roles: list[str] = Field(max_length=32)

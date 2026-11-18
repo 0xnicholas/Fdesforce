@@ -294,8 +294,7 @@ paths:
           in: query
           required: false
           schema:
-            type: string
-            enum: [pending, approved, rejected, expired, consumed]
+            $ref: './schemas/approval.schema.json#/$defs/ApprovalStatus'
         - name: run_id
           in: query
           required: false
@@ -310,16 +309,12 @@ paths:
           in: query
           required: false
           schema:
-            type: integer
-            minimum: 1
-            maximum: 200
-            default: 50
+            $ref: './schemas/approval.schema.json#/$defs/ApprovalListLimit'
         - name: cursor
           in: query
           required: false
           schema:
-            type: string
-            maxLength: 500
+            $ref: './schemas/approval.schema.json#/$defs/ApprovalListCursor'
       responses:
         '200':
           description: Approval page

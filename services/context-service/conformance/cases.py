@@ -23,10 +23,11 @@ import copy
 import json
 import re
 import secrets
+import tempfile
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -38,8 +39,9 @@ from referencing.exceptions import Unresolvable
 from conformance.documents import ContractDocuments
 from conformance.embedded_examples import embedded_example_failures
 from conformance.examples import Example, parse_examples
-from conformance.harness import DEPLOYMENT_ID, SOLUTION_ID, ServiceProcess, new_traceparent
+from conformance.harness import DEPLOYMENT_ID, RUN_ID, SOLUTION_ID, ServiceProcess, new_traceparent
 from conformance.identity import generate_issuers, mint
+from conformance.side_effect_tool import SideEffectTool, ToolInvocation
 
 OPENAPI_DOCUMENTS = ("context-service-v1.openapi.yaml", "runtime-api-v1.openapi.yaml")
 
@@ -1178,6 +1180,357 @@ def run_c15(context: CaseContext) -> tuple[str, ...]:
     )
 
 
+
+# ---------------------------------------------------------------------------
+# C7 — record-before-act: a refused intent blocks the side-effect Tool
+# ---------------------------------------------------------------------------
+
+APPROVAL = "approval.schema.json#/$defs/Approval"
+APPROVAL_LIST = "approval.schema.json#/$defs/ApprovalList"
+APPROVAL_DECISION_RESPONSE = "approval.schema.json#/$defs/ApprovalDecisionResponse"
+PROVENANCE_RESPONSE = "decision.schema.json#/$defs/ProvenanceResponse"
+PROPOSED_ACTION = {
+    "tool": "claim-decision",
+    "operation": "recordDecision",
+    "input_digest": "sha256:" + "c" * 64,
+    "summary": "Mark claim C-1001 as approved.",
+}
+APPROVER_ROLE = "claims-supervisor"
+APPROVER = {"type": "user", "id": "u-supervisor"}
+
+
+def _intent_writer(service: ServiceProcess, invocation: ToolInvocation):
+    """The Tool's one write: `POST /v1/decisions` as the same trace and actor.
+
+    C6 binds the body to the token, so the identity that writes the intent is the
+    one the intent names — a Tool cannot record its act under another's identity.
+    """
+
+    def write(decision: Mapping[str, Any], key: str) -> tuple[int, str]:
+        headers = service.authorized(
+            actor=dict(invocation.actor), trace_id=invocation.trace_id, run_id=invocation.run_id
+        )
+        response = service.post("/v1/decisions", json=dict(decision), headers={**headers, "Idempotency-Key": key})
+        return response.status_code, response.text
+
+    return write
+
+
+def run_c7(context: CaseContext) -> tuple[str, ...]:
+    """C7: the intent Decision comes first; if it cannot be written, nothing happens.
+
+    The Tool is the fixture in `conformance.side_effect_tool` (a synthetic
+    capability, not the Acme reference path): it writes its intent through the real
+    audit endpoint and only acts on a 2xx. The case proves the gate both ways —
+    refused writes block the effect, a recorded one lets it run — so a wrapper that
+    always refused could not pass it.
+    """
+    service = context.require_service()
+    documents = context.documents
+    failures: list[str] = []
+    tool = SideEffectTool(Path(tempfile.mkdtemp(prefix="fde-c7-effects-")) / "effects.jsonl")
+
+    def invocation() -> ToolInvocation:
+        trace_id = secrets.token_hex(16)
+        claims = decode_claims(service.authorized(trace_id=trace_id, run_id=RUN_ID)["authorization"])
+        return ToolInvocation.fresh(
+            tenant_id=claims["tenant_id"], run_id=claims["run_id"], actor=claims["actor"], trace_id=trace_id
+        )
+
+    # (a) The audit store refuses the intent: an id it already holds for another
+    # payload. This is the store's own 409, not a simulated failure.
+    blocked = invocation()
+    poisoned, poisoned_headers = body_and_headers(service, documents, "DecisionRequest", run_id=blocked.run_id)
+    poisoned["decision_id"] = blocked.decision_id
+    written = service.post(
+        "/v1/decisions", json=poisoned, headers={**poisoned_headers, "Idempotency-Key": secrets.token_hex(16)}
+    )
+    if written.status_code != 201:
+        failures.append(
+            f"the case could not claim the Tool's decision_id: {written.status_code} {written.text[:200]}"
+        )
+    refused = tool.invoke(blocked, write_intent=_intent_writer(service, blocked))
+    if refused.executed:
+        failures.append("a Tool ran although its intent Decision was refused (record-before-act is not enforced)")
+    if refused.intent_status != 409:
+        failures.append(f"the refused intent answered {refused.intent_status}, expected the store's 409")
+    if tool.observed():
+        failures.append("the customer system was written to although no intent was recorded")
+
+    # (b) The store is unreachable. A wrapper that only checked for non-2xx answers
+    # would act here; the gate has to treat a transport failure as "not recorded".
+    unreachable = invocation()
+
+    def down(decision: Mapping[str, Any], key: str) -> tuple[int, str]:
+        raise ConnectionError("connection refused: the audit store is not answering")
+
+    offline = tool.invoke(unreachable, write_intent=down)
+    if offline.executed:
+        failures.append("a Tool ran while it could not reach the audit store; the gate is not fail-closed")
+    if tool.observed():
+        failures.append("the customer system was written to while the intent write never left the process")
+
+    # (c) The control: an intent that is recorded lets the effect run, exactly once.
+    allowed = invocation()
+    recorded = tool.invoke(allowed, write_intent=_intent_writer(service, allowed))
+    if not recorded.executed:
+        failures.append(f"a recorded intent did not let the Tool run: {recorded.intent_error}")
+    effects = tool.observed()
+    if len(effects) != 1:
+        failures.append(f"the Tool ran {len(effects)} times for one invocation, expected exactly once")
+    provenance = service.get(f"/v1/provenance/{allowed.decision_id}", headers=service.authorized())
+    if provenance.status_code != 200:
+        failures.append(f"the intent Decision is not readable: {provenance.status_code} {provenance.text[:200]}")
+    else:
+        failures.extend(
+            f"the intent Decision: {problem}"
+            for problem in documents.problems(provenance.json(), PROVENANCE_RESPONSE)
+        )
+        decision = provenance.json()["decision"]
+        if decision.get("phase") != "intent" or decision.get("status") != "proposed":
+            failures.append(
+                f"the recorded Decision is {decision.get('phase')}/{decision.get('status')}, not intent/proposed"
+            )
+        if decision.get("invocation_id") != allowed.invocation_id:
+            failures.append("the intent Decision does not name the invocation it was written for")
+
+    if failures:
+        raise CaseFailure(failures)
+    return (
+        "a conflicting intent write (409) blocked the side effect, no effect observed",
+        "an unreachable audit store blocked it too; the gate is fail-closed",
+        "a recorded intent (201) let the one effect run, with its intent Decision readable",
+    )
+
+
+# ---------------------------------------------------------------------------
+# C8 — the approval state machine
+# ---------------------------------------------------------------------------
+
+
+def _approval_body(*, run_id: str, expires_at: str) -> dict[str, Any]:
+    return {
+        "run_id": run_id,
+        "capability_id": "document-triage",
+        "proposed_action": dict(PROPOSED_ACTION),
+        "approver_roles": [APPROVER_ROLE],
+        "expires_at": expires_at,
+        "evidence": [{"type": "graph_entity", "entity_id": "fde:acme:Claim:C-1001"}],
+    }
+
+
+def _approval_decision_body(*, actor: Mapping[str, str], approved: bool = True) -> dict[str, Any]:
+    return {
+        "approved": approved,
+        "rationale": "The claim matches the approval threshold.",
+        "actor": dict(actor),
+    }
+
+
+def _future(seconds: int) -> str:
+    moment = datetime.now(UTC) + timedelta(seconds=seconds)
+    return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def run_c8(context: CaseContext) -> tuple[str, ...]:
+    """C8: pending → approved → consumed, rejection, expiry, self-approval, replay.
+
+    Every call mints its own token (a `jti` is single use), and each refusal is
+    read as the contract's envelope: a self-approval is a `403`, a second decision
+    under a new key is `409 approval_already_decided`, and a consume repeat is the
+    consumed resource rather than an error.
+    """
+    service = context.require_service()
+    documents = context.documents
+    failures: list[str] = []
+
+    def create_approval(*, expires_in_seconds: int = 3600) -> dict[str, Any] | None:
+        run_id = RUN_ID
+        body = _approval_body(run_id=run_id, expires_at=_future(expires_in_seconds))
+        claims = decode_claims(service.authorized(run_id=run_id)["authorization"])
+        body["requested_by"] = claims["actor"]
+        response = service.post(
+            "/v1/approvals",
+            json=body,
+            headers={
+                **service.authorized(trace_id=secrets.token_hex(16), run_id=run_id),
+                "Idempotency-Key": secrets.token_hex(16),
+            },
+        )
+        if response.status_code != 201:
+            failures.append(f"create approval answered {response.status_code}: {response.text[:300]}")
+            return None
+        document = response.json()
+        failures.extend(f"the created approval: {problem}" for problem in documents.problems(document, APPROVAL))
+        if document.get("status") != "pending":
+            failures.append(f"a created approval is {document.get('status')!r}, expected 'pending'")
+        return document
+
+    def decide(approval_id: str, *, actor: Mapping[str, str], roles: Sequence[str], approved: bool = True) -> Any:
+        return service.post(
+            f"/v1/approvals/{approval_id}/decisions",
+            json=_approval_decision_body(actor=actor, approved=approved),
+            headers={
+                **service.authorized(actor=dict(actor), roles=roles, run_id=RUN_ID),
+                "Idempotency-Key": secrets.token_hex(16),
+            },
+        )
+
+    def consume(approval_id: str) -> Any:
+        return service.post(
+            f"/v1/approvals/{approval_id}/consume",
+            headers={
+                **service.authorized(actor=dict(APPROVER), roles=(APPROVER_ROLE,), run_id=RUN_ID),
+                "Idempotency-Key": secrets.token_hex(16),
+            },
+        )
+
+    # pending → approved → consumed
+    approval = create_approval()
+    if approval is None:
+        raise CaseFailure(failures)
+    approval_id = approval["approval_id"]
+    requester = decode_claims(service.authorized(run_id=RUN_ID)["authorization"])["actor"]
+
+    queue = service.get(
+        "/v1/approvals",
+        params={"run_id": RUN_ID, "status": "pending"},
+        headers=service.authorized(run_id=None),
+    )
+    if queue.status_code != 200:
+        failures.append(f"the approval queue answered {queue.status_code}: {queue.text[:200]}")
+    else:
+        failures.extend(f"the queue page: {problem}" for problem in documents.problems(queue.json(), APPROVAL_LIST))
+        if approval_id not in [item["approval_id"] for item in queue.json()["items"]]:
+            failures.append("a pending approval is missing from the pending queue")
+
+    # Self-approval: the requester's own token decides nothing (§8.3 default deny).
+    self_decided = decide(approval_id, actor=requester, roles=(APPROVER_ROLE,))
+    if self_decided.status_code != 403:
+        failures.append(f"a self-approval answered {self_decided.status_code}, expected 403")
+    else:
+        error = _error_envelope(documents, self_decided, "the self-approval")
+        if error["details"].get("reason") != "self_approval_denied":
+            failures.append(f"a self-approval was refused with {error['details'].get('reason')!r}")
+
+    # Not a declared approver: the role the request names is the one that decides.
+    wrong_role = decide(approval_id, actor=APPROVER, roles=("auditor",))
+    if wrong_role.status_code != 403:
+        failures.append(f"an approver without the declared role answered {wrong_role.status_code}, expected 403")
+
+    # The one decision this approval gets, under the key its retry will reuse.
+    decide_key = secrets.token_hex(16)
+    decide_payload = _approval_decision_body(actor=APPROVER)
+
+    def decide_with_key(key: str) -> Any:
+        return service.post(
+            f"/v1/approvals/{approval_id}/decisions",
+            json=decide_payload,
+            headers={
+                **service.authorized(actor=dict(APPROVER), roles=(APPROVER_ROLE,), run_id=RUN_ID),
+                "Idempotency-Key": key,
+            },
+        )
+
+    approved = decide_with_key(decide_key)
+    if approved.status_code != 200:
+        failures.append(f"an approval answered {approved.status_code}: {approved.text[:300]}")
+    else:
+        decision = approved.json()
+        failures.extend(
+            f"the approval decision: {problem}" for problem in documents.problems(decision, APPROVAL_DECISION_RESPONSE)
+        )
+        if decision.get("status") != "approved":
+            failures.append(f"the approval decision says {decision.get('status')!r}, expected 'approved'")
+        provenance = service.get(f"/v1/provenance/{decision['decision_id']}", headers=service.authorized())
+        if provenance.status_code != 200:
+            failures.append(f"the approval Decision is not readable: {provenance.status_code}")
+        else:
+            failures.extend(
+                f"the approval Decision: {problem}"
+                for problem in documents.problems(provenance.json(), PROVENANCE_RESPONSE)
+            )
+            recorded = provenance.json()["decision"]
+            if recorded.get("phase") != "approval" or recorded.get("status") != "succeeded":
+                failures.append(
+                    f"the approval Decision is {recorded.get('phase')}/{recorded.get('status')}, not approval/succeeded"
+                )
+            if recorded.get("rationale") != _approval_decision_body(actor=APPROVER)["rationale"]:
+                failures.append("the approval Decision does not keep the approver's rationale")
+
+    # Idempotent decide: the same key and payload answers with the same decision.
+    replay = decide_with_key(decide_key)
+    if replay.status_code != 200:
+        failures.append(f"a decide replay answered {replay.status_code}: {replay.text[:200]}")
+    elif approved.status_code == 200 and replay.json()["decision_id"] != approved.json()["decision_id"]:
+        failures.append("a decide replay named a different decision_id")
+    # A different key after the decision is a conflict, not a second decision.
+    again = decide(approval_id, actor=APPROVER, roles=(APPROVER_ROLE,), approved=False)
+    if again.status_code != 409:
+        failures.append(f"a second decision answered {again.status_code}, expected 409")
+    elif _error_envelope(documents, again, "the second decision")["code"] != "approval_already_decided":
+        failures.append("a second decision did not answer 'approval_already_decided'")
+
+    # consume twice: the same consumed resource, no second decision.
+    consumed = consume(approval_id)
+    repeat = consume(approval_id)
+    for label, response in (("the consume", consumed), ("the consumed repeat", repeat)):
+        if response.status_code != 200:
+            failures.append(f"{label} answered {response.status_code}: {response.text[:200]}")
+            continue
+        failures.extend(f"{label}: {problem}" for problem in documents.problems(response.json(), APPROVAL))
+        if response.json().get("status") != "consumed":
+            failures.append(f"{label} says {response.json().get('status')!r}, expected 'consumed'")
+
+    # Rejection: denied, never consumable, and the Decision keeps the reason.
+    rejected_approval = create_approval()
+    if rejected_approval is not None:
+        rejected = decide(rejected_approval["approval_id"], actor=APPROVER, roles=(APPROVER_ROLE,), approved=False)
+        if rejected.status_code != 200:
+            failures.append(f"a rejection answered {rejected.status_code}: {rejected.text[:200]}")
+        else:
+            if rejected.json().get("status") != "rejected":
+                failures.append("a rejection did not answer status='rejected'")
+            provenance = service.get(f"/v1/provenance/{rejected.json()['decision_id']}", headers=service.authorized())
+            if provenance.status_code != 200 or provenance.json()["decision"].get("status") != "denied":
+                failures.append("a rejection's Decision is not recorded as 'denied'")
+        not_consumable = consume(rejected_approval["approval_id"])
+        if not_consumable.status_code != 409:
+            failures.append(f"consuming a rejected approval answered {not_consumable.status_code}, expected 409")
+
+    # Expiry: past the deadline the approval is expired, and no decision lands.
+    expiring = create_approval(expires_in_seconds=1)
+    if expiring is not None:
+        time.sleep(1.3)
+        late = decide(expiring["approval_id"], actor=APPROVER, roles=(APPROVER_ROLE,))
+        if late.status_code != 409:
+            failures.append(f"a decision after the deadline answered {late.status_code}, expected 409")
+        else:
+            error = _error_envelope(documents, late, "the late decision")
+            if (error["details"] or {}).get("status") != "expired":
+                failures.append("a decision after the deadline was not refused as 'expired'")
+        expired = service.get(
+            "/v1/approvals",
+            params={"run_id": RUN_ID, "status": "expired"},
+            headers=service.authorized(run_id=None),
+        )
+        if expired.status_code != 200 or expiring["approval_id"] not in [
+            item["approval_id"] for item in expired.json()["items"]
+        ]:
+            failures.append("an overdue approval is not in the expired queue")
+
+    if failures:
+        raise CaseFailure(failures)
+    return (
+        "a pending approval is in the queue, and a self-approval is refused with 403",
+        "an undeclared role is refused; the declared approver decides and the Decision is readable",
+        "a decide replay names the same decision; a second decision is 409 approval_already_decided",
+        "consume is idempotent and marks the approval consumed",
+        "a rejection is a denied Decision and cannot be consumed",
+        "an overdue approval expires and refuses the late decision",
+    )
+
+
 # ---------------------------------------------------------------------------
 # The suite
 # ---------------------------------------------------------------------------
@@ -1189,8 +1542,8 @@ CASES: tuple[Case, ...] = (
     Case("C4", "Decision idempotent replay", run_c4, needs_service=True),
     Case("C5", "Idempotency conflict", run_c5, needs_service=True),
     Case("C6", "Trace propagation", run_c6, needs_service=True),
-    Case("C7", "Record-before-act", None, needs_service=True, owner="#40"),
-    Case("C8", "Approval state machine", None, needs_service=True, owner="#40"),
+    Case("C7", "Record-before-act", run_c7, needs_service=True),
+    Case("C8", "Approval state machine", run_c8, needs_service=True),
     Case("C9", "Contract handshake", None, needs_service=True, owner="#41"),
     Case("C10", "422 normalization", run_c10, needs_service=True),
     Case("C11", "SSE event envelope", None, needs_service=True, owner="#42"),

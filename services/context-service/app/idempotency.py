@@ -22,8 +22,9 @@ identity is `decision_id` in the audit store (`app.audit`): a restart forgets th
 key, the retry reaches the handler, and the handler returns the entry the id
 already names instead of appending a second one. This store is therefore a fast
 path that replays the original HTTP response byte for byte — it is not the
-mechanism a restart could undo. When the approval store lands (#40) it gets the
-same two layers.
+mechanism a restart could undo. The approval store (#40) has the same two layers
+*and* a durable one, because it mints the id (§3.5): `(tenant_id, key)` is on the
+approval row, and the key that decided is on it too.
 
 A replay answers `200` with the original body (§3.5). When the operation's
 response schema declares `idempotent_replay`, the flag is flipped to `true` in the
@@ -173,7 +174,18 @@ def fingerprint(body: bytes) -> str:
         parsed = json.loads(body)
     except (json.JSONDecodeError, UnicodeDecodeError):
         return hashlib.sha256(body).hexdigest()
-    return hashlib.sha256(canonical_json(parsed).encode("utf-8")).hexdigest()
+    return fingerprint_of(parsed)
+
+
+def fingerprint_of(payload: Any) -> str:
+    """The same fingerprint from a *parsed* body.
+
+    A handler that must record its key durably (the approval store, #40) sees the
+    body after the middleware has consumed it, so it fingerprints the validated
+    document. Sharing this function is what keeps the two fingerprints — the
+    middleware's replay and the store's durable one — the same value.
+    """
+    return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
 
 def declares_replay_flag(operation: Operation) -> bool:
@@ -358,3 +370,20 @@ async def _send(send: Send, status: int, recorded: RecordedResponse, body: bytes
     ]
     await send({"type": "http.response.start", "status": status, "headers": headers})
     await send({"type": "http.response.body", "body": body})
+
+
+def key_of(request: Request) -> str:
+    """The `Idempotency-Key` this request was admitted with.
+
+    The middleware has already refused a missing, malformed or out-of-range key, so
+    a handler on an operation that declares one can rely on the value. The approval
+    store records it durably (§3.5), which is why the handler needs the raw key and
+    not just the middleware's answer.
+    """
+    key = request.headers.get("idempotency-key", "").strip()
+    if not key:
+        raise RuntimeError(
+            f"{request.method} {request.url.path} reached its handler without an Idempotency-Key; "
+            "the middleware admits only the operations the contract marks, and refuses a missing key"
+        )
+    return key

@@ -608,6 +608,28 @@ stateDiagram-v2
 - `consume` 由 `mastra-app` 的服务主体调用，scope 为 `approval:consume`；审批人不需要这个 scope。
 - 客户审批 UI 不在本阶段；契约提供 API + 参考 CLI，客户应用自建界面。
 
+### 8.4 审批 Decision 与 v0 实现口径
+
+审批资源的每次状态迁移都写一条 `decision_type=approval`、`phase=approval` 的 Decision，并与状态行在同一事务提交；`Approval.decision_id` 指向当前状态所依据的那条：
+
+| 资源状态 | Decision `status` | `actor` | 说明 |
+|---|---|---|---|
+| `pending` | `proposed` | `requested_by` | 创建审批时写入的请求 Decision |
+| `approved` | `succeeded` | 审批人 | 审批决定 |
+| `rejected` | `denied` | 审批人 | 审批决定，保留 `rationale` |
+| `expired` | `cancelled` | `system:context-service` | 到期且无人决定；`timestamp` = `expires_at`，`trace_id` 由 `approval_id` 派生（没有调用方） |
+| `consumed` | 不变 | — | 沿用批准它的那条 Decision |
+
+Decision 的 `status` 词表没有 approved/expired：审批是对动作的决定，所以批准是 `succeeded`、拒绝是 `denied`、到期未决是 `cancelled`；审批资源保留 §8.1 的状态词。
+
+v0 的实现边界：
+
+- **自审只拒绝。** §8.3 的「Policy 可显式允许」需要 Policy 引擎（Slice 2），本片实现默认拒绝。
+- **审批按 Run 隔离。** `decide`/`consume` 与资源一样是 Run 作用域：token 的 `run_id` 必须等于审批的 `run_id`；跨 Run 或跨 tenant 的审批按不存在处理（`404`）。
+- **到期是状态，不是定时器竞态。** `expires_at` 一过，`decide`/`consume`/`list` 都会先把它标为 `expired`；后台清理任务只负责无人读取的队列。
+- **重复请求不产生第二条证据。** `create` 的幂等键 `(tenant_id, Idempotency-Key)` 持久化在审计卷上；`decide` 记住作出决定的 key，同 key 同 payload 重放原结果，不同 key 返回 `409 approval_already_decided`；`consume` 按状态幂等。
+- **审批不绕过 record-before-act。** 本片只实现最小 gate：intent Decision 写失败即不执行副作用（C7）；完整 intent/outcome/evidence/outbox 机制归 Slice 2（C26–C32）。
+
 ## 9. Bundle 拓扑与生命周期
 
 ### 9.1 组件

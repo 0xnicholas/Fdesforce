@@ -99,5 +99,7 @@ that establishes the graph and audit schema before anything else starts, and lex
 retrieval with 2-hop expansion into an immutable Retrieval Snapshot (#38), and the
 full deterministic Recipe pipeline executed from the frozen Customer Context Package,
 the ingest job and its ledger, the two reference Connectors with the typed-operation
-seam, and the degraded semantics that make an incomplete graph say so (#39). The
-remaining context-service behaviour is #40; the deployment smoke is #41–#43.
+seam, and the degraded semantics that make an incomplete graph say so (#39), and the
+§8 approval resource — the five-status state machine whose every move is a Decision —
+with C7/C8 green in the runner (#40). What remains is the deployment smoke and the
+end-to-end Run: #41–#43.

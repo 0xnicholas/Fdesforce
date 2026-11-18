@@ -74,7 +74,9 @@ def test_the_job_establishes_both_volumes_and_exits_zero(tmp_path: Path) -> None
 
     with sqlite3.connect(audit) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == int(AUDIT_SCHEMA_VERSION)
-    assert {"audit_entry", "chain_verification"} <= tables(audit)
+    # `approval` is the state machine over approval Decisions (#40); it shares the
+    # audit volume because a transition and its Decision are one commit.
+    assert {"audit_entry", "chain_verification", "approval"} <= tables(audit)
 
     snapshot = json.loads(graph.read_text(encoding="utf-8"))
     assert snapshot["fde_schema"]["version"] == GRAPH_SCHEMA_VERSION

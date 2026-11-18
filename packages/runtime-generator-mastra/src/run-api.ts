@@ -24,8 +24,9 @@ export interface ContractOperation {
  * Every route this slice serves: the four Run operations plus the three `ops`
  * routes the handshake added (#30). `/readyz` and `/v1/runtime-info` declare a 503
  * because the startup handshake can fail closed (§9.3); `/healthz` never does.
- * `POST /v1/approvals…` is the context-service proxy (#29/#40), not a Run API route
- * the app owns.
+ * `POST /v1/approvals…` is the context-service proxy (#29, Slice 2 HITL), not a Run
+ * API route the app owns: context-service serves the approval resource (#40), but a
+ * workflow that suspends on `approval.required` is not generated in this slice.
  */
 export const RUN_API_OPERATIONS: ReadonlyArray<ContractOperation> = [
   {

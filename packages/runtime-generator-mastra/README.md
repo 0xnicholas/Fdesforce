@@ -534,7 +534,7 @@ is recorded here so an FDE engineer reading the tree knows where it went.
 | per-call token reissuance, `on_behalf_of`, approval-proxy tokens | the whole Run shares the ExecutionContext minted for it, with `exp` capped at the Run deadline; `on_behalf_of` stays unimplemented because v0 does not let a service impersonate a user (§5.1) |
 | capability `audit.runOutcomeDecision`, the run-level Decision write | `ContextClient.recordDecision` carries the write path and its retry semantics; the call lands with audit (#37/#42) |
 | `text.delta` / `text.done` (token streaming) | the envelope already allows them; emitting them needs the Agent `stream()` path and the Mastra `writer` mapping, an additive follow-up after this slice |
-| `approval.*` events, approval proxy routes | #40, C16–C25 |
+| `approval.*` events, approval proxy routes | Slice 2 HITL (C16–C25): the approval resource is served by context-service (#40), but a workflow that suspends on it — and the app route that proxies to it — is not generated in this slice |
 | `workflow.durable` resume, reconciler | C26–C32/A6 |
 | capability `budget` (tool calls / steps per Run) | #29 |
 | `build.toolchain.image` | build provenance (#33) |

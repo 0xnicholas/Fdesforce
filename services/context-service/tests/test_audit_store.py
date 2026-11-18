@@ -319,3 +319,28 @@ def test_the_document_is_the_hashed_payload(store: AuditStore) -> None:
     assert document["provenance_id"] == result.entry.provenance_id
     assert document["decision"] == decision()
     assert result.entry.payload_digest == sha256_digest(canonical_json(document))
+
+
+# ---------------------------------------------------------------------------
+# The write seam: one transaction can carry a Decision and the state it justifies
+# ---------------------------------------------------------------------------
+
+
+def test_a_write_transaction_appends_and_commits(store: AuditStore) -> None:
+    """The seam `app.approvals` writes through: an append inside a caller's transaction."""
+    with store.write() as writes:
+        result = writes.append(decision())
+
+    assert result.created is True
+    assert len(store) == 1
+    assert store.decision(decision()["decision_id"], tenant_id="acme") is not None
+
+
+def test_a_write_transaction_that_raises_leaves_no_entry(store: AuditStore) -> None:
+    """A caller's second write failing must undo the Decision it would have justified."""
+    with pytest.raises(RuntimeError), store.write() as writes:
+        writes.append(decision())
+        raise RuntimeError("the state this Decision justifies could not be written")
+
+    assert len(store) == 0
+    assert store.head() == (0, GENESIS_HASH)

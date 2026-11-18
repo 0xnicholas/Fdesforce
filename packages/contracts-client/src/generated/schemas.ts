@@ -10,6 +10,14 @@ export interface ProposedAction {
   summary?: string;
 }
 
+export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired" | "consumed";
+
+/** The page size `GET /v1/approvals` applies when the caller sends none. */
+export type ApprovalListLimit = number;
+
+/** The `approval_id` a page continues after (the previous page's `next_cursor`). */
+export type ApprovalListCursor = string;
+
 export interface ApprovalCreateRequest {
   run_id: RunId;
   capability_id: CapabilityId;
@@ -26,7 +34,7 @@ export interface Approval {
   run_id: RunId;
   tenant_id: TenantId;
   capability_id: CapabilityId;
-  status: "pending" | "approved" | "rejected" | "expired" | "consumed";
+  status: ApprovalStatus;
   proposed_action: ProposedAction;
   requested_by: Actor;
   approver_roles: Array<string>;

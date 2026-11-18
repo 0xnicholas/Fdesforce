@@ -41,3 +41,19 @@ def new_ulid(prefix: str) -> str:
 def new_provenance_id() -> str:
     """The audit entry id the service generates at write time (§6.2)."""
     return new_ulid("prov_")
+
+
+def new_decision_id() -> str:
+    """A Decision id the service owns.
+
+    §4.2 gives `decision_id` to the caller *of a Decision write*; when the service
+    is the writer — an approval request, an approval decision, an expiry — it mints
+    the id itself. One format, one place, so an approval Decision and a caller's
+    Decision are indistinguishable by id.
+    """
+    return new_ulid("dec_")
+
+
+def new_approval_id() -> str:
+    """The approval resource id the service generates (§4.2, §8.2)."""
+    return new_ulid("appr_")

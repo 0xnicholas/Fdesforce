@@ -125,6 +125,7 @@ class ServiceProcess:
         traceparent_trace_id: str | None = None,
         run_id: str | None = RUN_ID,
         actor: dict[str, str] | None = None,
+        roles: Iterable[str] | None = None,
         ttl_seconds: int = TOKEN_TTL_SECONDS,
         now: int | None = None,
     ) -> dict[str, str]:
@@ -143,6 +144,7 @@ class ServiceProcess:
             solution_id=SOLUTION_ID,
             trace_id=trace,
             actor=actor,
+            roles=roles,
             scopes=scopes,
             run_id=run_id,
             ttl_seconds=ttl_seconds,

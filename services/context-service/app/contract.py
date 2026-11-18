@@ -215,3 +215,91 @@ async def read_json_body(request: Request) -> Any:
     validate_body(request, instance)
     bind_identity(request, instance)
     return instance
+
+
+#: Query parameters a handler declares: name → the schema its value must satisfy.
+#: The declaration is the handler's (the contract has no per-operation parameter
+#: table yet), and `tests/test_approvals_http.py` proves the names match the OpenAPI.
+QueryDeclarations = Mapping[str, SchemaRef]
+
+
+def read_query(request: Request, declarations: QueryDeclarations) -> dict[str, Any]:
+    """The query string, parsed into the types the contract declares and validated.
+
+    Query values arrive as strings, and the contract says what they *mean*: an
+    `integer` schema (`ApprovalListLimit`) means `limit=50` is the number fifty, a
+    pattern means the string must match. So each value is parsed to its declared
+    type first and then validated by the same JSON Schema validator a body uses —
+    the bound (`1..200`) is the contract's, not a constant here.
+
+    An absent parameter takes its schema's `default`, so a handler has no second
+    opinion about what "not sent" means. An unknown or malformed parameter is a
+    `422 validation_failed`: a misspelt filter that silently returned everything
+    would be a wrong answer, which is worse than a refusal.
+    """
+    operation = operation_for(request)
+    supplied = request.query_params
+    declarations_ = dict(declarations)
+    errors = [
+        f"`{name}` is not a query parameter of {operation.operation_id}"
+        for name in sorted(set(supplied) - set(declarations_))
+    ]
+    values: dict[str, Any] = {}
+    for name, reference in declarations_.items():
+        raw = supplied.get(name)
+        if raw is None:
+            default = _default_of(reference)
+            if default is not None:
+                values[name] = default
+            continue
+        parsed, failure = _coerce(name, raw, reference)
+        if failure is not None:
+            errors.append(failure)
+            continue
+        errors.extend(f"`{name}`: {problem}" for problem in violations(parsed, reference))
+        values[name] = parsed
+
+    if errors:
+        raise FdeError(
+            "validation_failed",
+            f"the query string does not satisfy {operation.operation_id}'s parameters",
+            details={"reason": "invalid_query", "errors": errors},
+        )
+    return values
+
+
+def _schema_of(reference: SchemaRef) -> Mapping[str, Any]:
+    schema: Any = SCHEMAS.get(reference.file)
+    for part in [piece for piece in reference.pointer.split("/") if piece]:
+        if not isinstance(schema, dict) or part not in schema:
+            raise RuntimeError(f"{reference} does not resolve in contracts/schemas/")
+        schema = schema[part]
+    if not isinstance(schema, dict):
+        raise RuntimeError(f"{reference} is not a schema object")
+    return schema
+
+
+def _default_of(reference: SchemaRef) -> Any:
+    return _schema_of(reference).get("default")
+
+
+def _coerce(name: str, raw: str, reference: SchemaRef) -> tuple[Any, str | None]:
+    """`raw` as the declared JSON type, or the failure that says what was expected.
+
+    Only the types a query parameter plausibly needs are handled; an unsupported
+    declaration is a loud bug (`RuntimeError`), not a value passed through as a
+    string that would then fail the schema for the wrong reason.
+    """
+    kind = _schema_of(reference).get("type")
+    if kind == "integer":
+        try:
+            return int(raw), None
+        except ValueError:
+            return None, f"`{name}` must be an integer, not {raw!r}"
+    if kind == "boolean":
+        if raw.lower() not in ("true", "false"):
+            return None, f"`{name}` must be true or false, not {raw!r}"
+        return raw.lower() == "true", None
+    if kind in (None, "string"):
+        return raw, None
+    raise RuntimeError(f"query parameter {name!r} declares type {kind!r}, which this service cannot parse")

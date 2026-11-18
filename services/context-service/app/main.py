@@ -42,6 +42,7 @@ from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 
+from app.approvals import ApprovalStore, ApprovalSweeper
 from app.audit import AuditStore
 from app.audit_verifier import ChainVerifier
 from app.clock import isoformat_z, utc_now
@@ -72,10 +73,12 @@ def create_app(
     package: ContextPackage | None = None,
     connector_registry: ConnectorRegistry | None = None,
     ingest_ledger_store: IngestLedgerStore | None = None,
+    approvals_store: ApprovalStore | None = None,
 ) -> FastAPI:
     """Build the service. Missing required configuration fails here, at startup."""
     service_settings = settings if settings is not None else Settings.from_env()
     audit_store = audit if audit is not None else AuditStore(service_settings.audit_path)
+    approval_machine = approvals_store if approvals_store is not None else ApprovalStore(audit_store)
     graph_store = graph if graph is not None else EmbeddedGraphStore(service_settings.graph_path)
     context_pkg = package if package is not None else _load_package(service_settings)
     connector_registry = connector_registry if connector_registry is not None else ConnectorRegistry.reference()
@@ -101,12 +104,19 @@ def create_app(
         graph_store.open()
         chain_verifier = ChainVerifier(audit_store)
         task = asyncio.create_task(chain_verifier.run())
+        # Expiry is lazy on every read (§8.1, #40); this pass is what makes it true
+        # for a queue nobody is reading, so an approval does not sit `pending` past
+        # its deadline just because no request happened to look at it.
+        expiry_sweeper = ApprovalSweeper(approval_machine)
+        sweep_task = asyncio.create_task(expiry_sweeper.run())
         try:
             yield
         finally:
             await chain_verifier.stop()
+            await expiry_sweeper.stop()
             with suppress(asyncio.CancelledError):
                 await task
+                await sweep_task
             graph_store.close()
             audit_store.close()
 
@@ -129,6 +139,7 @@ def create_app(
     application.state.context_package = context_pkg
     application.state.connectors = connector_registry
     application.state.ingest_status = ingest_status
+    application.state.approvals = approval_machine
 
     # `add_middleware` prepends, so this order is the *reverse* of the call order:
     # the last one added is the outermost.

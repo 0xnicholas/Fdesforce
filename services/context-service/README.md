@@ -19,8 +19,11 @@ Since #39 it holds the **Recipe pipeline** — the whole of
 from the frozen Customer Context Package rather than from a strategy in this file —
 plus the **ingest job** that materializes that package's sources into the graph, the
 **Connector typed operations** a Tool reaches its customer system through, and the
-degraded semantics that make an incomplete graph say so. Approvals land in #40; the
-table below says exactly which handler is whose.
+degraded semantics that make an incomplete graph say so. Since #40 it holds the
+**approval resource** — the `pending → approved/rejected/expired → consumed` state
+machine from §8, whose every move is a Decision on the same volume — and C7's
+minimal record-before-act gate, which the conformance runner proves with a
+synthetic side-effect Tool. The table below says exactly which handler is whose.
 
 ## Layout
 
@@ -36,8 +39,12 @@ app/
   idempotency.py     Idempotency-Key: scope, payload fingerprint, replay, conflict (§3.5)
   canonical.py       canonical JSON + SHA-256, shared by the chain and the fingerprint
   ids.py             the service-minted stable ids (`prov_<ULID>`, `ret_<ULID>`)
-  audit.py           the append-only, hash-chained SQLite audit store (§6.4) + Retrieval Snapshots (§4.1)
+  audit.py           the append-only, hash-chained SQLite audit store (§6.4) + Retrieval Snapshots (§4.1);
+                     `write()` is the transaction seam a sub-store commits beside its Decision
   audit_verifier.py  the background verify_chain pass (startup + periodic)
+  approvals.py       the approval state machine (§8): the five statuses, the Decision each
+                     transition appends, durable create/decide idempotency, lazy expiry and
+                     the background sweep
   provenance.py      Decision → PROV-O JSON-LD + lineage summary (§6.3, C14)
   migrate.py         `python -m app.migrate`: the job that establishes both schemas (§9.2)
   retrieval.py       the Recipe pipeline: resolve → structured → graph → lexical → merge →
@@ -70,7 +77,8 @@ app/
   routes/            one module per OpenAPI tag: ops, context, connectors, decisions,
                      approvals, jobs
   generated/         GENERATED from contracts/ — never hand-edited
-conformance/         the C1–C15 runner, its real-process ES256 key harness, and the graph-volume fixture
+conformance/         the C1–C15 runner, its real-process ES256 key harness, the graph-volume
+                     fixture, and the synthetic side-effect Tool C7's gate is asserted with
 scripts/generate.py  contracts/ → app/generated/**; `--check` runs in CI
 scripts/semantica_surface.py   every semantica import vs the pinned wheel; runs in CI and in the image build
 semantica-surface.json         the reviewed surface: modules, names, class members, and the one adapter
@@ -498,6 +506,33 @@ A different key is a different write, and a different write needs its own
 a new payload is the same `409 idempotency_conflict` the audit store returns —
 even after a restart, when the in-memory key records are gone.
 
+### C7: the intent comes first
+
+C7 is asserted with the fixture above, over the real audit endpoint: the Tool's
+intent write is refused with the store's own `409` (a `decision_id` already held
+for another payload), then the same Tool is pointed at an unreachable service, and
+in both cases the customer system's file is never written. The control is the same
+Tool with a recorded intent: the effect happens exactly once and the intent
+Decision reads back as `phase=intent`, `status=proposed`, naming its
+`invocation_id`.
+
+The fixture is not the generated runtime — that wrapper is Slice 2 — and the case
+does not claim C26–C32. What it does claim is the minimal gate the ticket asks for:
+if the intent cannot be recorded, nothing acts.
+
+### C8: the approval state machine
+
+C8 drives the served resource end to end. A create answers `201 pending` and the
+request Decision; the pending queue lists it; the requester's own token is refused
+with `403 self_approval_denied`; a token without a declared role is refused too; a
+declared approver decides, and the Decision reads back through
+`/v1/provenance/{decision_id}` as `phase=approval`, `status=succeeded`, with the
+rationale. The same key and payload replay the same decision, a different key
+afterwards is `409 approval_already_decided`, and `consume` is idempotent. A
+rejection is a `denied` Decision and cannot be consumed. An approval whose
+`expires_at` passes is `expired` — the late decision is refused with
+`details.status=expired`, and the approval is in the expired queue.
+
 ### C4, C13, C14: one Decision write, one audit entry
 
 `POST /v1/decisions` appends the caller's Decision to the audit chain and answers
@@ -535,6 +570,76 @@ verifier starts a full linear pass rather than resuming from the last verified
 sequence, which is fine at v0's scale and is the first thing to change if the
 audit volume grows.
 
+## Approvals: one state machine, one Decision per move
+
+§8's approval resource is a small state machine, and every transition is evidence
+*and* state. Three rules make that one thing rather than two records that can
+disagree:
+
+- **One transaction.** The `approval` row lives on the audit volume, and
+  `AuditStore.write()` carries the Decision append and the row update in one
+  `BEGIN IMMEDIATE`. A status that committed without its Decision, or a Decision
+  whose resource still says `pending`, is not a state this store can produce —
+  including when the process dies mid-transition, because the transaction dies
+  with it.
+- **One key, one transition.** `create` is idempotent on
+  `(tenant_id, Idempotency-Key)`, recorded on disk: the middleware's record is in
+  memory, so after a restart the retried request must still answer with the
+  original `approval_id` rather than mint a second approval and a second audit
+  entry (§3.5). `decide` remembers the key that decided, so a retry with it is the
+  same decision while any other key is `409 approval_already_decided`.
+- **Expiry is a state, not a race.** A pending approval past `expires_at` is
+  expired by whoever looks first — a decide, a consume, a list page, or the
+  background `ApprovalSweeper` that runs every five seconds in the lifespan. So a
+  decision cannot land a millisecond after the deadline just because the sweep
+  has not run.
+
+What each status means on the chain, and why the words differ:
+
+| Resource | Decision (`phase=approval`) | Actor |
+| --- | --- | --- |
+| `pending` | `status=proposed` — the request Decision written at create | `requested_by` |
+| `approved` | `status=succeeded` | the approver |
+| `rejected` | `status=denied` | the approver |
+| `expired` | `status=cancelled` | `system:context-service` |
+| `consumed` | unchanged — the approval keeps the Decision that authorized it | — |
+
+The Decision vocabulary has no "approved" or "expired": an approval is a decision
+*about* an action, so approving is `succeeded`, rejecting is `denied`, and expiry —
+nobody decided — is `cancelled`. The approval resource keeps §8.1's words; the
+chain keeps its own. `Approval.decision_id` names whichever Decision the current
+state rests on, which is what an approval-gated intent cites as `ApprovalEvidence`
+(C21).
+
+Two boundaries this slice draws deliberately:
+
+- **Self-approval is denied, full stop.** §8.3 allows a Policy to permit it *and
+  record why*; the Policy engine arrives in Slice 2, so the default is the whole
+  rule here (C8 asserts the `403`).
+- **`consume` does not resume anything.** It records that the runtime is done with
+  the approval; the workflow that waits, resumes and then executes the gated Tool —
+  and the `approval.required` SSE event — are Slice 2 (C16–C25).
+
+The wire side is thin: `app/routes/approvals.py` validates the body and the query
+against `contracts/` (the list's `status`, `limit` and `cursor` schemas are named
+in `approval.schema.json` and referenced by the OpenAPI parameters, so there is no
+second copy of the enum or the bounds), builds every response through the
+generated model, and lets `app.approvals` decide the statuses. An approval that
+names another tenant — or another Run — is a `404`, the same answer a Decision and
+a Retrieval Snapshot already give: whether it exists elsewhere is not a caller's
+business.
+
+C7 is a different kind of proof. *Record-before-act* is a runtime invariant, and
+this slice's generator refuses side-effecting Tools until the wrapper lands
+(Slice 2), so the gate is asserted with a fixture: `conformance/side_effect_tool.py`
+is a synthetic Tool (capability `synthetic-side-effect`, deliberately outside the
+Acme reference path) that writes its intent through the **real**
+`POST /v1/decisions` and only performs its effect on a 2xx. The case proves the
+gate in both directions — a store refusal (`409`) and an unreachable store both
+leave the customer system untouched, while a recorded intent lets the one effect
+run — because a wrapper that always refused would pass the first half and be
+useless.
+
 ## What is real in this slice
 
 | Surface | Status |
@@ -555,16 +660,18 @@ audit volume grows.
 | Semantica pin + import-surface check | `semantica==0.7.0`; `scripts/semantica_surface.py` runs in CI and in the image build |
 | `POST /v1/decisions`, `GET /v1/provenance/{decision_id}` | served (`app/routes/decisions.py`); C4/C13/C14 green |
 | Audit store: append-only hash chain, idempotent write, background verify | served (`app/audit.py`, `app/audit_verifier.py`); opened at startup, fail closed |
-| `POST/GET /v1/approvals`, `…/decisions`, `…/consume` | routes + validation; handlers are #40 |
+| `POST/GET /v1/approvals`, `…/decisions`, `…/consume` | served (`app/routes/approvals.py`, `app/approvals.py`); the §8.1 state machine, C8 green |
+| The approval resource: five statuses, request/decision/expiry Decisions, lazy expiry + sweeper | served (`app/approvals.py`); the row and its Decision commit in one transaction, and a restart keeps both |
 | Identity: ES256 verification, scope/issuer/tenant, trace binding | served (`app/identity.py`, `app/identity_edge.py`); C2/C3/C6 green |
 | Write idempotency: key scope, fingerprint, conflict, replay | served (`app/idempotency.py`); C5 green; `decision_id` makes the write durable |
 | Retrieval Snapshot: append-only manifest, content-addressed digest | served (`app/audit.py` → `retrieval_snapshot`); triggers refuse `UPDATE`/`DELETE`, the digest is re-checked on append |
 
-An unimplemented handler answers `500 internal` with
-`details.reason = "not_implemented"` and `details.ticket` naming the owner. The
-response is contract-valid (every operation declares 500) and the route-parity
-test proves every operation in the contract is registered, so the skeleton
-cannot quietly shrink the surface it claims.
+Every operation in the contract is served since #40; `app/routes/stubs.py` keeps
+the two-sided ledger (`IMPLEMENTED` / `STUBS`) the route-parity test reads, so a
+registered route cannot appear without a decision about whether it is real. A
+stubbed operation would answer `500 internal` with
+`details.reason = "not_implemented"` and `details.ticket` naming its owner —
+contract-valid (every operation declares 500), and unmistakably temporary.
 
 `/readyz`'s 503 is the one non-envelope response: the contract defines it as
 `{status: not_ready, reasons: []}`. Every other non-2xx is the envelope.

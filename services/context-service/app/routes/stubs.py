@@ -1,34 +1,21 @@
-"""The unimplemented half of the contract surface, and who owns each handler.
+"""The implementation ledger for the contract surface.
 
-A skeleton that registered only the routes it had implemented would leave C10 —
-422 normalization — with nothing real to assert against, and would hide the size
-of what is missing. So every operation in
-`contracts/context-service-v1.openapi.yaml` is registered, and an unimplemented
-one answers with an enveloped `500 internal` whose `details` name the ticket
-that fills it. The response is contract-valid (every operation declares 500) and
-unmistakably temporary.
+`IMPLEMENTED` names the operations this build really serves; `STUBS` names the
+ones that are registered but answer with an enveloped `500` naming the ticket that
+fills them. The route-parity test asserts that every operation in
+`contracts/context-service-v1.openapi.yaml` is in exactly one of the two, so a
+route cannot be registered without a decision about whether it is real.
 
-`IMPLEMENTED` is the other half of the ledger: the route-parity test asserts that
-every operation is either there or in `STUBS`, so a new endpoint cannot appear
-without someone deciding whether it is real.
+Since #40 the ledger is one-sided — approvals were the last stubbed tag — but the
+mechanism stays for the Slices that follow: a stub's `500 internal` is
+contract-valid (every operation declares 500) and says who owns it, which is what
+kept the skeleton from quietly shrinking the surface it claimed.
 """
 
 from __future__ import annotations
 
-from typing import NoReturn
-
-from starlette.requests import Request
-
-from app.contract import operation_for, read_json_body
-from app.errors import FdeError
-
-#: `operationId` → the ticket that replaces this handler.
-STUBS: dict[str, str] = {
-    "createApproval": "#40",
-    "listApprovals": "#40",
-    "decideApproval": "#40",
-    "consumeApproval": "#40",
-}
+#: `operationId` → the ticket that will implement this handler.
+STUBS: dict[str, str] = {}
 
 #: The operations this slice really serves.
 IMPLEMENTED: frozenset[str] = frozenset(
@@ -41,26 +28,9 @@ IMPLEMENTED: frozenset[str] = frozenset(
         "retrieveContext",
         "invokeConnectorOperation",
         "startIngestJob",
+        "createApproval",
+        "listApprovals",
+        "decideApproval",
+        "consumeApproval",
     }
 )
-
-
-def unimplemented(request: Request) -> NoReturn:
-    """Refuse an operation this slice does not implement, naming its owner."""
-    operation = operation_for(request)
-    owner = STUBS.get(operation.operation_id)
-    if owner is None:
-        raise RuntimeError(
-            f"{operation.operation_id} is not implemented and no ticket owns it; add it to STUBS"
-        )
-    raise FdeError(
-        "internal",
-        f"{operation.operation_id} is not implemented in this build of context-service",
-        details={"reason": "not_implemented", "ticket": owner},
-    )
-
-
-async def unimplemented_after_validation(request: Request) -> NoReturn:
-    """Validate the body against the contract, then refuse (C10 needs both halves)."""
-    await read_json_body(request)
-    unimplemented(request)

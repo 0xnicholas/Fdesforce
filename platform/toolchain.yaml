@@ -20,6 +20,11 @@ spec:
     python: 3.12.2
     semantica: 0.7.0
     contextService: 0.1.0
+  # The volume schemas `python -m app.migrate` establishes. audit 1 gained the
+  # `approval` table in #40 without a version bump: the stamp is the evidence
+  # *format* the frozen Context Package declares compatibility with, and the new
+  # table is additive state the service refuses to serve until `migrate` creates it
+  # (`REQUIRED_OBJECTS`), so an unprepared volume still fails closed (§9.2).
   schemas:
     graph: 1
     audit: 1

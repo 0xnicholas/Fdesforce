@@ -27,6 +27,22 @@
       },
       "additionalProperties": false
     },
+    "ApprovalStatus": {
+      "type": "string",
+      "enum": ["pending", "approved", "rejected", "expired", "consumed"]
+    },
+    "ApprovalListLimit": {
+      "description": "The page size `GET /v1/approvals` applies when the caller sends none.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200,
+      "default": 50
+    },
+    "ApprovalListCursor": {
+      "description": "The `approval_id` a page continues after (the previous page's `next_cursor`).",
+      "type": "string",
+      "maxLength": 500
+    },
     "ApprovalCreateRequest": {
       "type": "object",
       "required": [
@@ -110,8 +126,7 @@
           "$ref": "./common.schema.json#/$defs/CapabilityId"
         },
         "status": {
-          "type": "string",
-          "enum": ["pending", "approved", "rejected", "expired", "consumed"]
+          "$ref": "#/$defs/ApprovalStatus"
         },
         "proposed_action": {
           "$ref": "#/$defs/ProposedAction"

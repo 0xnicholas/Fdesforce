@@ -3,7 +3,7 @@
 
 import type { ApiResult, Transport } from '../transport.js';
 import { send } from '../transport.js';
-import type { Approval, ApprovalCreateRequest, ApprovalDecisionRequest, ApprovalDecisionResponse, ApprovalId, ApprovalList, CapabilityId, ConnectorOperationRequest, ConnectorOperationResponse, DecisionId, DecisionRequest, DecisionResponse, Error, IngestJobRequest, IngestJobResult, ProvenanceResponse, RetrieveRequest, RetrieveResponse, RunId, RuntimeInfo } from './schemas.js';
+import type { Approval, ApprovalCreateRequest, ApprovalDecisionRequest, ApprovalDecisionResponse, ApprovalId, ApprovalList, ApprovalListCursor, ApprovalListLimit, ApprovalStatus, CapabilityId, ConnectorOperationRequest, ConnectorOperationResponse, DecisionId, DecisionRequest, DecisionResponse, Error, IngestJobRequest, IngestJobResult, ProvenanceResponse, RetrieveRequest, RetrieveResponse, RunId, RuntimeInfo } from './schemas.js';
 
 export const CONTEXT_SERVICE_OPERATIONS = {
   retrieveContext: { method: 'post', path: '/v1/context/retrieve' },
@@ -42,7 +42,7 @@ export interface ContextServiceHeaders {
 }
 
 export interface ContextServiceQuery {
-  listApprovals: { status?: "pending" | "approved" | "rejected" | "expired" | "consumed"; run_id?: RunId; capability_id?: CapabilityId; limit?: number; cursor?: string };
+  listApprovals: { status?: ApprovalStatus; run_id?: RunId; capability_id?: CapabilityId; limit?: ApprovalListLimit; cursor?: ApprovalListCursor };
 }
 
 export interface ContextServiceBodies {
