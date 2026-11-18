@@ -250,7 +250,7 @@ Per declared Context Source the job reads the source's records through its Conne
 `entity_id` from `fde:<tenant>:<type>:<key>`, `content` rendered from the mapped
 properties, `source_ref` naming the row (`claims-db://public.claims/C-1001`), `version`
 the watermark value — and writes one batch of entities, then the edges whose both ends
-now exist. Three rules it keeps rather than optimizes away:
+now exist. Five rules it keeps rather than optimizes away:
 
 - **only frozen semantics.** The request names a package revision; the package's
   `revisions/<version>.yaml` is `fde context freeze`'s attestation, and a digest that is
@@ -259,6 +259,14 @@ now exist. Three rules it keeps rather than optimizes away:
 - **a missing source degrades, it never vanishes.** A Connector that raises is one
   source's failure: the others still materialize, the job reports which one and why, the
   ledger keeps the graph `partial`, and every retrieval says so;
+- **a record the wire cannot carry fails its source, not the job.** The store refuses an
+  entity outside a `RetrievalItem`'s maxima (`content`, `source_ref`, `version`, type).
+  The job turns that refusal into the source's `failed` outcome and drops its watermark,
+  so the next `incremental` run re-reads the rows rather than resuming past them;
+- **a key that is not an id is counted, not raised.** A source key or relation target
+  outside `fde:<tenant>:<type>:<key>`'s character class cannot name an entity. The row or
+  edge is dropped, the source is `degraded` with the count, and the rest still
+  materializes;
 - **an edge never invents an entity.** A relation whose target the package does not
   produce is dropped and counted. A dangling reference is a package or a data problem an
   operator should see, not a fact to make up.

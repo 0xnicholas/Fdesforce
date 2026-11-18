@@ -203,7 +203,7 @@ Admin 端点只对 `customer_admin` 开放，客户应用不调用；`halt` 语�
 }
 ```
 
-Connector-backed Tool 只通过这个端点访问客户数据源（D6）：Tool 不持有 Connector 凭据，也拿不到数据源地址；tenant、scope 与数据权限都在持有凭据的这一侧执行。platform scope 是 `context:retrieve`（这是上下文访问），而**数据**权限来自客户基线 `permissions.yaml` —— 声明了 scopes 的实体类别对不持有该 scope 的调用者拒绝，被 mask 的属性与检索时一样保持 mask。`connector_id` 在 body 与 path 不一致时是 `400 invalid_request`；未注册的 Connector、以及该 Connector 未实现的 operation 都是 `404 not_found`。
+Connector-backed Tool 只通过这个端点访问客户数据源（D6）：Tool 不持有 Connector 凭据，也拿不到数据源地址；tenant、scope 与数据权限都在持有凭据的这一侧执行。platform scope 是 `context:retrieve`（这是上下文访问），而**数据**权限来自客户基线 `permissions.yaml` —— 声明了 scopes 的实体类别对不持有该 scope 的调用者拒绝，与检索的 mask 阶段共用同一个谓词。operation 的 `result` 由 Tool 的 output schema 定义，不经过检索的 item 渲染，因此 Connector 不应返回基线要求 mask 的属性；属性级 mask 是检索 item 的职责。`connector_id` 在 body 与 path 不一致时是 `400 invalid_request`；未注册的 Connector、以及该 Connector 未实现的 operation 都是 `404 not_found`。
 
 ### 3.4 错误 envelope
 

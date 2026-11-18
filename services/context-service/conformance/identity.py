@@ -48,8 +48,10 @@ RUNTIME_SCOPES = (
     "provenance:read",
 )
 #: `fde-jobs` carries only the maintenance scopes — that narrowness is the reason
-#: the second issuer exists (`MAINTENANCE_SCOPES`).
+#: the second issuer exists (`MAINTENANCE_SCOPES`). It also carries no platform role:
+#: `service` would derive `context:retrieve` under §5.1's role→scope rule.
 JOBS_SCOPES = ("context:ingest",)
+JOBS_ROLES: tuple[str, ...] = ()
 
 
 def _b64url(data: bytes) -> str:
@@ -138,7 +140,7 @@ def mint(
     trace_id: str,
     actor: dict[str, str] | None = None,
     subject: str | None = None,
-    roles: Iterable[str] = ("service",),
+    roles: Iterable[str] | None = None,
     scopes: Iterable[str] | None = None,
     run_id: str | None = None,
     ttl_seconds: int = TOKEN_TTL_SECONDS,
@@ -156,6 +158,7 @@ def mint(
     # them (`packages/runtime-generator-mastra/src/identity.ts`): a body may say
     # `subject.id` and mean either, so the two must not drift here.
     principal = subject or ("fde-jobs" if is_jobs else "u-42")
+    default_roles: tuple[str, ...] = JOBS_ROLES if is_jobs else ("service",)
     claims: dict[str, Any] = {
         "iss": issuer.iss,
         "aud": AUDIENCE,
@@ -165,7 +168,7 @@ def mint(
         "deployment_id": deployment_id,
         "solution_id": solution_id,
         "trace_id": trace_id,
-        "roles": list(roles),
+        "roles": list(roles if roles is not None else default_roles),
         "scopes": sorted(set(scopes if scopes is not None else (JOBS_SCOPES if is_jobs else RUNTIME_SCOPES))),
         "iat": issued_at,
         "exp": issued_at + ttl_seconds,

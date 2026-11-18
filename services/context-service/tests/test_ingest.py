@@ -24,6 +24,7 @@ from typing import Any
 import pytest
 
 from app.connectors import ConnectorRegistry
+from app.connectors.documents import DocumentConnector
 from app.connectors.port import OperationNotFound, Page, Record
 from app.context_package import ContextPackage
 from app.graph import snapshot
@@ -316,6 +317,71 @@ def test_the_ingest_entity_is_what_the_retrieval_needs_to_cite_it(
     assert entity.attributes["source"] == "claims-db"
     assert entity.attributes["source_kind"] == "structured"
     assert entity.attributes["properties"]["ic:claimId"] == "C-1001"
+
+
+def test_a_key_outside_the_entity_id_class_degrades_the_source_instead_of_crashing(
+    package: ContextPackage, graph: EmbeddedGraphStore, ledger: IngestLedgerStore
+) -> None:
+    """A source key is customer data, not a promise: an id-invalid one is counted.
+
+    `fde:<tenant>:<type>:<key>` has a character class (§4.2); a row whose key is outside
+    it cannot be cited. One such row must not turn the other sources' facts into a 500.
+    """
+    rows = default_rows()
+    rows["public.claims"].append(claim_row("C 1002", updated_at="2026-01-03T10:00:00Z"))
+    registry = ConnectorRegistry([MutableConnector(rows)])
+
+    result = run(
+        package, registry, graph, ledger, tenant_id=TENANT, request=request(package, sources=("claims-db",))
+    )
+
+    assert result.status == "degraded"
+    assert "cannot be cited" in (result.sources[0].reason or "")
+    assert graph.get_entity(TENANT, "fde:acme:claim:C-1001") is not None, "the valid rows still materialize"
+
+
+def test_an_entity_the_wire_cannot_carry_fails_its_source_not_the_job(
+    package: ContextPackage, graph: EmbeddedGraphStore, ledger: IngestLedgerStore
+) -> None:
+    """A row whose content exceeds the wire's maximum is a broken source, not a 500.
+
+    The store refuses an entity a `RetrievalItem` could not carry (§3.3, §4.3). The job
+    has to turn that refusal into a source outcome: the other source still materializes,
+    the ledger stays `partial`, and an operator can read which source was bad.
+    """
+    rows = default_rows()
+    rows["public.claims"].append(claim_row("C-1004", updated_at="2026-01-04T10:00:00Z"))
+    rows["public.claims"][-1]["status"] = "x" * 20_001
+    registry = ConnectorRegistry([MutableConnector(rows), DocumentConnector.from_seed()])
+
+    result = run(package, registry, graph, ledger, tenant_id=TENANT, request=request(package))
+    state = ledger.load()
+
+    assert result.status == "failed"
+    failed = next(source for source in result.sources if source.source == "claims-db")
+    assert failed.status == "failed"
+    assert "content" in (failed.reason or "")
+    assert any(source.source == "sharepoint-claims" and source.status == "ok" for source in result.sources)
+    assert state is not None and not state.complete
+
+
+def test_a_relation_target_outside_the_entity_id_class_is_dropped_not_fatal(
+    package: ContextPackage, graph: EmbeddedGraphStore, ledger: IngestLedgerStore
+) -> None:
+    """An id-invalid target cannot be an entity, so the edge is lost and counted — not thrown."""
+    rows = default_rows()
+    rows["public.claims"].append(
+        claim_row("C-1002", updated_at="2026-01-03T10:00:00Z", policy="P 2002")
+    )
+    registry = ConnectorRegistry([MutableConnector(rows)])
+
+    result = run(
+        package, registry, graph, ledger, tenant_id=TENANT, request=request(package, sources=("claims-db",))
+    )
+
+    assert result.status == "degraded"
+    assert "relation" in (result.sources[0].reason or "")
+    assert graph.get_entity(TENANT, "fde:acme:claim:C-1002") is not None, "the record itself is still citable"
 
 
 def test_an_entity_is_attributable_or_it_is_not_ingested(

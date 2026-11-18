@@ -57,7 +57,7 @@ _Avoid_: Function, Action
 _Avoid_: Integration, Adapter
 
 **Connector Typed Operation**:
-Connector 声明的具名操作（名称、输入/输出 schema、副作用与幂等语义）；Tool 和 ingest 都只通过 context-service 的这个接缝访问外部系统，所以 Tool 不持有 Connector 凭证、也不知道数据源地址（`docs/runtime-adapter.md` D6）。
+Connector 声明的具名操作（名称、输入/输出 schema、副作用与幂等语义）；Tool 通过 context-service 的 typed operation 端点访问它，ingest 通过同一 Connector 端口的 `read` 访问——外部系统只在 context-service 内部被调用，所以 Tool 不持有 Connector 凭证、也不知道数据源地址（`docs/runtime-adapter.md` D6）。
 _Avoid_: Query, SQL, RPC
 
 ## 复用与定制

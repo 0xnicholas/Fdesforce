@@ -96,5 +96,8 @@ Decision write and the provenance read (#37), and the embedded Context Graph: th
 `GraphStore` port with its stable `entity_id` rules, the Semantica 0.7.0 pin whose
 import surface CI (and the image build) verifies against the wheel, the `migrate` job
 that establishes the graph and audit schema before anything else starts, and lexical
-retrieval with 2-hop expansion into an immutable Retrieval Snapshot (#38). The
-remaining context-service behaviour is #39–#40; the deployment smoke is #41–#43.
+retrieval with 2-hop expansion into an immutable Retrieval Snapshot (#38), and the
+full deterministic Recipe pipeline executed from the frozen Customer Context Package,
+the ingest job and its ledger, the two reference Connectors with the typed-operation
+seam, and the degraded semantics that make an incomplete graph say so (#39). The
+remaining context-service behaviour is #40; the deployment smoke is #41–#43.

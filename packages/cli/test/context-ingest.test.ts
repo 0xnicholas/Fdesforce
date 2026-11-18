@@ -132,7 +132,7 @@ describe('fde context ingest', () => {
     expect(claims['deployment_id']).toBe(DEPLOYMENT);
     expect(claims['solution_id']).toBe('claims-triage');
     expect(claims['tenant_id']).toBe('acme');
-    expect(claims['roles']).toEqual(['service']);
+    expect(claims['roles']).toEqual([]);
     expect(claims['scopes']).toEqual(['context:ingest']);
     expect(claims['scopes']).not.toContain('context:retrieve');
     expect(claims['run_id']).toBeUndefined();

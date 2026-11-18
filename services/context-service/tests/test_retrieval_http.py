@@ -151,6 +151,7 @@ def retrieve(
     *,
     tenant_id: str = "acme",
     budget: dict[str, int] | None = None,
+    filters: dict[str, Any] | None = None,
     scopes: tuple[str, ...] = CLAIMS,
 ) -> Any:
     """One authenticated retrieval; the token's trace is the one the body must carry."""
@@ -158,6 +159,8 @@ def retrieve(
     body: dict[str, Any] = {"recipe_id": "claims-context", "query": query}
     if budget is not None:
         body["budget"] = budget
+    if filters is not None:
+        body["filters"] = filters
     return service.post("/v1/context/retrieve", json=body, headers=headers)
 
 
@@ -237,6 +240,20 @@ def test_a_lexical_stage_counts_top_k_inside_the_declared_source(
     assert document.entity_id in {item["entity_id"] for item in body["items"]}, (
         "the declared source's match must survive the other source's higher-ranked head"
     )
+
+
+def test_a_filter_key_outside_the_id_character_class_falls_through_to_matching(
+    seeded_service: ServiceProcess, contract: ContractDocuments
+) -> None:
+    """`filters` is an open object; a key that cannot name an entity is "not resolved".
+
+    §6.3 falls back to graph/lexical matching when the deterministic key does not
+    resolve. A contract-valid request with a key outside `[A-Za-z0-9._~:-]` must be an
+    answer, not a 500.
+    """
+    body = retrieved(seeded_service, contract, "refund premium", filters={"claim_id": "C 1001/extra"})
+
+    assert body["items"], "the query still matches the seeded facts"
 
 
 def test_the_response_carries_the_callers_trace(

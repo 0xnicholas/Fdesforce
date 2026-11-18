@@ -85,7 +85,10 @@ def mint_jobs_token(
         "deployment_id": deployment_id,
         "solution_id": solution_id,
         "trace_id": trace_id or secrets.token_hex(16),
-        "roles": ["service"],
+        # A maintenance token carries no platform role. `service` would derive
+        # `context:retrieve` (and the Decision scopes) under §5.1's role→scope rule,
+        # which is exactly the grant this second issuer exists to withhold.
+        "roles": [],
         "scopes": list(JOBS_SCOPES),
         "iat": issued_at,
         "exp": issued_at + ttl_seconds,

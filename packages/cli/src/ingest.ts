@@ -139,9 +139,10 @@ export function createJobsToken(
     deployment_id: identity.deploymentId,
     solution_id: identity.solutionId,
     trace_id: options.traceId,
-    // A maintenance credential is not a platform role grant: it carries the
-    // narrow maintenance scopes, which do not include `context:retrieve`.
-    roles: ['service'],
+    // A maintenance credential is not a platform role grant. `service` would derive
+    // `context:retrieve` (and the Decision scopes) under §5.1's role→scope rule, so the
+    // token claims no platform role and only the narrow maintenance scope.
+    roles: [],
     scopes: ['context:ingest'],
     iat,
     exp: iat + TTL_SECONDS,

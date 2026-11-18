@@ -101,7 +101,10 @@ paths:
         `x-fde-required-scope` is the platform scope that authorizes context access at
         all; the *data* permission is the customer baseline's (`permissions.yaml`): an
         entity class that names scopes is refused to a caller that does not hold them,
-        and a masked property stays masked here exactly as it does in a retrieval. A
+        through the same predicate the retrieval's mask stage uses. The operation's
+        `result` is shaped by the Tool's output schema and does not pass through the
+        retrieval's item rendering, so a Connector must not return a property the
+        baseline masks; property-level masking is the retrieval item's contract. A
         Connector an operator did not register is `404 not_found`; an operation that
         Connector does not implement is `404 not_found` too, with
         `error.details.reason` saying which. A `connector_id` in the body that

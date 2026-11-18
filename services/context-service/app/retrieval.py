@@ -60,6 +60,7 @@ from app.canonical import canonical_json, sha256_digest
 from app.clock import isoformat_z, utc_now
 from app.context_package import ContextPackage, Recipe, segment_of
 from app.generated.models import BudgetUsed, PolicyEvaluation, RetrievalItem
+from app.graph.entity_id import InvalidEntityId
 from app.graph.entity_id import parse as parse_entity_id
 from app.graph.entity_id import render as render_entity_id
 from app.graph.port import Entity, GraphStore
@@ -252,8 +253,11 @@ def _resolve(
     segment = segment_of(term)
 
     if isinstance(declared, str) and declared:
-        entity_id = render_entity_id(tenant_id, segment, declared)
-        return _Anchor(term=term, key=declared, entity_id=entity_id, entity=store.get_entity(tenant_id, entity_id))
+        entity_id = _entity_id_for(tenant_id, segment, declared)
+        if entity_id is not None:
+            return _Anchor(
+                term=term, key=declared, entity_id=entity_id, entity=store.get_entity(tenant_id, entity_id)
+            )
 
     query = str(request.get("query") or "")
     for token in _KEY_TOKEN.findall(query):
@@ -374,6 +378,20 @@ def _lexical(store: GraphStore, *, tenant_id: str, recipe: Recipe, query: str) -
         attributes = dict(entity.attributes)
         found.append(_Candidate(entity=entity, score=match.score, hop=0, stage="lexical", attributes=attributes))
     return found
+
+
+def _entity_id_for(tenant_id: str, segment: str, key: str) -> str | None:
+    """`fde:<tenant>:<segment>:<key>`, or `None` when the key cannot be one.
+
+    A key from `filters` is caller-supplied and the request schema leaves the object
+    open; a key outside the id's character class names no entity, which is the same
+    answer as a key the graph does not hold. `resolve` therefore falls through to
+    matching (§6.3) instead of failing a contract-valid call.
+    """
+    try:
+        return render_entity_id(tenant_id, segment, key)
+    except InvalidEntityId:
+        return None
 
 
 def _source_of(attributes: Mapping[str, Any]) -> str | None:

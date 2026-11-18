@@ -64,8 +64,9 @@ from app.context_package import (
     segment_of,
     type_of,
 )
+from app.graph.entity_id import InvalidEntityId
 from app.graph.entity_id import render as render_entity_id
-from app.graph.port import Entity, GraphStore, Relationship
+from app.graph.port import Entity, GraphStore, InvalidEntity, InvalidRelationship, Relationship
 from app.ids import new_ulid
 from app.ingest_ledger import (
     IngestLedger,
@@ -193,9 +194,7 @@ def run(
             if piece.outcome.status != "failed":
                 graph.delete_source(tenant_id, piece.source.id)
 
-    for piece in materialized:
-        if piece.entities:
-            graph.upsert_entities(tenant_id, sorted(piece.entities, key=lambda entity: entity.entity_id))
+    materialized = _write_entities(graph, tenant_id, materialized)
 
     outcomes = [
         _attach_edges(graph, tenant_id, piece.source.id, piece.outcome, piece.relationships)
@@ -275,17 +274,19 @@ def _materialize(
     entities: list[Entity] = []
     relationships: list[Relationship] = []
     skipped = 0
+    dropped = 0
     watermark = since
     try:
         for mapping in [entry for entry in package.entities if entry.source == source.id]:
             page = connector.read(mapping.dataset, since=window)
             watermark = _newest(watermark, page.watermark)
-            mapped, edges, missed = _map_records(
+            mapped, edges, missed, lost = _map_records(
                 mapping, page.records, tenant_id=tenant_id, source=source, now=now
             )
             entities.extend(mapped)
             relationships.extend(edges)
             skipped += missed
+            dropped += lost
         # The *source* names the dataset a document mapping reads (`sites/claims`); the
         # mapping names the paths inside it. One read, however many mappings describe it.
         document_mappings = [entry for entry in package.documents if entry.source == source.id]
@@ -293,7 +294,11 @@ def _materialize(
             page = connector.read(source.dataset, since=window)
             watermark = _newest(watermark, page.watermark)
             for document in document_mappings:
-                entities.extend(_map_chunks(document, page.records, tenant_id=tenant_id, source=source, now=now))
+                chunks, missed = _map_chunks(
+                    document, page.records, tenant_id=tenant_id, source=source, now=now
+                )
+                entities.extend(chunks)
+                skipped += missed
     except ConnectorError as error:
         return _Materialized(
             source=source,
@@ -302,7 +307,15 @@ def _materialize(
             relationships=[],
         )
 
-    reason = f"{skipped} records carry no key or no watermark, so they cannot be cited" if skipped else None
+    reasons: list[str] = []
+    if skipped:
+        reasons.append(
+            f"{skipped} records carry no key, no watermark or a key that is not an entity id, "
+            "so they cannot be cited"
+        )
+    if dropped:
+        reasons.append(f"{dropped} relations name a target that is not an entity id, so they cannot be followed")
+    reason = "; ".join(reasons) or None
     return _Materialized(
         source=source,
         outcome=SourceState(
@@ -318,6 +331,39 @@ def _materialize(
     )
 
 
+def _write_entities(
+    graph: GraphStore, tenant_id: str, pieces: Sequence[_Materialized]
+) -> list[_Materialized]:
+    """Write each source's batch; a batch the store refuses is that source's failure.
+
+    The store is the authority on what a `RetrievalItem` can carry (`WIRE_MAX`). One
+    over-long entity would otherwise fail the whole job and take every other source with
+    it, so the refusal becomes the source's outcome: the graph keeps whatever it had, the
+    ledger stays `partial`, and an operator can read which source to fix. The watermark is
+    dropped for that source so the next `incremental` run re-reads the rows it did not
+    write instead of resuming past them.
+    """
+    written: list[_Materialized] = []
+    for piece in pieces:
+        if piece.outcome.status == "failed" or not piece.entities:
+            written.append(piece)
+            continue
+        try:
+            graph.upsert_entities(tenant_id, sorted(piece.entities, key=lambda entity: entity.entity_id))
+        except InvalidEntity as error:
+            written.append(
+                replace(
+                    piece,
+                    outcome=SourceState(source=piece.source.id, status="failed", reason=str(error)),
+                    entities=[],
+                    relationships=[],
+                )
+            )
+        else:
+            written.append(piece)
+    return written
+
+
 def _map_records(
     mapping: EntityMapping,
     records: Sequence[Record],
@@ -325,11 +371,17 @@ def _map_records(
     tenant_id: str,
     source: ContextSource,
     now: datetime | None,
-) -> tuple[list[Entity], list[Relationship], int]:
-    """One `EntityMapping` over its records: entities, and the edges it asserts."""
+) -> tuple[list[Entity], list[Relationship], int, int]:
+    """One `EntityMapping` over its records: entities, edges, and what could not be used.
+
+    A record the id rules cannot express is counted, not raised: a source key is customer
+    data, and one bad row must not stop the rest of the source (or the other sources).
+    The same goes for a relation target that cannot be an entity id.
+    """
     entities: list[Entity] = []
     relationships: list[Relationship] = []
     skipped = 0
+    dropped = 0
     term = mapping.entity
     type_name = type_of(term)
     segment = segment_of(term)
@@ -344,7 +396,11 @@ def _map_records(
             for field in mapping.properties
             if field in record.values
         }
-        entity_id = render_entity_id(tenant_id, segment, key_text)
+        try:
+            entity_id = render_entity_id(tenant_id, segment, key_text)
+        except InvalidEntityId:
+            skipped += 1
+            continue
         entities.append(
             Entity(
                 entity_id=entity_id,
@@ -365,29 +421,37 @@ def _map_records(
                 },
             )
         )
-        relationships.extend(_edges_of(mapping, record, entity_id, tenant_id))
-    return entities, relationships, skipped
+        edges, lost = _edges_of(mapping, record, entity_id, tenant_id)
+        relationships.extend(edges)
+        dropped += lost
+    return entities, relationships, skipped, dropped
 
 
 def _edges_of(
     mapping: EntityMapping, record: Record, entity_id: str, tenant_id: str
-) -> list[Relationship]:
-    """The relations this record asserts, from the pre-joined keys under each predicate."""
+) -> tuple[list[Relationship], int]:
+    """The relations this record asserts, and how many targets cannot be entities at all."""
     edges: list[Relationship] = []
+    dropped = 0
     for relation in mapping.relations:
         targets = record.values.get(relation.property) or ()
         if isinstance(targets, str):
             targets = (targets,)
         for target in targets:
+            try:
+                target_id = render_entity_id(tenant_id, segment_of(relation.target_entity), str(target))
+            except InvalidEntityId:
+                dropped += 1
+                continue
             edges.append(
                 Relationship(
                     source_id=entity_id,
-                    target_id=render_entity_id(tenant_id, segment_of(relation.target_entity), str(target)),
+                    target_id=target_id,
                     predicate=relation.property,
                     weight=1.0,
                 )
             )
-    return edges
+    return edges, dropped
 
 
 def _map_chunks(
@@ -397,16 +461,20 @@ def _map_chunks(
     tenant_id: str,
     source: ContextSource,
     now: datetime | None,
-) -> list[Entity]:
+) -> tuple[list[Entity], int]:
     """One `DocumentMapping` over its chunks: each section is an attributable entity.
 
     v0 has no extractor, so a chunk is a document fragment of the class the mapping's
     `extraction.entityTypes` names as a document (`ic:ClaimDocument`). The mapping's
     `provenance` templates are the citation — `sharepoint://{path}` at `{etag}`, which is
     what a golden question's `requiredCitations` checks.
+
+    A chunk key the id rules cannot express is counted and skipped, for the same reason a
+    structured row's is: the source's key is data, and the other chunks are still citable.
     """
     term = document_term(mapping)
     entities: list[Entity] = []
+    skipped = 0
     for record in records:
         heading = str(record.values.get("heading") or "")
         text = str(record.values.get("text") or "")
@@ -415,9 +483,14 @@ def _map_chunks(
             continue
         path = str(record.values.get("path") or record.key)
         etag = str(record.values.get("etag") or "1")
+        try:
+            entity_id = render_entity_id(tenant_id, segment_of(term), record.key)
+        except InvalidEntityId:
+            skipped += 1
+            continue
         entities.append(
             Entity(
-                entity_id=render_entity_id(tenant_id, segment_of(term), record.key),
+                entity_id=entity_id,
                 type=type_of(term),
                 content=content,
                 source_ref=mapping.source_ref.replace("{path}", path),
@@ -432,7 +505,7 @@ def _map_chunks(
                 },
             )
         )
-    return entities
+    return entities, skipped
 
 
 def document_term(mapping: DocumentMapping) -> str:
@@ -463,7 +536,13 @@ def _attach_edges(
     kept = [edge for edge in relationships if graph.get_entity(tenant_id, edge.target_id) is not None]
     lost = len(relationships) - len(kept)
     if kept:
-        graph.upsert_relationships(tenant_id, kept)
+        try:
+            graph.upsert_relationships(tenant_id, kept)
+        except InvalidRelationship as error:
+            # The entities were written and are citable; the relations were not. The
+            # source is not fully materialized, so it is `failed` and the next run
+            # re-reads it rather than resuming past the rows whose edges are missing.
+            return SourceState(source=source_id, status="failed", reason=str(error))
     if not lost:
         return replace(outcome, edges=len(kept))
     dangling = f"{lost} relations point at entities the package does not produce"
