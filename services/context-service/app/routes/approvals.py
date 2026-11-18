@@ -74,7 +74,7 @@ async def list_approvals(request: Request) -> JSONResponse:
         status=query.get("status"),
         run_id=query.get("run_id"),
         capability_id=query.get("capability_id"),
-        limit=int(query.get("limit", 50)),
+        limit=query["limit"],
         cursor=query.get("cursor"),
     )
     document = ApprovalList(**page.wire())

@@ -25,24 +25,17 @@ import json
 import secrets
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from app.canonical import canonical_json, sha256_digest
+from app.clock import isoformat_z, utc_now
+from app.ids import new_ulid
 
 #: The service's intent-write seam: `(decision, idempotency key)` → `(status, body)`.
 #: The case supplies it, so "the service is down" and "the service refused" are the
 #: same call with a different answer.
 IntentWriter = Callable[[Mapping[str, Any], str], tuple[int, str]]
-
-_CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-
-
-def _ulid() -> str:
-    """A ULID-shaped id, the way §4.2 spells `inv_<ULID>` / `dec_<ULID>`."""
-    return "".join(secrets.choice(_CROCKFORD) for _ in range(26))
-
 
 @dataclass(frozen=True)
 class ToolInvocation:
@@ -67,8 +60,8 @@ class ToolInvocation:
             capability_id="synthetic-side-effect",
             actor=actor,
             trace_id=trace_id,
-            decision_id="dec_" + _ulid(),
-            invocation_id="inv_" + _ulid(),
+            decision_id=new_ulid("dec_"),
+            invocation_id=new_ulid("inv_"),
         )
 
     @property
@@ -107,7 +100,7 @@ class ToolInvocation:
             "model": {"provider": "mock", "model": "deterministic-triage"},
             "prompt_version": "document-triage@1.0.0",
             "trace_id": self.trace_id,
-            "timestamp": datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            "timestamp": isoformat_z(utc_now()),
         }
         return document
 

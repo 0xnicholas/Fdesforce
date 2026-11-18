@@ -11,7 +11,7 @@ These cases are the acceptance suite for `fde.runtime/v1` (current minor `1.4`).
 | C5 | Idempotency conflict | Same key + different payload returns `409 idempotency_conflict` |
 | C6 | Trace propagation | `traceparent` trace-id equals JWT `trace_id`; retrieve, decision, and provenance responses carry the same `trace_id` |
 | C7 | Record-before-act | A failing intent Decision blocks the side-effect Tool; no Tool call is observed |
-| C8 | Approval state machine | `pending → approved → consumed` via `/consume`; expiry produces `expired`; self-approval is denied unless policy allows; consume is idempotent |
+| C8 | Approval state machine | `pending → approved → consumed` via `/consume`; expiry produces `expired`; self-approval is denied unless policy allows (the Policy-allowed path is Slice 2; this slice asserts the default deny); consume is idempotent |
 | C9 | Contract handshake | Major contract mismatch or missing capability fails startup closed with `contract_mismatch` / `runtime_capability_mismatch` |
 | C10 | 422 normalization | Request-body validation errors use the unified error envelope, not FastAPI's default shape |
 | C11 | SSE event envelope | `seq` is monotonic, `run_id`/`trace_id` present, heartbeat at least every 15s |

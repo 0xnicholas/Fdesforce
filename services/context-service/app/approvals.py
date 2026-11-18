@@ -261,18 +261,11 @@ class ApprovalStore:
 
     def approval(self, approval_id: str, *, tenant_id: str, run_id: str | None = None) -> ApprovalRecord | None:
         """The approval this tenant — and this Run, when given — can see (§8.3)."""
-        query = "SELECT " + _COLUMNS + " FROM approval WHERE approval_id = ? AND tenant_id = ?"
-        parameters: list[Any] = [approval_id, tenant_id]
-        if run_id is not None:
-            query += " AND run_id = ?"
-            parameters.append(run_id)
-
         with self._store.write() as writes:
-            row = writes.fetchone(query, parameters)
-            if row is None:
+            record = _load(writes, approval_id, tenant_id=tenant_id, run_id=run_id)
+            if record is None:
                 return None
-            record = self._expire_if_due(writes, _record(row))
-            return record
+            return self._expire_if_due(writes, record)
 
     # -- decide -----------------------------------------------------------
 
@@ -311,13 +304,9 @@ class ApprovalStore:
         decided_at = isoformat_z(self._now())
 
         with self._store.write() as writes:
-            row = writes.fetchone(
-                "SELECT " + _COLUMNS + " FROM approval WHERE approval_id = ? AND tenant_id = ? AND run_id = ?",
-                (approval_id, tenant_id, run_id),
-            )
-            if row is None:
+            current = _load(writes, approval_id, tenant_id=tenant_id, run_id=run_id)
+            if current is None:
                 raise _not_found(approval_id)
-            current = _record(row)
             if current.due_at(self._now()):
                 current = self._expire_if_due(writes, current)
             if current.terminal or current.status != "pending":
@@ -353,13 +342,9 @@ class ApprovalStore:
             raise _not_approved(record)
 
         with self._store.write() as writes:
-            row = writes.fetchone(
-                "SELECT " + _COLUMNS + " FROM approval WHERE approval_id = ? AND tenant_id = ? AND run_id = ?",
-                (approval_id, tenant_id, run_id),
-            )
-            if row is None:
+            current = _load(writes, approval_id, tenant_id=tenant_id, run_id=run_id)
+            if current is None:
                 raise _not_found(approval_id)
-            current = _record(row)
             if current.status == "consumed":
                 return current
             if current.status != "approved":
@@ -390,6 +375,34 @@ class ApprovalStore:
         now = self._now()
         return tuple(self._expire_if_due(writes, record) for record in records if record.due_at(now))
 
+    def _expire_if_due(self, writes: AuditTransaction, record: ApprovalRecord) -> ApprovalRecord:
+        """Turn a pending approval past its deadline into `expired`, inside this transaction.
+
+        The transition is the state, not a separate timer: whichever caller looks
+        first — a decide, a consume, a list page or the sweeper — applies the same
+        expiry, and the `WHERE status = 'pending'` guard makes a second look a no-op.
+        """
+        if not record.due_at(self._now()):
+            return record
+        document = entered_decision(
+            record,
+            status="expired",
+            actor=SYSTEM_ACTOR,
+            rationale=f"the approval expired at {record.expires_at} before anyone decided.",
+            trace_id=expiry_trace(record.approval_id),
+            timestamp=record.expires_at,
+        )
+        appended = writes.append(document)
+        expired = replace(
+            record,
+            status="expired",
+            decided_at=record.expires_at,
+            decided_decision_id=str(document["decision_id"]),
+            decided_provenance_id=appended.entry.provenance_id,
+        )
+        _update(writes, expired, expected=record.status)
+        return expired
+
     # -- list -------------------------------------------------------------
 
     def approvals(
@@ -399,7 +412,7 @@ class ApprovalStore:
         status: str | None = None,
         run_id: str | None = None,
         capability_id: str | None = None,
-        limit: int = 50,
+        limit: int,
         cursor: str | None = None,
     ) -> ApprovalPage:
         """One page of the tenant's approval queue, newest first.
@@ -435,37 +448,6 @@ class ApprovalStore:
             records = tuple(_record(row) for row in rows[:limit])
             next_cursor = records[-1].approval_id if len(rows) > limit else None
             return ApprovalPage(items=records, next_cursor=next_cursor)
-
-    # -- expiry -----------------------------------------------------------
-
-    def _expire_if_due(self, writes: AuditTransaction, record: ApprovalRecord) -> ApprovalRecord:
-        """Turn a pending approval past its deadline into `expired`, inside this transaction.
-
-        The transition is the state, not a separate timer: whichever caller looks
-        first — a decide, a consume, a list page or the sweeper — applies the same
-        expiry, and the `WHERE status = 'pending'` guard makes a second look a no-op.
-        """
-        if not record.due_at(self._now()):
-            return record
-        document = entered_decision(
-            record,
-            status="expired",
-            actor=SYSTEM_ACTOR,
-            rationale=f"the approval expired at {record.expires_at} before anyone decided.",
-            trace_id=expiry_trace(record.approval_id),
-            timestamp=record.expires_at,
-        )
-        appended = writes.append(document)
-        expired = replace(
-            record,
-            status="expired",
-            decided_at=record.expires_at,
-            decided_decision_id=str(document["decision_id"]),
-            decided_provenance_id=appended.entry.provenance_id,
-        )
-        _update(writes, expired, expected=record.status)
-        return expired
-
 
 def _settle(
     writes: AuditTransaction,
@@ -652,6 +634,23 @@ def _require_contract(document: Mapping[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _load(
+    writes: AuditTransaction,
+    approval_id: str,
+    *,
+    tenant_id: str,
+    run_id: str | None = None,
+) -> ApprovalRecord | None:
+    """The row this tenant (and Run) may see, as the record the state machine reads."""
+    query = "SELECT " + _COLUMNS + " FROM approval WHERE approval_id = ? AND tenant_id = ?"
+    parameters: list[Any] = [approval_id, tenant_id]
+    if run_id is not None:
+        query += " AND run_id = ?"
+        parameters.append(run_id)
+    row = writes.fetchone(query, parameters)
+    return None if row is None else _record(row)
+
+
 def _insert(writes: AuditTransaction, record: ApprovalRecord) -> None:
     writes.execute(
         "INSERT INTO approval (" + _COLUMNS + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -750,15 +749,11 @@ class ApprovalSweeper:
         self.interval_seconds = interval_seconds
         self._stopped = asyncio.Event()
 
-    def sweep(self) -> tuple[ApprovalRecord, ...]:
-        """One pass: every pending approval past its deadline becomes `expired`."""
-        return self.store.expire_due()
-
     async def run(self) -> None:
-        """Sweep now, then every `interval_seconds` until `stop()`."""
+        """Expire now, then every `interval_seconds` until `stop()`."""
         while not self._stopped.is_set():
             try:
-                await asyncio.to_thread(self.sweep)
+                await asyncio.to_thread(self.store.expire_due)
             except Exception:  # noqa: BLE001 - a transient pass failure is not a state change
                 logger.exception("approval expiry sweep failed; the next pass will try again")
             try:

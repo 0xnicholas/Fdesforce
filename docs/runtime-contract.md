@@ -253,6 +253,7 @@ Connector-backed Tool 只通过这个端点访问客户数据源（D6）：Tool 
 - key 作用域：`tenant_id + endpoint + key`；保留至少 24 小时。
 - 同 key + 同 payload：返回原结果（`200`），`idempotent_replay=true`，ID 不变。
   - 例外：`POST /v1/runs` 的重放返回该操作声明的 `201` 与原始 body。`RunCreateResponse` 是封闭对象（`additionalProperties: false`），不能携带 `idempotent_replay`；客户端以「同一 `run_id`」判断重放，不以状态码判断。
+  - 例外：审批资源的三个写操作（`POST /v1/approvals`、`…/decisions`、`…/consume`）的响应同样是封闭对象且没有该字段，重放返回原 body（`Approval`/`ApprovalDecisionResponse`），客户端以「同一 `approval_id`/`decision_id`」判断重放。
 - 同 key + 不同 payload：`409 idempotency_conflict`。
 - `decision_id` 由调用方生成；`approval_id` 由 context-service 生成；二者都是 stable ID，重复请求不能产生第二条审计记录。
 
@@ -610,7 +611,7 @@ stateDiagram-v2
 
 ### 8.4 审批 Decision 与 v0 实现口径
 
-审批资源的每次状态迁移都写一条 `decision_type=approval`、`phase=approval` 的 Decision，并与状态行在同一事务提交；`Approval.decision_id` 指向当前状态所依据的那条：
+审批资源的每次**决定**——创建、批准、拒绝、到期——都写一条 `decision_type=approval`、`phase=approval` 的 Decision，并与状态行在同一事务提交；`consume` 不是决定，只改状态，不追加 Decision。`Approval.decision_id` 指向当前状态所依据的那条：
 
 | 资源状态 | Decision `status` | `actor` | 说明 |
 |---|---|---|---|
@@ -628,6 +629,7 @@ v0 的实现边界：
 - **审批按 Run 隔离。** `decide`/`consume` 与资源一样是 Run 作用域：token 的 `run_id` 必须等于审批的 `run_id`；跨 Run 或跨 tenant 的审批按不存在处理（`404`）。
 - **到期是状态，不是定时器竞态。** `expires_at` 一过，`decide`/`consume`/`list` 都会先把它标为 `expired`；后台清理任务只负责无人读取的队列。
 - **重复请求不产生第二条证据。** `create` 的幂等键 `(tenant_id, Idempotency-Key)` 持久化在审计卷上；`decide` 记住作出决定的 key，同 key 同 payload 重放原结果，不同 key 返回 `409 approval_already_decided`；`consume` 按状态幂等。
+- **`expires_at` 由调用方给，且必须在未来。** 契约把 `expires_at` 列为必填，所以「默认 24h」是生成出来的 approval step（`expiresAfter`）的责任，不是 context-service 补的默认值；一个创建时就已经过期的请求返回 `422 validation_failed`（`expires_at_not_future`），因为它永远不可能被决定。
 - **审批不绕过 record-before-act。** 本片只实现最小 gate：intent Decision 写失败即不执行副作用（C7）；完整 intent/outcome/evidence/outbox 机制归 Slice 2（C26–C32）。
 
 ## 9. Bundle 拓扑与生命周期

@@ -475,3 +475,13 @@ def test_an_overdue_approval_reads_expired_and_cannot_be_decided(
         headers=service.authorized(run_id=None),
     )
     assert approval["approval_id"] in [item["approval_id"] for item in expired.json()["items"]]
+
+
+def test_an_approval_that_expires_before_it_is_requested_is_a_422(service: ServiceProcess) -> None:
+    """A request that could never be decided is a caller bug, not a born-expired approval."""
+    response = create(service, create_body(expires_at=expires_in_seconds(-60)))
+
+    assert response.status_code == 422, response.text
+    error = error_of(response)
+    assert error["code"] == "validation_failed"
+    assert error["details"]["reason"] == "expires_at_not_future"

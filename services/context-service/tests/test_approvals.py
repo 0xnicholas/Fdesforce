@@ -514,6 +514,12 @@ def test_the_sweeper_can_be_scoped_to_one_tenant(
 # ---------------------------------------------------------------------------
 
 
+def queue(approvals: ApprovalStore, *, tenant_id: str = TENANT, limit: int = 50, **filters: Any) -> Any:
+    """One page of the store's queue. The page size is the caller's; the route takes
+    the contract's declared default (`approval.schema.json#/$defs/ApprovalListLimit`)."""
+    return approvals.approvals(tenant_id=tenant_id, limit=limit, **filters)
+
+
 def test_the_list_is_newest_first_and_filtered(approvals: ApprovalStore) -> None:
     first = approvals.create(create_request(), tenant_id=TENANT, key=KEY, trace_id=TRACE)
     second = approvals.create(
@@ -524,17 +530,17 @@ def test_the_list_is_newest_first_and_filtered(approvals: ApprovalStore) -> None
     )
     approve(approvals, first.record.approval_id)
 
-    page = approvals.approvals(tenant_id=TENANT)
+    page = queue(approvals)
 
     assert [item.approval_id for item in page.items] == [second.record.approval_id, first.record.approval_id]
     assert page.next_cursor is None
-    assert [item.approval_id for item in approvals.approvals(tenant_id=TENANT, status="approved").items] == [
+    assert [item.approval_id for item in queue(approvals, status="approved").items] == [
         first.record.approval_id
     ]
-    assert [item.approval_id for item in approvals.approvals(tenant_id=TENANT, run_id=OTHER_RUN).items] == [
+    assert [item.approval_id for item in queue(approvals, run_id=OTHER_RUN).items] == [
         second.record.approval_id
     ]
-    assert approvals.approvals(tenant_id=OTHER_TENANT).items == ()
+    assert queue(approvals, tenant_id=OTHER_TENANT).items == ()
 
 
 def test_the_cursor_paginates_without_repeating_an_approval(approvals: ApprovalStore) -> None:
@@ -545,7 +551,7 @@ def test_the_cursor_paginates_without_repeating_an_approval(approvals: ApprovalS
     seen: list[str] = []
     cursor: str | None = None
     while True:
-        page = approvals.approvals(tenant_id=TENANT, limit=2, cursor=cursor)
+        page = queue(approvals, limit=2, cursor=cursor)
         seen.extend(item.approval_id for item in page.items)
         cursor = page.next_cursor
         if cursor is None:
@@ -557,7 +563,7 @@ def test_the_cursor_paginates_without_repeating_an_approval(approvals: ApprovalS
 
 def test_an_unknown_cursor_is_a_validation_failure(approvals: ApprovalStore) -> None:
     with pytest.raises(FdeError) as refused:
-        approvals.approvals(tenant_id=TENANT, cursor="appr_01ARZ3NDEKTSV4RRFFQ69G5FAV")
+        queue(approvals, cursor="appr_01ARZ3NDEKTSV4RRFFQ69G5FAV")
 
     assert refused.value.code == "validation_failed"
     assert refused.value.details["reason"] == "invalid_cursor"
@@ -567,10 +573,10 @@ def test_a_list_expires_overdue_approvals_before_it_answers(approvals: ApprovalS
     created = approvals.create(create_request(), tenant_id=TENANT, key=KEY, trace_id=TRACE)
     clock.moment += timedelta(days=2)
 
-    page = approvals.approvals(tenant_id=TENANT, status="pending")
+    page = queue(approvals, status="pending")
 
     assert page.items == ()
-    expired = approvals.approvals(tenant_id=TENANT, status="expired")
+    expired = queue(approvals, status="expired")
     assert [item.approval_id for item in expired.items] == [created.record.approval_id]
 
 

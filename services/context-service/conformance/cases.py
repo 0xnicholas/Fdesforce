@@ -36,6 +36,7 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 from referencing.exceptions import Unresolvable
 
+from app.clock import isoformat_z, utc_now
 from conformance.documents import ContractDocuments
 from conformance.embedded_examples import embedded_example_failures
 from conformance.examples import Example, parse_examples
@@ -1327,9 +1328,9 @@ def _approval_decision_body(*, actor: Mapping[str, str], approved: bool = True) 
     }
 
 
-def _future(seconds: int) -> str:
-    moment = datetime.now(UTC) + timedelta(seconds=seconds)
-    return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+def _timestamp_in(seconds: int) -> str:
+    """An RFC 3339 timestamp `seconds` from now (negative for the past)."""
+    return isoformat_z(utc_now() + timedelta(seconds=seconds))
 
 
 def run_c8(context: CaseContext) -> tuple[str, ...]:
@@ -1346,7 +1347,7 @@ def run_c8(context: CaseContext) -> tuple[str, ...]:
 
     def create_approval(*, expires_in_seconds: int = 3600) -> dict[str, Any] | None:
         run_id = RUN_ID
-        body = _approval_body(run_id=run_id, expires_at=_future(expires_in_seconds))
+        body = _approval_body(run_id=run_id, expires_at=_timestamp_in(expires_in_seconds))
         claims = decode_claims(service.authorized(run_id=run_id)["authorization"])
         body["requested_by"] = claims["actor"]
         response = service.post(
